@@ -584,6 +584,11 @@ export class VisitorModule {
       dismissedVoluntarily: false,
     };
 
+    // Tag root and every descendant so Live Mode canvas raycasting cleanly identifies this visitor
+    runtime.mesh.root.traverse((obj) => {
+      obj.userData.visitorInstanceId = runtime.instanceId;
+    });
+
     // Plan the interior route from lotEdgeTile cleanly through the front door!
     this.planDoorEntryPath(runtime, route.lotEdgeTile);
 
@@ -703,6 +708,21 @@ export class VisitorModule {
 
   getActiveVisitors(): readonly ActiveVisitorSnapshot[] {
     return this.active.map((v) => this.toSnapshot(v));
+  }
+
+  getActiveVisitorById(instanceId: string): ActiveVisitorSnapshot | null {
+    const v = this.active.find((entry) => entry.instanceId === instanceId);
+    return v ? this.toSnapshot(v) : null;
+  }
+
+  getVisitorWorldPosition(instanceId: string): { x: number; y: number; z: number } | null {
+    const v = this.active.find((entry) => entry.instanceId === instanceId);
+    if (!v) return null;
+    return {
+      x: v.worldX,
+      y: v.worldY,
+      z: v.worldZ,
+    };
   }
 
   private toSnapshot(v: ActiveVisitorRuntime): ActiveVisitorSnapshot {

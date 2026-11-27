@@ -19,6 +19,7 @@ export type InteractionMode = 'select' | 'place' | 'move' | 'bulk-select' | 'era
 export type EraseFilter = 'all' | 'floor' | 'wall' | 'furniture';
 export type ExpandSide = 'north' | 'south' | 'east' | 'west';
 export type WallViewMode = 'auto' | 'translucent' | 'solid';
+export type SimSpeed = 0 | 1 | 2 | 5;
 
 const MUSIC_PARTY_HUBS = new Set(['dj_booth', 'record_player', 'diner_jukebox', 'karaoke_mic']);
 const MUSIC_PARTY_LINKED = new Set([
@@ -55,6 +56,7 @@ export interface StoreEventMap {
   wallViewChanged: { mode: WallViewMode; showCeiling: boolean };
   houseOpenChanged: { open: boolean };
   timeCycleChanged: { running: boolean };
+  simSpeedChanged: { speed: SimSpeed };
   itemInteracted: { item: PlacedItem };
   toast: { message: string; tone?: 'info' | 'success' | 'error' };
 }
@@ -103,6 +105,7 @@ export class HouseStore {
   private showCeiling = true;
   private houseOpen = true;
   private timeCycleRunning = false;
+  private simSpeed: SimSpeed = 1;
   private selectedUids: string[] = [];
   private mode: InteractionMode = 'select';
   private placementItemId: string | null = null;
@@ -123,6 +126,7 @@ export class HouseStore {
     wallViewChanged: new Set(),
     houseOpenChanged: new Set(),
     timeCycleChanged: new Set(),
+    simSpeedChanged: new Set(),
     itemInteracted: new Set(),
     toast: new Set(),
   };
@@ -256,6 +260,28 @@ export class HouseStore {
     if (this.timeCycleRunning === next) return;
     this.timeCycleRunning = next;
     this.emit('timeCycleChanged', { running: this.timeCycleRunning });
+  }
+
+  getSimSpeed(): SimSpeed {
+    return this.simSpeed;
+  }
+
+  setSimSpeed(speed: SimSpeed): void {
+    const valid: SimSpeed =
+      speed === 0 || speed === 1 || speed === 2 || speed === 5
+        ? speed
+        : !Number.isFinite(speed)
+          ? 1
+          : speed <= 0.5
+            ? 0
+            : speed < 1.5
+              ? 1
+              : speed < 3.5
+                ? 2
+                : 5;
+    if (this.simSpeed === valid) return;
+    this.simSpeed = valid;
+    this.emit('simSpeedChanged', { speed: this.simSpeed });
   }
 
   private isStructuralDoorDef(def: FurnitureItemDef | undefined): boolean {

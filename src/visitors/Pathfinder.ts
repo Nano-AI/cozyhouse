@@ -213,6 +213,11 @@ export function buildNavGrid(state: HouseState, data: GameDataBundle): NavGrid {
   return { width, depth, walkable, hasFloorTile, blockedEdges, doors };
 }
 
+export function hasWallEdgeBetween(nav: NavGrid, a: GridCoord, b: GridCoord): boolean {
+  const key = edgeKeyBetween(a.x, a.z, b.x, b.z);
+  return Boolean(key && nav.blockedEdges.has(key));
+}
+
 export function canStepBetween(
   nav: NavGrid,
   ax: number,
@@ -739,7 +744,7 @@ export function resolveItemApproach(
     }
   }
 
-  // Wall items (windows, wall-mounted art/neon/shelves)
+  // Wall items (wall-mounted decor/art/neon/vinyls and structural windows)
   if (def.layer === 'wall') {
     const mountOffset = def.wallKind === 'mounted' ? 0.08 : 0;
     const wt = wallEdgeToWorldTransform(
@@ -751,33 +756,93 @@ export function resolveItemApproach(
       mountOffset,
     );
 
-    const candidates: GridCoord[] = [{ x: item.x, z: item.z }];
-    let opposite: GridCoord;
+    // Front (+Z facing) tile of wall edge (x,z,rotation) is (item.x, item.z); inward step moves deeper into the room
+    const frontTile: GridCoord = { x: item.x, z: item.z };
+    let inwardDir: GridCoord;
+    let backTile: GridCoord;
     switch (item.rotation) {
-      case 0:
-        opposite = { x: item.x, z: item.z - 1 };
+      case 0: // North edge facing +Z (South)
+        inwardDir = { x: 0, z: 1 };
+        backTile = { x: item.x, z: item.z - 1 };
         break;
-      case 1:
-        opposite = { x: item.x + 1, z: item.z };
+      case 1: // East edge facing -X (West)
+        inwardDir = { x: -1, z: 0 };
+        backTile = { x: item.x + 1, z: item.z };
         break;
-      case 2:
-        opposite = { x: item.x, z: item.z + 1 };
+      case 2: // South edge facing -Z (North)
+        inwardDir = { x: 0, z: -1 };
+        backTile = { x: item.x, z: item.z + 1 };
         break;
-      case 3:
-        opposite = { x: item.x - 1, z: item.z };
+      case 3: // West edge facing +X (East)
+        inwardDir = { x: 1, z: 0 };
+        backTile = { x: item.x - 1, z: item.z };
         break;
     }
-    if (inGridBounds(opposite.x, opposite.z, nav.width, nav.depth)) {
-      candidates.push(opposite);
+
+    // Helper: try standing on `sideTile`, or 1 tile deeper / laterally on the SAME room side if furniture sits flush against the wall
+    const collectSideCandidates = (sideTile: GridCoord, stepDir: GridCoord): GridCoord[] => {
+      const out: GridCoord[] = [];
+      if (!inGridBounds(sideTile.x, sideTile.z, nav.width, nav.depth)) return out;
+      if (nav.walkable[sideTile.x][sideTile.z] && isAvailable(sideTile.x, sideTile.z)) {
+        out.push(sideTile);
+        return out;
+      }
+
+      const perpA: GridCoord = { x: -stepDir.z, z: stepDir.x };
+      const perpB: GridCoord = { x: stepDir.z, z: -stepDir.x };
+      const oneIn: GridCoord = { x: sideTile.x + stepDir.x, z: sideTile.z + stepDir.z };
+
+      const tryAdd = (from: GridCoord, target: GridCoord) => {
+        if (
+          inGridBounds(target.x, target.z, nav.width, nav.depth) &&
+          !hasWallEdgeBetween(nav, from, target) &&
+          nav.walkable[target.x][target.z] &&
+          isAvailable(target.x, target.z)
+        ) {
+          out.push(target);
+        }
+      };
+
+      // 1. Directly in front of furniture sitting against the wall (1 tile inward into room)
+      tryAdd(sideTile, oneIn);
+      // 2. Immediately beside the wall item on the same interior side
+      tryAdd(sideTile, { x: sideTile.x + perpA.x, z: sideTile.z + perpA.z });
+      tryAdd(sideTile, { x: sideTile.x + perpB.x, z: sideTile.z + perpB.z });
+      // 3. Diagonal-inward fallback if both immediate front and sides are occupied
+      if (out.length === 0 && inGridBounds(oneIn.x, oneIn.z, nav.width, nav.depth) && !hasWallEdgeBetween(nav, sideTile, oneIn)) {
+        tryAdd(oneIn, { x: oneIn.x + perpA.x, z: oneIn.z + perpA.z });
+        tryAdd(oneIn, { x: oneIn.x + perpB.x, z: oneIn.z + perpB.z });
+      }
+      return out;
+    };
+
+    const frontInBounds = inGridBounds(frontTile.x, frontTile.z, nav.width, nav.depth);
+    const backInBounds = inGridBounds(backTile.x, backTile.z, nav.width, nav.depth);
+    const frontHasFloor = frontInBounds && nav.hasFloorTile[frontTile.x][frontTile.z];
+    const backHasFloor = backInBounds && nav.hasFloorTile[backTile.x][backTile.z];
+
+    let candidates: GridCoord[];
+    if (def.wallKind === 'mounted') {
+      // Wall-mounted decor hangs strictly on the front (+Z) face: NEVER admire it from behind the wall!
+      candidates = collectSideCandidates(frontTile, inwardDir);
+    } else if (frontHasFloor && !backHasFloor) {
+      // Exterior window/wall: strictly approach from the interior room side, never from the yard grass!
+      candidates = collectSideCandidates(frontTile, inwardDir);
+    } else if (backHasFloor && !frontHasFloor) {
+      candidates = collectSideCandidates(backTile, { x: -inwardDir.x, z: -inwardDir.z });
+    } else {
+      // Interior partition window between two rooms (or unfloored lot): prefer front side, allow back side
+      candidates = [
+        ...collectSideCandidates(frontTile, inwardDir),
+        ...collectSideCandidates(backTile, { x: -inwardDir.x, z: -inwardDir.z }),
+      ];
     }
 
     let bestTile: GridCoord | null = null;
     let bestScore = Infinity;
     for (const c of candidates) {
-      if (!inGridBounds(c.x, c.z, nav.width, nav.depth) || !nav.walkable[c.x][c.z]) continue;
-      if (!isAvailable(c.x, c.z)) continue;
       const d = reachableDistances.get(tileIndex(c.x, c.z, nav.depth)) ?? 999;
-      const floorBonus = nav.hasFloorTile[c.x][c.z] ? -5 : 0;
+      const floorBonus = nav.hasFloorTile[c.x][c.z] ? -20 : 0;
       if (d + floorBonus < bestScore) {
         bestScore = d + floorBonus;
         bestTile = c;
@@ -789,6 +854,18 @@ export function resolveItemApproach(
 
   const eff = getEffectiveFootprint(def, item.rotation);
   const faceWorld = tileToWorldCenter(item.x, item.z, eff.w, eff.d, nav.width, nav.depth);
+
+  // Determine whether this floor/ceiling/surface item sits inside a floored room
+  let itemIsIndoors = false;
+  for (let dx = 0; dx < eff.w && !itemIsIndoors; dx++) {
+    for (let dz = 0; dz < eff.d && !itemIsIndoors; dz++) {
+      const tx = item.x + dx;
+      const tz = item.z + dz;
+      if (inGridBounds(tx, tz, nav.width, nav.depth) && nav.hasFloorTile[tx][tz]) {
+        itemIsIndoors = true;
+      }
+    }
+  }
 
   // Non-blocking floor items (rugs, tiles) or ceiling items can be stood on directly
   if (def.layer === 'ceiling' || (def.layer === 'floor' && def.subLayer !== 'object')) {
@@ -813,7 +890,9 @@ export function resolveItemApproach(
     }
   }
 
-  // Floor objects: prefer front-facing adjacent tile, then any unblocked cardinal neighbor
+  // Floor objects (and occupied ceiling/surface fallbacks):
+  // strictly reject any neighbor separated by a solid wall edge (`hasWallEdgeBetween`),
+  // and strongly prefer interior room tiles for indoor furniture!
   const frontDir = itemFrontOffset(item.rotation);
   const frontCandidates: GridCoord[] = [];
   const otherCandidates: GridCoord[] = [];
@@ -831,8 +910,8 @@ export function resolveItemApproach(
           continue;
         }
         if (!nav.walkable[nx][nz]) continue;
-        const ek = edgeKeyBetween(ox, oz, nx, nz);
-        if (ek && nav.blockedEdges.has(ek)) continue;
+        // Strictly reject any candidate separated from the item by a solid wall edge!
+        if (hasWallEdgeBetween(nav, { x: ox, z: oz }, { x: nx, z: nz })) continue;
 
         const idx = tileIndex(nx, nz, nav.depth);
         if (seen.has(idx) || !isAvailable(nx, nz)) continue;
@@ -849,13 +928,28 @@ export function resolveItemApproach(
 
   const pickBest = (list: GridCoord[]): GridCoord | null => {
     if (list.length === 0) return null;
-    list.sort(
-      (a, b) =>
-        (reachableDistances.get(tileIndex(a.x, a.z, nav.depth)) ?? 999) -
-        (reachableDistances.get(tileIndex(b.x, b.z, nav.depth)) ?? 999),
-    );
-    return list[0];
+    // For indoor furniture, strictly filter to interior floored tiles whenever any exist
+    const indoorOnly = itemIsIndoors ? list.filter((c) => nav.hasFloorTile[c.x][c.z]) : list;
+    const pool = indoorOnly.length > 0 ? indoorOnly : list;
+    pool.sort((a, b) => {
+      const floorA = nav.hasFloorTile[a.x][a.z] ? -20 : 0;
+      const floorB = nav.hasFloorTile[b.x][b.z] ? -20 : 0;
+      const dA = (reachableDistances.get(tileIndex(a.x, a.z, nav.depth)) ?? 999) + floorA;
+      const dB = (reachableDistances.get(tileIndex(b.x, b.z, nav.depth)) ?? 999) + floorB;
+      return dA - dB;
+    });
+    return pool[0];
   };
+
+  // Prefer an indoor front tile first, then indoor side tile, before ever considering outdoor grass
+  if (itemIsIndoors) {
+    const indoorFront = frontCandidates.filter((c) => nav.hasFloorTile[c.x][c.z]);
+    const indoorOther = otherCandidates.filter((c) => nav.hasFloorTile[c.x][c.z]);
+    const indoorChosen = pickBest(indoorFront) ?? pickBest(indoorOther);
+    if (indoorChosen) {
+      return { tile: indoorChosen, faceWorld };
+    }
+  }
 
   const chosen = pickBest(frontCandidates) ?? pickBest(otherCandidates);
   return chosen ? { tile: chosen, faceWorld } : null;

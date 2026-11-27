@@ -161,6 +161,18 @@ const CLOUD_TRANSITION_IN_DURATION = 0.52;
 const CLOUD_TRANSITION_HOLD_DURATION = 0.16;
 const CLOUD_TRANSITION_OUT_DURATION = 0.62;
 const CLOUD_TRANSITION_ZOOM_MIN = 0.56;
+const STUDIO_PHOTO_BG = new THREE.Color('#F5EDE0');
+const BACKDROP_PHOTO_ROOT_NAMES = [
+  'SceneryBackdropRoot',
+  'ScenerySkyRoot',
+  'LinearCloudField',
+  'YardLifeRoot',
+  'WeatherEffectsRoot',
+  'ArrivalTransportRoot',
+  'CloudTransitionGroup',
+] as const;
+
+export type TickHook = (simDt: number, realDt: number) => void;
 
 const MERGEABLE_BED_IDS = new Set(['bed_cozy', 'bed_daybed', 'bed_canopy']);
 
@@ -417,8 +429,6 @@ export class SceneManager {
 
   // Enclosed-room & cutaway cache + reusable scratch objects
   private enclosedCells: boolean[][] = [];
-  private floorTileCells: boolean[][] = [];
-  private occupiedCells: boolean[][] = [];
   private enclosedCellCount = 0;
   private readonly camForwardScratch = new THREE.Vector3();
   private readonly wallTargetsMap = new Map<string, number>();
@@ -473,7 +483,8 @@ export class SceneManager {
   private rafId = 0;
   private lastTime = performance.now();
   private elapsedTime = 0;
-  private tickHooks = new Set<(dt: number) => void>();
+  private simElapsedTime = 0;
+  private tickHooks = new Set<TickHook>();
   private resizeObserver: ResizeObserver;
 
   // Modular post-processing shader pipeline + cinematic 3D cloud transition state
@@ -482,6 +493,14 @@ export class SceneManager {
   private shaderListeners = new Set<(id: VisualShaderId) => void>();
   private cloudTransitionHook: ((phase: CloudTransitionPhase, t: number) => void) | null = null;
   private cloudTransition: ActiveCloudTransition | null = null;
+
+  // Visitor camera focus/follow & 3D canvas visitor picking
+  private cameraFollowProvider: (() => { x: number; z: number } | null) | null = null;
+  private cameraFollowCancelCb: (() => void) | null = null;
+  private cameraFollowClearedListeners = new Set<() => void>();
+  private unsubManualPan: (() => void) | null = null;
+  private readonly visitorRaycaster = new THREE.Raycaster();
+  private readonly visitorPointerNdc = new THREE.Vector2();
 
   get gridVisual(): GridVisual {
     return this._gridVisual;
@@ -545,6 +564,16 @@ export class SceneManager {
     this.shaderPipeline.resize(width, height, pr);
 
     this.isoCamera = new IsometricCamera(width, height, onCameraQuarterChange);
+    this.unsubManualPan = this.isoCamera.onManualPan(() => {
+      if (!this.cameraFollowProvider) return;
+      const cancelCb = this.cameraFollowCancelCb;
+      this.cameraFollowProvider = null;
+      this.cameraFollowCancelCb = null;
+      cancelCb?.();
+      for (const listener of this.cameraFollowClearedListeners) {
+        listener();
+      }
+    });
     const initialState = store.getState();
     this.currentTimeOfDay = initialState.timeOfDay ?? 'day';
     this.currentTimeHour = normalizeHour(
@@ -988,9 +1017,167 @@ export class SceneManager {
     return tex;
   }
 
-  addTickHook(fn: (dt: number) => void): () => void {
+  addTickHook(fn: TickHook): () => void {
     this.tickHooks.add(fn);
     return () => this.tickHooks.delete(fn);
+  }
+
+  /**
+   * Smoothly pans the camera to focus on a world XZ coordinate and optionally raises zoom
+   * to at least `minZoom` (without zooming out if the user is already closer).
+   */
+  focusOnWorldPoint(x: number, z: number, minZoom?: number): void {
+    this.isoCamera.focusOnWorldPoint(x, z, minZoom);
+  }
+
+  /**
+   * Registers a live camera-follow provider (e.g. tracking a selected visitor).
+   * Automatically clears itself (and invokes `onCleared` + `onCameraFollowCleared` listeners)
+   * whenever the user manually pans or resets the camera view.
+   */
+  setCameraFollowProvider(
+    provider: (() => { x: number; z: number } | null) | null,
+    onCleared?: () => void,
+  ): void {
+    this.cameraFollowProvider = provider;
+    this.cameraFollowCancelCb = provider ? (onCleared ?? null) : null;
+  }
+
+  onCameraFollowCleared(listener: () => void): () => void {
+    this.cameraFollowClearedListeners.add(listener);
+    return () => this.cameraFollowClearedListeners.delete(listener);
+  }
+
+  isCameraFollowing(): boolean {
+    return this.cameraFollowProvider !== null;
+  }
+
+  /**
+   * Raycasts the `VisitorsRoot` group at screen coordinates `(clientX, clientY)` and walks up
+   * visible ancestors to read `userData.visitorInstanceId`, returning the matched visitor ID or `null`.
+   */
+  pickVisitorAtClientPos(clientX: number, clientY: number): string | null {
+    if (!this.visitorsRootRef || !this.visitorsRootRef.parent) {
+      this.visitorsRootRef = this.scene.getObjectByName('VisitorsRoot') ?? null;
+    }
+    const root = this.visitorsRootRef;
+    if (!root || !root.visible || root.children.length === 0) {
+      return null;
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    this.visitorPointerNdc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+
+    this.isoCamera.camera.updateMatrixWorld();
+    root.updateMatrixWorld(true);
+
+    this.visitorRaycaster.setFromCamera(this.visitorPointerNdc, this.isoCamera.camera);
+    const hits = this.visitorRaycaster.intersectObjects(root.children, true);
+
+    for (let i = 0; i < hits.length; i++) {
+      const hitObj = hits[i].object;
+      if (hitObj instanceof THREE.Sprite) continue;
+
+      let visible = true;
+      let foundId: string | null = null;
+      let cur: THREE.Object3D | null = hitObj;
+      while (cur && cur !== root) {
+        if (!cur.visible) {
+          visible = false;
+          break;
+        }
+        if (!foundId) {
+          const rawId = cur.userData?.visitorInstanceId;
+          if (typeof rawId === 'string' && rawId.length > 0) {
+            foundId = rawId;
+          }
+        }
+        cur = cur.parent;
+      }
+      if (visible && foundId) {
+        return foundId;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Captures a crisp synchronous PNG snapshot of the current house view for the Polaroid Share Studio.
+   * Always hides editor overlays, placement ghosts, outlines, and grid lines; optionally strips
+   * world scenery (`includeBackdrop: false`, substituting a clean `#F5EDE0` studio cream canvas)
+   * and/or visitors (`includeVisitors: false`), then restores live visibility immediately.
+   */
+  captureHousePhoto(opts?: {
+    includeBackdrop?: boolean;
+    includeVisitors?: boolean;
+  }): string {
+    const includeBackdrop = opts?.includeBackdrop !== false;
+    const includeVisitors = opts?.includeVisitors !== false;
+
+    const savedVis: Array<{ obj: THREE.Object3D; visible: boolean }> = [];
+    const hideTemp = (obj: THREE.Object3D | null | undefined): void => {
+      if (!obj) return;
+      savedVis.push({ obj, visible: obj.visible });
+      obj.visible = false;
+    };
+
+    // Always hide editor overlays, placement ghosts, hover/selection outlines, and grid overlay
+    hideTemp(this.overlayRoot);
+    hideTemp(this._gridVisual.group.getObjectByName('BuildableGridOverlay'));
+    hideTemp(this.scene.getObjectByName('GhostRoot'));
+
+    let prevFog: THREE.Fog | THREE.FogExp2 | null = null;
+    let prevBg: THREE.Color | THREE.Texture | THREE.CubeTexture | null = null;
+    if (!includeBackdrop) {
+      for (let i = 0; i < BACKDROP_PHOTO_ROOT_NAMES.length; i++) {
+        hideTemp(this.scene.getObjectByName(BACKDROP_PHOTO_ROOT_NAMES[i]));
+      }
+      prevFog = this.scene.fog;
+      prevBg = this.scene.background;
+      this.scene.fog = null;
+      this.scene.background = STUDIO_PHOTO_BG;
+    }
+
+    if (!includeVisitors) {
+      hideTemp(this.scene.getObjectByName('VisitorsRoot'));
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+
+    try {
+      this.shaderPipeline.render(
+        this.renderer,
+        this.scene,
+        this.isoCamera.camera,
+        this.elapsedTime,
+      );
+      return this.renderer.domElement.toDataURL('image/png');
+    } finally {
+      for (let i = savedVis.length - 1; i >= 0; i--) {
+        savedVis[i].obj.visible = savedVis[i].visible;
+      }
+      if (!includeBackdrop) {
+        this.scene.fog = prevFog;
+        this.scene.background = prevBg;
+      }
+      if (!includeVisitors) {
+        this.renderer.shadowMap.needsUpdate = true;
+      }
+      // Restore live viewport immediately so the screen never flashes
+      this.shaderPipeline.render(
+        this.renderer,
+        this.scene,
+        this.isoCamera.camera,
+        this.elapsedTime,
+      );
+    }
   }
 
   getPreviewRenderer(): ModelPreviewRenderer {
@@ -2181,27 +2368,12 @@ export class SceneManager {
     const D = state.gridDepth;
 
     const wallEdges = new Set<string>();
-    const floorTiles: boolean[][] = Array.from({ length: W }, () => Array<boolean>(D).fill(false));
-    const occupied: boolean[][] = Array.from({ length: W }, () => Array<boolean>(D).fill(false));
 
     for (const item of state.items) {
       const def = this.data.itemsById.get(item.itemId);
       if (!def) continue;
       if (def.layer === 'wall' && def.wallKind === 'structure') {
         wallEdges.add(canonicalWallEdgeKey(item.x, item.z, item.rotation));
-      } else if (def.layer === 'floor') {
-        const eff = getEffectiveFootprint(def, item.rotation);
-        const isTile = def.subLayer === 'tile';
-        for (let dx = 0; dx < eff.w; dx++) {
-          for (let dz = 0; dz < eff.d; dz++) {
-            const cx = item.x + dx;
-            const cz = item.z + dz;
-            if (cx >= 0 && cx < W && cz >= 0 && cz < D) {
-              if (isTile) floorTiles[cx][cz] = true;
-              else occupied[cx][cz] = true;
-            }
-          }
-        }
       }
     }
 
@@ -2274,8 +2446,6 @@ export class SceneManager {
     }
 
     this.enclosedCells = enclosed;
-    this.floorTileCells = floorTiles;
-    this.occupiedCells = occupied;
     this.enclosedCellCount = count;
   }
 
@@ -2446,97 +2616,65 @@ export class SceneManager {
       return;
     }
 
-    // Horizontal look-from direction (target -> camera) in XZ
+    // Live horizontal look-from direction toward the camera (invariant across panning & all 4 rotations)
+    this.isoCamera.camera.updateMatrixWorld();
     this.isoCamera.camera.getWorldDirection(this.camForwardScratch);
-    let camX = -this.camForwardScratch.x;
-    let camZ = -this.camForwardScratch.z;
-    const camLen = Math.hypot(camX, camZ);
+    let toCamX = -this.camForwardScratch.x;
+    let toCamZ = -this.camForwardScratch.z;
+    const camLen = Math.hypot(toCamX, toCamZ);
     if (camLen > 1e-5) {
-      camX /= camLen;
-      camZ /= camLen;
+      toCamX /= camLen;
+      toCamZ /= camLen;
     } else {
-      camX = Math.SQRT1_2;
-      camZ = Math.SQRT1_2;
+      toCamX = Math.SQRT1_2;
+      toCamZ = Math.SQRT1_2;
     }
 
     // Skip work completely when camera orientation is steady and no wall is transitioning
     if (
       !snapUninit &&
       !this.wallsTransitioning &&
-      Math.abs(camX - this.lastWallCamX) < 0.0002 &&
-      Math.abs(camZ - this.lastWallCamZ) < 0.0002
+      Math.abs(toCamX - this.lastWallCamX) < 0.0002 &&
+      Math.abs(toCamZ - this.lastWallCamZ) < 0.0002
     ) {
       return;
     }
-    this.lastWallCamX = camX;
-    this.lastWallCamZ = camZ;
+    this.lastWallCamX = toCamX;
+    this.lastWallCamZ = toCamZ;
+
+    // Compute centroid (cx, cz) across all placed structural walls (fallback 0, 0)
+    let cx = 0;
+    let cz = 0;
+    if (this.wallEntries.length > 0) {
+      for (let i = 0; i < this.wallEntries.length; i++) {
+        cx += this.wallEntries[i].baseX;
+        cz += this.wallEntries[i].baseZ;
+      }
+      cx /= this.wallEntries.length;
+      cz /= this.wallEntries.length;
+    }
 
     const mode = this.store.getWallViewMode();
-    const W = this.currentGridWidth;
-    const D = this.currentGridDepth;
     const smooth = dt > 0 ? 1 - Math.exp(-14 * dt) : 1;
 
     this.wallTargetsMap.clear();
     let anyMoving = false;
     let anyShadowChanged = false;
 
-    const isInterior = (x: number, z: number): boolean => {
-      if (x < 0 || x >= W || z < 0 || z >= D) return false;
-      return Boolean(this.enclosedCells[x]?.[z] || this.floorTileCells[x]?.[z]);
-    };
-
-    const hasInteriorBehind = (x: number, z: number): boolean => {
-      if (x < 0 || x >= W || z < 0 || z >= D) return false;
-      return Boolean(this.enclosedCells[x]?.[z] || this.occupiedCells[x]?.[z]);
-    };
-
-    // Pass 1: pre-filtered structural walls
+    // Pass 1: pre-filtered structural walls (centroid-side camera-facing invariant)
     for (let i = 0; i < this.wallEntries.length; i++) {
       const entry = this.wallEntries[i];
-      const parsed = parseCanonicalWallEdgeKey(
-        canonicalWallEdgeKey(entry.item.x, entry.item.z, entry.item.rotation),
-      );
-
-      let inA = false;
-      let inB = false;
-      let normAToBX = 0;
-      let normAToBZ = 0;
-      let farCellX = 0;
-      let farCellZ = 0;
-
-      if (parsed.axis === 'H') {
-        inA = isInterior(parsed.ex, parsed.ez - 1);
-        inB = isInterior(parsed.ex, parsed.ez);
-        normAToBX = 0;
-        normAToBZ = 1;
-        farCellX = parsed.ex;
-        farCellZ = camZ > 0 ? parsed.ez - 1 : parsed.ez;
-      } else {
-        inA = isInterior(parsed.ex - 1, parsed.ez);
-        inB = isInterior(parsed.ex, parsed.ez);
-        normAToBX = 1;
-        normAToBZ = 0;
-        farCellX = camX > 0 ? parsed.ex - 1 : parsed.ex;
-        farCellZ = parsed.ez;
-      }
-
       let target = 1.0;
       if (mode === 'solid') {
         target = 1.0;
       } else if (mode === 'translucent') {
-        target = inA || inB ? 0.2 : 1.0;
+        target = 0.2;
       } else {
-        if (inA !== inB) {
-          const outX = inA ? normAToBX : -normAToBX;
-          const outZ = inA ? normAToBZ : -normAToBZ;
-          const dot = outX * camX + outZ * camZ;
-          target = dot > 0.1 ? 0.18 : 1.0;
-        } else if (inA && inB) {
-          const align = Math.abs(normAToBX * camX + normAToBZ * camZ);
-          if (align > 0.1 && hasInteriorBehind(farCellX, farCellZ)) {
-            target = 0.3;
-          }
-        }
+        const isFrontFacing =
+          entry.item.rotation % 2 === 0
+            ? (entry.baseZ - cz) * toCamZ > 0.25
+            : (entry.baseX - cx) * toCamX > 0.25;
+        target = isFrontFacing ? 0.18 : 1.0;
       }
 
       this.wallTargetsMap.set(entry.uid, target);
@@ -2565,18 +2703,23 @@ export class SceneManager {
       }
     }
 
-    // Pass 2: pre-filtered wall-mounted items
+    // Pass 2: pre-filtered wall-mounted items (matched to parent wall or centroid-side invariant)
     for (let i = 0; i < this.mountedEntries.length; i++) {
       const entry = this.mountedEntries[i];
-      const parentTarget = entry.item.parentUid
-        ? (this.wallTargetsMap.get(entry.item.parentUid) ?? 1.0)
-        : 1.0;
-      const target =
-        mode === 'translucent' && parentTarget < 0.9
-          ? 0.22
-          : parentTarget < 0.9
-            ? Math.max(0.2, parentTarget)
-            : 1.0;
+      let target = 1.0;
+      if (mode === 'solid') {
+        target = 1.0;
+      } else if (mode === 'translucent') {
+        target = 0.22;
+      } else {
+        const isFrontFacing =
+          entry.item.parentUid && this.wallTargetsMap.has(entry.item.parentUid)
+            ? (this.wallTargetsMap.get(entry.item.parentUid) ?? 1.0) < 0.9
+            : entry.item.rotation % 2 === 0
+              ? (entry.baseZ - cz) * toCamZ > 0.25
+              : (entry.baseX - cx) * toCamX > 0.25;
+        target = isFrontFacing ? 0.2 : 1.0;
+      }
 
       const shouldSnap = snapUninit && !entry.wallOpacityInitialized;
       const nextOp = shouldSnap
@@ -2938,106 +3081,129 @@ export class SceneManager {
     }
   }
 
+  private getEffectiveSimSpeed(): number {
+    const speed = this.store.getSimSpeed();
+    return Number.isFinite(speed) && speed >= 0 ? speed : 1;
+  }
+
   private startLoop(): void {
     const tick = (now: number) => {
       this.rafId = requestAnimationFrame(tick);
-      const dt = Math.min((now - this.lastTime) / 1000, 0.1);
+      const realDt = Math.min((now - this.lastTime) / 1000, 0.1);
       this.lastTime = now;
-      this.elapsedTime += dt;
+      this.elapsedTime += realDt;
 
-      this.updateRunningTimeCycle(dt);
-      this.updateCloudTransition(dt);
-      this.isoCamera.update(dt);
-      this.updateWallTranslucency(dt, false);
-      this.updateItemAnimations(dt);
-      this.updateDoorAnimations(dt);
+      const simSpeed = this.getEffectiveSimSpeed();
+      const simDt = Math.min(realDt, 0.05) * simSpeed;
+      this.simElapsedTime += simDt;
 
-      // Animate rotating light projections and warm lamp flicker
-      if (this.activeLightRigs.length > 0) {
-        const atmo = sampleAtmosphereCurve(this.currentTimeHour, this.sampledAtmoScratch);
-        const todBoost = atmo.lightBoost;
-        const poolBoost = atmo.poolBoost;
-        for (let i = 0; i < this.activeLightRigs.length; i++) {
-          const rig = this.activeLightRigs[i];
-          if (rig.spinRig) {
-            rig.spinRig.rotation.y += dt * rig.spinSpeed;
-          }
-          if (rig.flicker) {
-            const wave =
-              1 +
-              0.12 * Math.sin(this.elapsedTime * 7.2 + rig.phase) +
-              0.06 * Math.sin(this.elapsedTime * 13.7 + rig.phase * 1.9);
-            for (let j = 0; j < rig.pointLights.length; j++) {
-              const pl = rig.pointLights[j];
-              pl.light.intensity = pl.baseIntensity * todBoost * wave;
-            }
-            if (rig.poolMat) {
-              rig.poolMat.opacity = Math.min(0.68, rig.basePoolOpacity * poolBoost * wave);
-            }
-          }
+      // Live visitor camera follow (skipped in cinematic mode; auto-cleared on manual pan/reset)
+      if (this.cameraFollowProvider && !this.isoCamera.isCinematicMode()) {
+        const followPos = this.cameraFollowProvider();
+        if (followPos && Number.isFinite(followPos.x) && Number.isFinite(followPos.z)) {
+          this.isoCamera.setTargetSmooth(followPos.x, followPos.z);
         }
       }
 
-      // Spin ALL SpinTarget descendants across pre-filtered spinner entries (axis + speed aware)
-      for (let i = 0; i < this.spinnerEntries.length; i++) {
-        const entry = this.spinnerEntries[i];
-        if (!entry.item.active) continue;
-        const targets = entry.spinTargets;
-        for (let j = 0; j < targets.length; j++) {
-          const target = targets[j];
-          const speed = (target.userData.spinSpeed as number | undefined) ?? 1.8;
-          const axis = (target.userData.spinAxis as 'x' | 'y' | 'z' | undefined) ?? 'y';
-          if (axis === 'x') target.rotation.x += dt * speed;
-          else if (axis === 'z') target.rotation.z += dt * speed;
-          else target.rotation.y += dt * speed;
-        }
-      }
+      // Camera, wall cutaway, placement/move/rotate juice, and 3D cloud transitions stay responsive
+      // on unscaled realDt even when simulation speed is 0x (paused for Polaroid framing!)
+      this.isoCamera.update(realDt);
+      this.updateCloudTransition(realDt);
+      this.updateWallTranslucency(realDt, false);
+      this.updateItemAnimations(realDt);
+      this.updateDoorAnimations(simDt > 0 ? simDt : realDt);
 
-      // Animate subtle bass-thump pulse on active speakers / subwoofers
-      if (this.bassPulseEntries.length > 0) {
-        const pulse = 1 + 0.028 * Math.pow(Math.max(0, Math.sin(this.elapsedTime * 7.8)), 4);
-        const pulseY = 1 + (pulse - 1) * 0.5;
-        for (let i = 0; i < this.bassPulseEntries.length; i++) {
-          const entry = this.bassPulseEntries[i];
-          if (entry.bounceTime === 0 && entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
-            entry.group.scale.set(pulse, pulseY, pulse * entry.baseScaleZ);
-          }
-        }
-      }
+      // Simulation-driven systems scale cleanly by 0x / 1x / 2x / 5x
+      if (simDt > 0) {
+        this.updateRunningTimeCycle(simDt);
 
-      // Animate active click-interaction bounces
-      for (let i = this.bouncingEntries.length - 1; i >= 0; i--) {
-        const entry = this.bouncingEntries[i];
-        entry.bounceTime += dt;
-        const duration = 0.24;
-        if (entry.bounceTime >= duration) {
-          entry.bounceTime = 0;
-          if (entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
-            entry.group.scale.set(1, 1, entry.baseScaleZ);
-            entry.group.updateMatrix();
-            entry.group.updateMatrixWorld(true);
-            if (!entry.isDynamicGroup) {
-              entry.group.matrixAutoUpdate = false;
+        // Animate rotating light projections and warm lamp flicker
+        if (this.activeLightRigs.length > 0) {
+          const atmo = sampleAtmosphereCurve(this.currentTimeHour, this.sampledAtmoScratch);
+          const todBoost = atmo.lightBoost;
+          const poolBoost = atmo.poolBoost;
+          for (let i = 0; i < this.activeLightRigs.length; i++) {
+            const rig = this.activeLightRigs[i];
+            if (rig.spinRig) {
+              rig.spinRig.rotation.y += simDt * rig.spinSpeed;
+            }
+            if (rig.flicker) {
+              const wave =
+                1 +
+                0.12 * Math.sin(this.simElapsedTime * 7.2 + rig.phase) +
+                0.06 * Math.sin(this.simElapsedTime * 13.7 + rig.phase * 1.9);
+              for (let j = 0; j < rig.pointLights.length; j++) {
+                const pl = rig.pointLights[j];
+                pl.light.intensity = pl.baseIntensity * todBoost * wave;
+              }
+              if (rig.poolMat) {
+                rig.poolMat.opacity = Math.min(0.68, rig.basePoolOpacity * poolBoost * wave);
+              }
             }
           }
-          const last = this.bouncingEntries.pop()!;
-          if (i < this.bouncingEntries.length) {
-            this.bouncingEntries[i] = last;
+        }
+
+        // Spin ALL SpinTarget descendants across pre-filtered spinner entries (axis + speed aware)
+        for (let i = 0; i < this.spinnerEntries.length; i++) {
+          const entry = this.spinnerEntries[i];
+          if (!entry.item.active) continue;
+          const targets = entry.spinTargets;
+          for (let j = 0; j < targets.length; j++) {
+            const target = targets[j];
+            const speed = (target.userData.spinSpeed as number | undefined) ?? 1.8;
+            const axis = (target.userData.spinAxis as 'x' | 'y' | 'z' | undefined) ?? 'y';
+            if (axis === 'x') target.rotation.x += simDt * speed;
+            else if (axis === 'z') target.rotation.z += simDt * speed;
+            else target.rotation.y += simDt * speed;
           }
-          this.markShadowsDirty();
-        } else if (entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
-          const t = entry.bounceTime / duration;
-          const s = 1 + Math.sin(t * Math.PI) * 0.06;
-          const invSqrt = 1 / Math.sqrt(s);
-          entry.group.scale.set(invSqrt, s, invSqrt * entry.baseScaleZ);
+        }
+
+        // Animate subtle bass-thump pulse on active speakers / subwoofers
+        if (this.bassPulseEntries.length > 0) {
+          const pulse = 1 + 0.028 * Math.pow(Math.max(0, Math.sin(this.simElapsedTime * 7.8)), 4);
+          const pulseY = 1 + (pulse - 1) * 0.5;
+          for (let i = 0; i < this.bassPulseEntries.length; i++) {
+            const entry = this.bassPulseEntries[i];
+            if (entry.bounceTime === 0 && entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
+              entry.group.scale.set(pulse, pulseY, pulse * entry.baseScaleZ);
+            }
+          }
+        }
+
+        // Animate active click-interaction bounces
+        for (let i = this.bouncingEntries.length - 1; i >= 0; i--) {
+          const entry = this.bouncingEntries[i];
+          entry.bounceTime += simDt;
+          const duration = 0.24;
+          if (entry.bounceTime >= duration) {
+            entry.bounceTime = 0;
+            if (entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
+              entry.group.scale.set(1, 1, entry.baseScaleZ);
+              entry.group.updateMatrix();
+              entry.group.updateMatrixWorld(true);
+              if (!entry.isDynamicGroup) {
+                entry.group.matrixAutoUpdate = false;
+              }
+            }
+            const last = this.bouncingEntries.pop()!;
+            if (i < this.bouncingEntries.length) {
+              this.bouncingEntries[i] = last;
+            }
+            this.markShadowsDirty();
+          } else if (entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
+            const t = entry.bounceTime / duration;
+            const s = 1 + Math.sin(t * Math.PI) * 0.06;
+            const invSqrt = 1 / Math.sqrt(s);
+            entry.group.scale.set(invSqrt, s, invSqrt * entry.baseScaleZ);
+          }
         }
       }
 
       for (const hook of this.tickHooks) {
-        hook(dt);
+        hook(simDt, realDt);
       }
 
-      this.updateDynamicShadowSchedule(dt);
+      this.updateDynamicShadowSchedule(realDt);
       this.shaderPipeline.render(this.renderer, this.scene, this.isoCamera.camera, this.elapsedTime);
     };
     this.rafId = requestAnimationFrame(tick);
@@ -3082,6 +3248,11 @@ export class SceneManager {
     this._gridVisual.dispose();
     this.cloudTransition = null;
     this.cloudTransitionHook = null;
+    this.unsubManualPan?.();
+    this.unsubManualPan = null;
+    this.cameraFollowProvider = null;
+    this.cameraFollowCancelCb = null;
+    this.cameraFollowClearedListeners.clear();
     this.shaderListeners.clear();
     this.shaderPipeline.dispose();
     this.previewRenderer?.dispose();

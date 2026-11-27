@@ -66,6 +66,12 @@ export type StorybookIconName =
   | 'bulb_off'
   | 'music_on'
   | 'music_off'
+  // Wall Visibility Modes (3)
+  | 'wall_auto'
+  | 'wall_translucent'
+  | 'wall_solid'
+  // Share Studio (1)
+  | 'polaroid'
   // Visual Shaders (6)
   | 'shader_default'
   | 'shader_retro_dither'
@@ -278,6 +284,38 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <ellipse cx="7.6" cy="17.2" rx="2.6" ry="2" fill="#EFE7D8" stroke="${INK}" stroke-width="1.7"/>
     <ellipse cx="16.2" cy="15.2" rx="2.6" ry="2" fill="#EFE7D8" stroke="${INK}" stroke-width="1.7"/>
     <path d="M4.2 4.6 19.8 19.4" stroke="#A82D24" stroke-width="1.9" stroke-linecap="round"/>
+  `,
+
+  // ── Wall Visibility Modes (3) ──
+  wall_auto: `
+    <polygon points="12,12.5 20,16.5 12,20.5 4,16.5" fill="#F6E9D2" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <polygon points="4,8.2 12,4.2 12,12.5 4,16.5" fill="#EAC8A8" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <polygon points="12,4.2 20,8.2 20,16.5 12,12.5" fill="#DFB28C" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <polygon points="4,13 12,17 12,20.5 4,16.5" fill="#9ED3F5" fill-opacity="0.55" stroke="${INK}" stroke-width="1.6" stroke-dasharray="2.4 1.8" stroke-linejoin="round"/>
+    <polygon points="12,17 20,13 20,16.5 12,20.5" fill="#9ED3F5" fill-opacity="0.45" stroke="${INK}" stroke-width="1.6" stroke-dasharray="2.4 1.8" stroke-linejoin="round"/>
+  `,
+  wall_translucent: `
+    <polygon points="12,12.6 20,16.6 12,20.6 4,16.6" fill="#F6E9D2" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <rect x="9.8" y="13.2" width="4.4" height="3.2" rx="0.8" fill="#E8A28B" stroke="${INK}" stroke-width="1.3"/>
+    <polygon points="4,8 12,4 20,8 20,16.6 12,20.6 4,16.6" fill="#9FD6F7" fill-opacity="0.4" stroke="${INK}" stroke-width="1.75" stroke-dasharray="2.6 2" stroke-linejoin="round"/>
+    <path d="M12,12.4v8.2M4,8l8,4.4L20,8" fill="none" stroke="${INK}" stroke-width="1.5" stroke-dasharray="2.4 2" stroke-linecap="round"/>
+  `,
+  wall_solid: `
+    <polygon points="4,8 12,4 20,8 12,12" fill="#F4C7B7" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <polygon points="4,8 12,12 12,20.5 4,16.5" fill="#E69A83" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <polygon points="12,12 20,8 20,16.5 12,20.5" fill="#D47E66" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M4,12.2 12,16.2 20,12.2M8,10v4.2M16,14v4.2" fill="none" stroke="${INK}" stroke-width="1.35" stroke-linecap="round"/>
+  `,
+
+  // ── Share Polaroid Camera (1) ──
+  polaroid: `
+    <rect x="3" y="5.4" width="18" height="14.2" rx="3" fill="#FCF3E3" stroke="${INK}" stroke-width="1.8"/>
+    <path d="M3.8 14.2h16.4v2.4H3.8z" fill="#ED9E8A"/>
+    <path d="M3.8 14.2h16.4M3.8 16.6h16.4" stroke="${INK}" stroke-width="1.25"/>
+    <circle cx="12" cy="11.4" r="3.9" fill="#A9D8F5" stroke="${INK}" stroke-width="1.75"/>
+    <circle cx="10.8" cy="10.2" r="1.1" fill="#FFFDF8"/>
+    <rect x="15.8" y="7.2" width="2.8" height="2.2" rx="0.6" fill="#FFD966" stroke="${INK}" stroke-width="1.2"/>
+    <path d="M6.4 5.4V4.2h3.4v1.2" fill="#E6C2A3" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>
   `,
 
   // ── Visual Shaders (6) ──
@@ -493,6 +531,17 @@ export function getShaderStorybookIconName(shaderId: string): StorybookIconName 
       return 'shader_crt_lofi';
     default:
       return 'shader_default';
+  }
+}
+
+export function getWallViewStorybookIconName(mode: string): StorybookIconName {
+  switch (mode) {
+    case 'translucent':
+      return 'wall_translucent';
+    case 'solid':
+      return 'wall_solid';
+    default:
+      return 'wall_auto';
   }
 }
 

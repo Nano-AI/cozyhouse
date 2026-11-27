@@ -65,10 +65,16 @@ async function bootstrap(): Promise<void> {
     store.notify(sharedLoadError, 'error');
   }
 
-  // Hook module tick loops into SceneManager's animation frame
-  sceneManager.addTickHook((dt) => {
-    sceneryModule.update(dt);
-    visitorModule.update(dt);
+  // Hook module tick loops into SceneManager's animation frame (simDt scales 0x/1x/2x/5x)
+  sceneManager.addTickHook((simDt) => {
+    sceneryModule.update(simDt);
+    if (simDt <= 0) return;
+    // Sub-step visitor simulation cleanly at 2x / 5x speeds so pathfinding & steering stay rock-solid
+    const steps = simDt > 0.045 ? Math.ceil(simDt / 0.045) : 1;
+    const stepDt = simDt / steps;
+    for (let i = 0; i < steps; i++) {
+      visitorModule.update(stepDt);
+    }
   });
 
   // Debounced autosave to localStorage + flush on pagehide

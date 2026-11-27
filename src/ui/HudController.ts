@@ -8,9 +8,16 @@ import { decodeHouseFromShareLink, encodeHouseToShareUrl } from '../save/shareLi
 import type { SceneryModule } from '../scenery/SceneryModule';
 import { createEmptyHouse, createStarterHouse } from '../state/defaultHouse';
 import { HOUSE_PRESETS, createPresetHouse } from '../state/housePresets';
-import type { EraseFilter, ExpandSide, HouseStore, WallViewMode } from '../state/houseStore';
+import type {
+  EraseFilter,
+  ExpandSide,
+  HouseStore,
+  SimSpeed,
+  WallViewMode,
+} from '../state/houseStore';
 import type { VisitorModule } from '../visitors/VisitorModule';
 import { CelebrationBanner } from './CelebrationBanner';
+import { PolaroidShareModal } from './PolaroidShareModal';
 import {
   type IconName,
   type StorybookIconName,
@@ -19,6 +26,7 @@ import {
   getLocationStorybookIconName,
   getRoomStorybookIconName,
   getShaderStorybookIconName,
+  getWallViewStorybookIconName,
   getWeatherStorybookIconName,
 } from './icons';
 
@@ -28,7 +36,7 @@ export interface HudModules {
   sceneryModule?: SceneryModule;
 }
 
-type PopoverKind = 'room' | 'atmosphere' | 'visitors' | 'menu' | 'lot' | null;
+type PopoverKind = 'room' | 'atmosphere' | 'walls' | 'visitors' | 'menu' | 'lot' | null;
 type BasicsGroupId = 'floors' | 'walls' | 'doors' | 'windows';
 
 interface SubcategoryDef {
@@ -95,6 +103,13 @@ const WALL_VIEW_OPTIONS: Array<{ id: WallViewMode; label: string; fullLabel: str
   { id: 'auto', label: 'Auto', fullLabel: 'Walls: Auto Translucent' },
   { id: 'translucent', label: 'Translucent', fullLabel: 'Walls: All Translucent' },
   { id: 'solid', label: 'Solid', fullLabel: 'Walls: Solid' },
+];
+
+const SIM_SPEED_OPTIONS: Array<{ speed: SimSpeed; label: string; title: string }> = [
+  { speed: 0, label: '⏸', title: 'Pause simulation (freeze for photos)' },
+  { speed: 1, label: '1×', title: 'Normal speed (1×)' },
+  { speed: 2, label: '2×', title: 'Fast speed (2×)' },
+  { speed: 5, label: '5×', title: 'Turbo speed (5×)' },
 ];
 
 const VISITOR_ARCHETYPE_ICONS: Record<string, string> = {
@@ -381,6 +396,7 @@ export class HudController {
   private readonly audioModule?: AudioModule;
   private readonly sceneryModule?: SceneryModule;
   private readonly celebrationBanner: CelebrationBanner;
+  private readonly polaroidModal: PolaroidShareModal;
 
   private activeTab: CatalogTabId = 'basics';
   private activeSubcategory = 'all';
@@ -400,6 +416,8 @@ export class HudController {
   private searchQuery = '';
   private saveStatusText = 'Saved';
   private activePopover: PopoverKind = null;
+  private visitorsTab: 'here' | 'invite' = 'here';
+  private selectedVisitorId: string | null = null;
 
   private lastRoomId: string;
   private lastRoomLabel: string;
@@ -428,6 +446,7 @@ export class HudController {
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private wallViewBtnEl!: HTMLButtonElement;
+  private wallViewIconSlotEl!: HTMLSpanElement;
   private cinematicBtnEl!: HTMLButtonElement;
   private cinematicExitBtnEl!: HTMLButtonElement;
 
@@ -436,8 +455,12 @@ export class HudController {
   private houseOpenLabelEl!: HTMLSpanElement;
   private visitorsBtnEl!: HTMLButtonElement;
   private visitorCountEl!: HTMLSpanElement;
+  private shareBtnEl!: HTMLButtonElement;
   private soundBtnEl!: HTMLButtonElement;
   private menuBtnEl!: HTMLButtonElement;
+  private simSpeedPillEl!: HTMLDivElement;
+  private simSpeedBtns: Array<{ btn: HTMLButtonElement; speed: SimSpeed }> = [];
+  private visitorProfileCardEl!: HTMLElement;
 
   private liveCtaWrapEl!: HTMLDivElement;
   private buildSidebarEl!: HTMLElement;
@@ -463,6 +486,7 @@ export class HudController {
 
   private roomPopoverEl!: HTMLDivElement;
   private atmospherePopoverEl!: HTMLDivElement;
+  private wallsPopoverEl!: HTMLDivElement;
   private visitorsPopoverEl!: HTMLDivElement;
   private menuPopoverEl!: HTMLDivElement;
   private lotPopoverEl!: HTMLDivElement;
@@ -518,12 +542,19 @@ export class HudController {
 
     this.buildShell();
     this.celebrationBanner = new CelebrationBanner(this.root);
+    this.polaroidModal = new PolaroidShareModal(
+      this.root,
+      this.store,
+      this.sceneManager,
+      this.audioModule,
+    );
 
     this.renderTabRail();
     this.renderSubcategories();
     this.renderSidebarCatalog();
     this.syncEditModeUi();
     this.syncHouseOpenButton();
+    this.syncSimSpeedControlsLive();
     this.syncHud();
     this.syncWallViewButton();
     this.syncSoundButton();
@@ -585,6 +616,7 @@ export class HudController {
           this.syncTimeSliderLive();
         }
       }),
+      this.store.on('simSpeedChanged', () => this.syncSimSpeedControlsLive()),
       this.store.on('selectionChanged', () => this.renderContextBar()),
       this.store.on('modeChanged', (modeState) => {
         if (modeState.mode === 'place' && modeState.placementItemId) {
@@ -613,6 +645,8 @@ export class HudController {
           if (this.activePopover === 'lot') {
             this.setActivePopover(null);
           }
+        } else {
+          this.clearSelectedVisitor();
         }
         this.syncEditModeUi();
         this.renderContextBar();
@@ -624,6 +658,7 @@ export class HudController {
       }),
       this.store.on('wallViewChanged', () => {
         this.syncWallViewButton();
+        if (this.activePopover === 'walls') this.renderWallsPopover();
         if (this.activePopover === 'atmosphere') this.renderAtmospherePopover();
         if (this.activePopover === 'lot') this.renderLotPopover();
       }),
@@ -655,11 +690,13 @@ export class HudController {
       const keepOpenContainers: Array<HTMLElement | undefined> = [
         this.roomPopoverEl,
         this.atmospherePopoverEl,
+        this.wallsPopoverEl,
         this.visitorsPopoverEl,
         this.menuPopoverEl,
         this.lotPopoverEl,
         this.roomBtnEl,
         this.atmosphereBtnEl,
+        this.wallViewBtnEl,
         this.visitorsBtnEl,
         this.menuBtnEl,
         this.lotSizeBtnEl,
@@ -674,17 +711,64 @@ export class HudController {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (this.polaroidModal.isOpen()) {
+          return;
+        }
         if (this.sceneManager.isoCamera.isCinematicMode()) {
           this.setCinematicMode(false);
           return;
         }
         if (this.activePopover) {
           this.setActivePopover(null);
+          return;
+        }
+        if (this.selectedVisitorId) {
+          this.clearSelectedVisitor();
         }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     this.unsubscribes.push(() => window.removeEventListener('keydown', onKeyDown));
+
+    // Direct 3D visitor click-to-focus in Live Mode
+    const canvas = this.sceneManager.renderer?.domElement;
+    if (canvas) {
+      let downX = 0;
+      let downY = 0;
+      let trackingTap = false;
+      const onCanvasPointerDown = (ev: PointerEvent) => {
+        if (ev.button !== 0 || this.store.isEditMode() || this.polaroidModal.isOpen()) {
+          trackingTap = false;
+          return;
+        }
+        trackingTap = true;
+        downX = ev.clientX;
+        downY = ev.clientY;
+      };
+      const onCanvasPointerUp = (ev: PointerEvent) => {
+        if (!trackingTap) return;
+        trackingTap = false;
+        if (
+          this.store.isEditMode() ||
+          this.polaroidModal.isOpen() ||
+          this.sceneManager.isoCamera.isCinematicMode()
+        ) {
+          return;
+        }
+        if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return;
+        const hitId = this.sceneManager.pickVisitorAtClientPos(ev.clientX, ev.clientY);
+        if (hitId) {
+          this.audioModule?.playUiClick();
+          this.selectVisitor(hitId, true);
+        }
+      };
+      canvas.addEventListener('pointerdown', onCanvasPointerDown);
+      canvas.addEventListener('pointerup', onCanvasPointerUp);
+      this.unsubscribes.push(() => {
+        canvas.removeEventListener('pointerdown', onCanvasPointerDown);
+        canvas.removeEventListener('pointerup', onCanvasPointerUp);
+      });
+    }
   }
 
   setSaveStatus(label: string): void {
@@ -720,6 +804,7 @@ export class HudController {
   }
 
   dispose(): void {
+    this.clearSelectedVisitor();
     this.clearLocationTimers();
     this.previewObserver?.disconnect();
     this.previewObserver = null;
@@ -728,6 +813,7 @@ export class HudController {
     }
     this.unsubscribes = [];
     this.celebrationBanner.dispose();
+    this.polaroidModal.dispose();
   }
 
   private clearLocationTimers(): void {
@@ -837,6 +923,9 @@ export class HudController {
     const rect = this.topBarEl.getBoundingClientRect();
     if (rect.bottom > 0) {
       this.root.style.setProperty('--hud-top-offset', `${Math.ceil(rect.bottom + 8)}px`);
+    }
+    if (this.activePopover === 'walls') {
+      this.positionWallsPopover();
     }
   }
 
@@ -973,10 +1062,11 @@ export class HudController {
       },
       'ghost',
       'undo',
+      21,
     );
     this.undoBtn.className = 'icon-btn';
-    this.undoBtn.title = 'Undo (Cmd/Ctrl+Z)';
-    this.undoBtn.setAttribute('aria-label', 'Undo');
+    this.undoBtn.dataset.tooltip = 'Undo';
+    this.undoBtn.setAttribute('aria-label', 'Undo (Cmd/Ctrl+Z)');
 
     this.redoBtn = this.makeBtn(
       '',
@@ -986,10 +1076,11 @@ export class HudController {
       },
       'ghost',
       'redo',
+      21,
     );
     this.redoBtn.className = 'icon-btn';
-    this.redoBtn.title = 'Redo (Cmd/Ctrl+Shift+Z)';
-    this.redoBtn.setAttribute('aria-label', 'Redo');
+    this.redoBtn.dataset.tooltip = 'Redo';
+    this.redoBtn.setAttribute('aria-label', 'Redo (Cmd/Ctrl+Shift+Z)');
 
     this.undoRedoGroupEl.append(divUndo, this.undoBtn, this.redoBtn);
 
@@ -1004,9 +1095,10 @@ export class HudController {
       },
       'ghost',
       'rotLeft',
+      21,
     );
     rotLeftBtn.className = 'icon-btn';
-    rotLeftBtn.title = 'Rotate view left 90° (Q)';
+    rotLeftBtn.dataset.tooltip = 'Rotate Left';
     rotLeftBtn.setAttribute('aria-label', 'Rotate view left 90 degrees');
 
     const rotRightBtn = this.makeBtn(
@@ -1017,9 +1109,10 @@ export class HudController {
       },
       'ghost',
       'rotRight',
+      21,
     );
     rotRightBtn.className = 'icon-btn';
-    rotRightBtn.title = 'Rotate view right 90° (E)';
+    rotRightBtn.dataset.tooltip = 'Rotate Right';
     rotRightBtn.setAttribute('aria-label', 'Rotate view right 90 degrees');
 
     const zoomOutBtn = this.makeBtn(
@@ -1030,9 +1123,10 @@ export class HudController {
       },
       'ghost',
       'minus',
+      21,
     );
     zoomOutBtn.className = 'icon-btn';
-    zoomOutBtn.title = 'Zoom out';
+    zoomOutBtn.dataset.tooltip = 'Zoom Out';
     zoomOutBtn.setAttribute('aria-label', 'Zoom out');
 
     const zoomInBtn = this.makeBtn(
@@ -1043,9 +1137,10 @@ export class HudController {
       },
       'ghost',
       'plus',
+      21,
     );
     zoomInBtn.className = 'icon-btn';
-    zoomInBtn.title = 'Zoom in';
+    zoomInBtn.dataset.tooltip = 'Zoom In';
     zoomInBtn.setAttribute('aria-label', 'Zoom in');
 
     const resetViewBtn = this.makeBtn(
@@ -1056,25 +1151,30 @@ export class HudController {
       },
       'ghost',
       'reset',
+      21,
     );
     resetViewBtn.className = 'icon-btn';
-    resetViewBtn.title = 'Reset camera view';
+    resetViewBtn.dataset.tooltip = 'Reset View';
     resetViewBtn.setAttribute('aria-label', 'Reset camera view');
 
-    this.wallViewBtnEl = this.makeBtn(
-      '',
-      () => {
-        this.audioModule?.playUiClick();
-        const nextMode = this.store.cycleWallViewMode();
-        const meta = WALL_VIEW_OPTIONS.find((o) => o.id === nextMode) ?? WALL_VIEW_OPTIONS[0];
-        this.store.notify(meta.fullLabel, 'info');
-      },
-      'ghost',
-      'wallCutaway',
-    );
-    this.wallViewBtnEl.className = 'icon-btn wall-view-btn';
-    this.wallViewBtnEl.title = 'Walls: Auto Translucent';
-    this.wallViewBtnEl.setAttribute('aria-label', 'Walls: Auto Translucent');
+    this.wallViewBtnEl = document.createElement('button');
+    this.wallViewBtnEl.type = 'button';
+    this.wallViewBtnEl.className = 'icon-btn wall-view-btn has-caret';
+    this.wallViewBtnEl.dataset.tooltip = 'Walls: Auto';
+    this.wallViewBtnEl.setAttribute('aria-label', 'Wall visibility & ceiling');
+    this.wallViewBtnEl.setAttribute('aria-haspopup', 'menu');
+    this.wallViewBtnEl.setAttribute('aria-expanded', 'false');
+    this.wallViewIconSlotEl = document.createElement('span');
+    this.wallViewIconSlotEl.className = 'wall-icon-slot';
+    const wallCaret = document.createElement('span');
+    wallCaret.className = 'btn-caret';
+    wallCaret.textContent = '▾';
+    wallCaret.setAttribute('aria-hidden', 'true');
+    this.wallViewBtnEl.append(this.wallViewIconSlotEl, wallCaret);
+    this.wallViewBtnEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.togglePopover('walls');
+    });
 
     this.cinematicBtnEl = this.makeBtn(
       '',
@@ -1084,9 +1184,10 @@ export class HudController {
       },
       'ghost',
       'cinematic',
+      21,
     );
     this.cinematicBtnEl.className = 'icon-btn cinematic-btn';
-    this.cinematicBtnEl.title = 'Cinematic Mode';
+    this.cinematicBtnEl.dataset.tooltip = 'Cinematic';
     this.cinematicBtnEl.setAttribute('aria-label', 'Cinematic Mode');
 
     centerIsland.append(
@@ -1133,9 +1234,9 @@ export class HudController {
     this.visitorsBtnEl = document.createElement('button');
     this.visitorsBtnEl.type = 'button';
     this.visitorsBtnEl.className = 'island-btn visitors-btn';
-    this.visitorsBtnEl.title = 'Visitors & Guests';
+    this.visitorsBtnEl.dataset.tooltip = 'Visitors';
     this.visitorsBtnEl.setAttribute('aria-label', 'Visitors');
-    this.visitorsBtnEl.appendChild(createIconEl('visitors', 16));
+    this.visitorsBtnEl.appendChild(createIconEl('visitors', 20));
     this.visitorCountEl = document.createElement('span');
     this.visitorCountEl.className = 'count-pill';
     this.visitorCountEl.textContent = '0';
@@ -1145,9 +1246,21 @@ export class HudController {
       this.togglePopover('visitors');
     });
 
+    this.shareBtnEl = document.createElement('button');
+    this.shareBtnEl.type = 'button';
+    this.shareBtnEl.className = 'icon-btn share-btn tooltip-right';
+    this.shareBtnEl.dataset.tooltip = 'Share your house';
+    this.shareBtnEl.setAttribute('aria-label', 'Share your house as a Polaroid');
+    this.shareBtnEl.appendChild(createStorybookIconEl('polaroid', 22));
+    this.shareBtnEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setActivePopover(null);
+      this.polaroidModal.open();
+    });
+
     this.soundBtnEl = document.createElement('button');
     this.soundBtnEl.type = 'button';
-    this.soundBtnEl.className = 'icon-btn sound-btn';
+    this.soundBtnEl.className = 'icon-btn sound-btn tooltip-right';
     this.soundBtnEl.addEventListener('click', () => {
       if (!this.audioModule) return;
       const nextMuted = !this.audioModule.isMuted();
@@ -1160,10 +1273,10 @@ export class HudController {
 
     this.menuBtnEl = document.createElement('button');
     this.menuBtnEl.type = 'button';
-    this.menuBtnEl.className = 'icon-btn menu-btn';
-    this.menuBtnEl.title = 'House menu — Share Link, Volume, Files & Controls';
+    this.menuBtnEl.className = 'icon-btn menu-btn tooltip-right';
+    this.menuBtnEl.dataset.tooltip = 'Menu';
     this.menuBtnEl.setAttribute('aria-label', 'House menu');
-    this.menuBtnEl.appendChild(createIconEl('menu', 16));
+    this.menuBtnEl.appendChild(createIconEl('menu', 21));
     this.menuBtnEl.addEventListener('click', () => {
       this.audioModule?.playUiClick();
       this.togglePopover('menu');
@@ -1173,6 +1286,7 @@ export class HudController {
       this.houseOpenBtnEl,
       divRight,
       this.visitorsBtnEl,
+      this.shareBtnEl,
       this.soundBtnEl,
       this.menuBtnEl,
     );
@@ -1329,6 +1443,10 @@ export class HudController {
     this.atmospherePopoverEl.className = 'hud-popover atmosphere-popover hidden';
     this.root.appendChild(this.atmospherePopoverEl);
 
+    this.wallsPopoverEl = document.createElement('div');
+    this.wallsPopoverEl.className = 'hud-popover walls-popover hidden';
+    this.root.appendChild(this.wallsPopoverEl);
+
     this.visitorsPopoverEl = document.createElement('div');
     this.visitorsPopoverEl.className = 'hud-popover visitors-popover hidden';
     this.root.appendChild(this.visitorsPopoverEl);
@@ -1402,10 +1520,61 @@ export class HudController {
     this.liveCtaWrapEl.appendChild(enterBuildBtn);
     this.root.appendChild(this.liveCtaWrapEl);
 
+    // ── Bottom-Right Floating Simulation Speed Pill (⏸ · 1× · 2× · 5×) ──
+    this.simSpeedPillEl = this.createSimSpeedGroup('sim-speed-pill');
+    this.root.appendChild(this.simSpeedPillEl);
+
+    // ── Bottom-Left Floating Storybook Visitor Profile Card ──
+    this.visitorProfileCardEl = document.createElement('aside');
+    this.visitorProfileCardEl.className = 'visitor-profile-card hidden';
+    this.visitorProfileCardEl.setAttribute('aria-label', 'Visitor profile');
+    this.root.appendChild(this.visitorProfileCardEl);
+
     // ── Floating Bottom Selection / Place / Bulk / Erase Action Bar ──
     this.contextBarEl = document.createElement('div');
     this.contextBarEl.className = 'context-bar hidden';
     this.root.appendChild(this.contextBarEl);
+  }
+
+  private createSimSpeedGroup(className: string): HTMLDivElement {
+    const group = document.createElement('div');
+    group.className = className;
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Simulation speed');
+
+    const current = this.store.getSimSpeed();
+    this.simSpeedBtns = this.simSpeedBtns.filter((entry) => entry.btn.isConnected);
+
+    for (const opt of SIM_SPEED_OPTIONS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sim-speed-btn tabular-num';
+      btn.textContent = opt.label;
+      btn.title = opt.title;
+      btn.setAttribute('aria-label', opt.title);
+      const isActive = current === opt.speed;
+      btn.classList.toggle('active', isActive && opt.speed !== 0);
+      btn.classList.toggle('paused-active', isActive && opt.speed === 0);
+      btn.setAttribute('aria-pressed', String(isActive));
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.store.setSimSpeed(opt.speed);
+      });
+      this.simSpeedBtns.push({ btn, speed: opt.speed });
+      group.appendChild(btn);
+    }
+    return group;
+  }
+
+  private syncSimSpeedControlsLive(): void {
+    const current = this.store.getSimSpeed();
+    this.simSpeedBtns = this.simSpeedBtns.filter((entry) => entry.btn.isConnected);
+    for (const { btn, speed } of this.simSpeedBtns) {
+      const isActive = current === speed;
+      btn.classList.toggle('active', isActive && speed !== 0);
+      btn.classList.toggle('paused-active', isActive && speed === 0);
+      btn.setAttribute('aria-pressed', String(isActive));
+    }
   }
 
   private setCinematicMode(enabled: boolean): void {
@@ -1413,6 +1582,7 @@ export class HudController {
       this.store.setEditMode(false);
       this.setActivePopover(null);
       this.setHoverItem(null);
+      this.clearSelectedVisitor();
     }
     this.sceneManager.isoCamera.setCinematicMode(enabled);
     this.root.classList.toggle('cinematic-active', enabled);
@@ -1436,6 +1606,7 @@ export class HudController {
 
     this.roomPopoverEl.classList.toggle('hidden', kind !== 'room');
     this.atmospherePopoverEl.classList.toggle('hidden', kind !== 'atmosphere');
+    this.wallsPopoverEl.classList.toggle('hidden', kind !== 'walls');
     this.visitorsPopoverEl.classList.toggle('hidden', kind !== 'visitors');
     this.menuPopoverEl.classList.toggle('hidden', kind !== 'menu');
     this.lotPopoverEl.classList.toggle('hidden', kind !== 'lot');
@@ -1445,9 +1616,14 @@ export class HudController {
     this.visitorsBtnEl.classList.toggle('active-trigger', kind === 'visitors');
     this.menuBtnEl.classList.toggle('active-trigger', kind === 'menu');
     this.lotSizeBtnEl.classList.toggle('active-tool', kind === 'lot');
+    this.syncWallViewButton();
 
     if (kind === 'room') this.renderRoomPopover();
     if (kind === 'atmosphere') this.renderAtmospherePopover();
+    if (kind === 'walls') {
+      this.renderWallsPopover();
+      this.positionWallsPopover();
+    }
     if (kind === 'visitors') this.renderVisitorsPopover();
     if (kind === 'menu') this.renderMenuPopover();
     if (kind === 'lot') this.renderLotPopover();
@@ -2626,15 +2802,18 @@ export class HudController {
     const pos = hourToTimeSliderPos(hour, running);
 
     const head = document.createElement('div');
-    head.className = 'sb-slider-head';
+    head.className = 'sb-slider-head sb-time-head';
+    const headLeft = document.createElement('div');
+    headLeft.className = 'sb-time-head-left';
     const prefix = document.createElement('span');
     prefix.className = 'sb-slider-prefix';
-    prefix.textContent = 'Time of day:';
+    prefix.textContent = 'Time:';
     const val = document.createElement('span');
     val.className = 'sb-slider-value';
     val.textContent = timeHourToLabel(hour, running);
     this.timeStatusEl = val;
-    head.append(prefix, val);
+    headLeft.append(prefix, val);
+    head.append(headLeft, this.createSimSpeedGroup('sb-speed-mini'));
     card.appendChild(head);
 
     const track = document.createElement('div');
@@ -3354,13 +3533,114 @@ export class HudController {
     parent.appendChild(wrap);
   }
 
+  private positionWallsPopover(): void {
+    if (!this.wallsPopoverEl || !this.wallViewBtnEl) return;
+    const btnRect = this.wallViewBtnEl.getBoundingClientRect();
+    const popWidth = 212;
+    const centeredLeft = btnRect.left + btnRect.width / 2 - popWidth / 2;
+    const clampedLeft = Math.max(14, Math.min(window.innerWidth - popWidth - 14, centeredLeft));
+    this.wallsPopoverEl.style.left = `${Math.round(clampedLeft)}px`;
+  }
+
+  private renderWallsPopover(): void {
+    const activeMode = this.store.getWallViewMode();
+    const ceilingOn = this.store.isCeilingVisible();
+    this.wallsPopoverEl.innerHTML = '';
+
+    const options: Array<{ mode: WallViewMode; label: string }> = [
+      { mode: 'auto', label: 'Auto Cutaway' },
+      { mode: 'translucent', label: 'Transparent' },
+      { mode: 'solid', label: 'Solid Walls' },
+    ];
+
+    const list = document.createElement('div');
+    list.className = 'walls-mode-list';
+    list.setAttribute('role', 'menu');
+    list.setAttribute('aria-label', 'Wall visibility modes');
+
+    for (const opt of options) {
+      const isSelected = opt.mode === activeMode;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = isSelected ? 'wall-mode-option active' : 'wall-mode-option';
+      btn.setAttribute('role', 'menuitemradio');
+      btn.setAttribute('aria-checked', String(isSelected));
+      btn.appendChild(createStorybookIconEl(getWallViewStorybookIconName(opt.mode), 25));
+
+      const lbl = document.createElement('span');
+      lbl.className = 'wall-mode-label';
+      lbl.textContent = opt.label;
+      btn.appendChild(lbl);
+
+      if (isSelected) {
+        btn.appendChild(createIconEl('check', 15));
+      }
+
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.store.setWallViewMode(opt.mode);
+        const meta = WALL_VIEW_OPTIONS.find((o) => o.id === opt.mode);
+        if (meta) this.store.notify(meta.fullLabel, 'info');
+        this.setActivePopover(null);
+      });
+
+      list.appendChild(btn);
+    }
+    this.wallsPopoverEl.appendChild(list);
+
+    const divider = document.createElement('div');
+    divider.className = 'walls-dropdown-divider';
+    this.wallsPopoverEl.appendChild(divider);
+
+    const ceilingRow = document.createElement('div');
+    ceilingRow.className = 'walls-ceiling-row';
+
+    const ceilingLabel = document.createElement('span');
+    ceilingLabel.className = 'walls-ceiling-label';
+    ceilingLabel.textContent = 'Ceiling';
+
+    const switchBtn = document.createElement('button');
+    switchBtn.type = 'button';
+    switchBtn.className = ceilingOn ? 'sb-toggle-switch on' : 'sb-toggle-switch';
+    switchBtn.setAttribute('role', 'switch');
+    switchBtn.setAttribute('aria-checked', String(ceilingOn));
+    switchBtn.setAttribute('aria-label', ceilingOn ? 'Hide ceiling' : 'Show ceiling');
+    const knob = document.createElement('span');
+    knob.className = 'sb-toggle-knob';
+    switchBtn.appendChild(knob);
+
+    switchBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.store.setCeilingVisible(!this.store.isCeilingVisible());
+    });
+
+    ceilingRow.append(ceilingLabel, switchBtn);
+    this.wallsPopoverEl.appendChild(ceilingRow);
+  }
+
   private syncWallViewButton(): void {
-    if (!this.wallViewBtnEl) return;
+    if (!this.wallViewBtnEl || !this.wallViewIconSlotEl) return;
     const mode = this.store.getWallViewMode();
     const meta = WALL_VIEW_OPTIONS.find((o) => o.id === mode) ?? WALL_VIEW_OPTIONS[0];
-    this.wallViewBtnEl.title = `${meta.fullLabel} — click to cycle`;
-    this.wallViewBtnEl.setAttribute('aria-label', meta.fullLabel);
-    this.wallViewBtnEl.classList.toggle('active-trigger', mode === 'translucent');
+    const iconName = getWallViewStorybookIconName(mode);
+    if (this.wallViewIconSlotEl.dataset.icon !== iconName) {
+      this.wallViewIconSlotEl.dataset.icon = iconName;
+      this.wallViewIconSlotEl.innerHTML = '';
+      this.wallViewIconSlotEl.appendChild(createStorybookIconEl(iconName, 22));
+    }
+    const tooltip =
+      mode === 'translucent'
+        ? 'Walls: Transparent'
+        : mode === 'solid'
+          ? 'Walls: Solid'
+          : 'Walls: Auto';
+    const isOpen = this.activePopover === 'walls';
+    this.wallViewBtnEl.dataset.tooltip = tooltip;
+    this.wallViewBtnEl.removeAttribute('title');
+    this.wallViewBtnEl.setAttribute('aria-label', `${meta.fullLabel} — open wall & ceiling options`);
+    this.wallViewBtnEl.setAttribute('aria-expanded', String(isOpen));
+    this.wallViewBtnEl.classList.toggle('active-trigger', isOpen);
+    this.wallViewBtnEl.classList.toggle('wall-translucent-state', mode === 'translucent');
     this.wallViewBtnEl.classList.toggle('wall-solid-state', mode === 'solid');
   }
 
@@ -3678,6 +3958,20 @@ export class HudController {
     shareLabel.textContent = 'Share';
     this.menuPopoverEl.appendChild(shareLabel);
 
+    const polaroidBtn = document.createElement('button');
+    polaroidBtn.type = 'button';
+    polaroidBtn.className = 'btn primary full-width';
+    polaroidBtn.appendChild(createStorybookIconEl('polaroid', 19));
+    const polaroidLbl = document.createElement('span');
+    polaroidLbl.textContent = 'Share Polaroid Card';
+    polaroidBtn.appendChild(polaroidLbl);
+    polaroidBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setActivePopover(null);
+      this.polaroidModal.open();
+    });
+    this.menuPopoverEl.appendChild(polaroidBtn);
+
     const copyLinkBtn = this.makeBtn(
       'Copy Share Link',
       () => {
@@ -3706,11 +4000,11 @@ export class HudController {
           }
         })();
       },
-      'primary',
+      undefined,
       'share',
       14,
     );
-    copyLinkBtn.className = 'btn primary full-width';
+    copyLinkBtn.className = 'btn full-width';
     this.menuPopoverEl.appendChild(copyLinkBtn);
 
     const importLinkRow = document.createElement('div');
@@ -3885,8 +4179,240 @@ export class HudController {
     return MOOD_FALLBACK_EMOJI[mood] ?? '💭';
   }
 
+  private selectVisitor(instanceId: string, closePopover = false): void {
+    const snap = this.visitorModule?.getActiveVisitorById(instanceId);
+    if (!snap) {
+      this.clearSelectedVisitor();
+      return;
+    }
+    this.selectedVisitorId = instanceId;
+    if (closePopover) {
+      this.setActivePopover(null);
+    }
+    this.focusCameraOnSelectedVisitor();
+    this.renderVisitorProfileCard();
+  }
+
+  private focusCameraOnSelectedVisitor(): void {
+    if (!this.selectedVisitorId || !this.visitorModule) return;
+    const pos = this.visitorModule.getVisitorWorldPosition(this.selectedVisitorId);
+    if (pos) {
+      this.sceneManager.focusOnWorldPoint(pos.x, pos.z, 1.55);
+    }
+    const targetId = this.selectedVisitorId;
+    this.sceneManager.setCameraFollowProvider(() => {
+      if (this.selectedVisitorId !== targetId || !this.visitorModule) return null;
+      const livePos = this.visitorModule.getVisitorWorldPosition(targetId);
+      return livePos ? { x: livePos.x, z: livePos.z } : null;
+    });
+  }
+
+  private clearSelectedVisitor(): void {
+    if (this.selectedVisitorId !== null) {
+      this.selectedVisitorId = null;
+      this.sceneManager.setCameraFollowProvider(null);
+    }
+    if (this.visitorProfileCardEl) {
+      this.visitorProfileCardEl.classList.add('hidden');
+      this.visitorProfileCardEl.innerHTML = '';
+    }
+  }
+
+  private renderVisitorProfileCard(): void {
+    if (!this.visitorProfileCardEl) return;
+    if (!this.selectedVisitorId || !this.visitorModule || this.store.isEditMode()) {
+      this.clearSelectedVisitor();
+      return;
+    }
+
+    const snap = this.visitorModule.getActiveVisitorById(this.selectedVisitorId);
+    if (!snap) {
+      this.clearSelectedVisitor();
+      return;
+    }
+
+    const def = this.store.data.visitorsById.get(snap.visitorId);
+    const personalName = snap.name ?? def?.name ?? snap.visitorId;
+    const archetypeLabel = snap.archetypeName ?? def?.name ?? snap.visitorId;
+    const score = Math.max(
+      0,
+      Math.min(
+        100,
+        snap.moodScore ??
+          (snap.mood === 'delighted'
+            ? 95
+            : snap.mood === 'happy'
+              ? 76
+              : snap.mood === 'neutral'
+                ? 52
+                : snap.mood === 'bored'
+                  ? 25
+                  : 10),
+      ),
+    );
+
+    this.visitorProfileCardEl.classList.remove('hidden');
+    this.visitorProfileCardEl.innerHTML = '';
+
+    // Header: 58px 3D Portrait + Name + Archetype & Pronouns + Mood meter + Close
+    const head = document.createElement('div');
+    head.className = 'vp-head';
+
+    const portrait = this.createVisitorPortrait(
+      def,
+      snap.variantIndex ?? 0,
+      snap.color ?? '#E8BFA8',
+      snap.visitorId,
+    );
+    portrait.classList.add('vp-pfp');
+
+    const meta = document.createElement('div');
+    meta.className = 'vp-meta';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'vp-name';
+    nameEl.textContent = personalName;
+
+    const subEl = document.createElement('div');
+    subEl.className = 'vp-sub';
+    subEl.textContent = snap.pronouns
+      ? `${archetypeLabel} · ${snap.pronouns}`
+      : archetypeLabel;
+
+    const moodRow = document.createElement('div');
+    moodRow.className = 'vp-mood-row';
+
+    const emoji = document.createElement('span');
+    emoji.className = 'visitor-mood-emoji';
+    emoji.textContent = this.resolveVisitorEmoji(snap.lastEmote, snap.mood);
+
+    const moodLabel = document.createElement('span');
+    moodLabel.className = `mood-pill mood-${snap.mood}`;
+    moodLabel.textContent = snap.mood;
+
+    const barTrack = document.createElement('div');
+    barTrack.className = 'mood-bar-track';
+    barTrack.title = `Mood: ${Math.round(score)}%`;
+    const barFill = document.createElement('div');
+    barFill.className = `mood-bar-fill mood-${snap.mood}`;
+    barFill.style.width = `${Math.round(score)}%`;
+    barTrack.appendChild(barFill);
+
+    moodRow.append(emoji, moodLabel, barTrack);
+    meta.append(nameEl, subEl, moodRow);
+
+    const closeBtn = this.makeBtn('×', () => {
+      this.audioModule?.playUiClick();
+      this.clearSelectedVisitor();
+    });
+    closeBtn.className = 'btn icon-close';
+    closeBtn.setAttribute('aria-label', 'Close visitor profile');
+
+    head.append(portrait, meta, closeBtn);
+    this.visitorProfileCardEl.appendChild(head);
+
+    // Hobbies & Interests section (full untruncated personality + Likes/Dislikes)
+    const hobbiesSec = document.createElement('div');
+    hobbiesSec.className = 'vp-section';
+
+    const hobbiesLbl = document.createElement('div');
+    hobbiesLbl.className = 'popover-section-label';
+    hobbiesLbl.textContent = 'Hobbies & Interests';
+    hobbiesSec.appendChild(hobbiesLbl);
+
+    const traitText = snap.personality || def?.description;
+    if (traitText) {
+      const traitEl = document.createElement('p');
+      traitEl.className = 'vp-trait';
+      traitEl.textContent = traitText;
+      hobbiesSec.appendChild(traitEl);
+    }
+
+    const likes = snap.interests ?? def?.likedTags ?? [];
+    const matchedLikes = new Set(snap.matchedInterests ?? []);
+    const dislikes = snap.dislikes ?? def?.dislikedTags ?? [];
+    const matchedDislikes = new Set(snap.matchedDislikes ?? []);
+
+    if (likes.length > 0 || dislikes.length > 0) {
+      const chips = document.createElement('div');
+      chips.className = 'tag-chip-list';
+      for (const tag of likes) {
+        const hit = matchedLikes.has(tag);
+        const chip = document.createElement('span');
+        chip.className = hit ? 'tag-chip matched' : 'tag-chip';
+        chip.textContent = hit ? `✓ ${tag}` : tag;
+        chips.appendChild(chip);
+      }
+      for (const tag of dislikes) {
+        const hit = matchedDislikes.has(tag);
+        const chip = document.createElement('span');
+        chip.className = hit ? 'tag-chip disliked-hit' : 'tag-chip disliked';
+        chip.textContent = `✕ ${tag}`;
+        chips.appendChild(chip);
+      }
+      hobbiesSec.appendChild(chips);
+    }
+    this.visitorProfileCardEl.appendChild(hobbiesSec);
+
+    // What they think of the place (full untruncated quote + live activity)
+    const thoughtSec = document.createElement('div');
+    thoughtSec.className = 'vp-thought-box';
+
+    const thoughtLbl = document.createElement('div');
+    thoughtLbl.className = 'popover-section-label';
+    thoughtLbl.textContent = 'What they think';
+    thoughtSec.appendChild(thoughtLbl);
+
+    const quoteEl = document.createElement('p');
+    quoteEl.className = 'vp-quote';
+    quoteEl.textContent = snap.thought
+      ? `“${snap.thought}”`
+      : '“Taking in the cozy atmosphere!”';
+    thoughtSec.appendChild(quoteEl);
+
+    const activityEl = document.createElement('div');
+    activityEl.className = 'vp-activity';
+    activityEl.textContent = snap.activity || 'Exploring the room';
+    thoughtSec.appendChild(activityEl);
+
+    this.visitorProfileCardEl.appendChild(thoughtSec);
+
+    // Footer actions: Focus + Dismiss
+    const footer = document.createElement('div');
+    footer.className = 'vp-actions';
+
+    const focusBtn = this.makeBtn(
+      'Focus',
+      () => {
+        this.audioModule?.playUiClick();
+        this.focusCameraOnSelectedVisitor();
+      },
+      'primary',
+      'reset',
+      14,
+    );
+    focusBtn.className = 'btn primary btn-xs';
+
+    const dismissBtn = this.makeBtn(
+      'Dismiss',
+      () => {
+        this.audioModule?.playUiClick();
+        const id = snap.instanceId;
+        this.clearSelectedVisitor();
+        this.visitorModule?.dismiss(id);
+      },
+      'danger',
+    );
+    dismissBtn.className = 'btn danger btn-xs';
+
+    footer.append(focusBtn, dismissBtn);
+    this.visitorProfileCardEl.appendChild(footer);
+  }
+
   private renderVisitorsPopover(): void {
     this.visitorsPopoverEl.innerHTML = '';
+
+    const active = this.visitorModule?.getActiveVisitors() ?? [];
 
     const header = document.createElement('div');
     header.className = 'popover-header';
@@ -3897,148 +4423,176 @@ export class HudController {
     header.append(h4, closeBtn);
     this.visitorsPopoverEl.appendChild(header);
 
-    const active = this.visitorModule?.getActiveVisitors() ?? [];
+    // Crisp 2-Tab Switcher separating Here Now vs Invite
+    const tabBar = document.createElement('div');
+    tabBar.className = 'visitors-tab-bar';
+    tabBar.setAttribute('role', 'tablist');
 
-    const activeHeader = document.createElement('div');
-    activeHeader.className = 'visitors-section-header';
-    const activeLabel = document.createElement('span');
-    activeLabel.className = 'popover-section-label tabular-num';
-    activeLabel.textContent = `Here Now (${active.length})`;
-    activeHeader.appendChild(activeLabel);
+    const hereTabBtn = document.createElement('button');
+    hereTabBtn.type = 'button';
+    hereTabBtn.className =
+      this.visitorsTab === 'here' ? 'visitors-tab-btn active tabular-num' : 'visitors-tab-btn tabular-num';
+    hereTabBtn.setAttribute('role', 'tab');
+    hereTabBtn.setAttribute('aria-selected', String(this.visitorsTab === 'here'));
+    hereTabBtn.textContent = `Here Now (${active.length})`;
+    hereTabBtn.addEventListener('click', () => {
+      if (this.visitorsTab === 'here') return;
+      this.audioModule?.playUiClick();
+      this.visitorsTab = 'here';
+      this.renderVisitorsPopover();
+    });
 
-    if (active.length > 0 && this.visitorModule) {
-      const dismissAllBtn = this.makeBtn('Dismiss All', () => {
-        this.audioModule?.playUiClick();
-        this.visitorModule?.dismissAll();
-      });
-      dismissAllBtn.className = 'btn btn-xs';
-      activeHeader.appendChild(dismissAllBtn);
-    }
-    this.visitorsPopoverEl.appendChild(activeHeader);
+    const inviteTabBtn = document.createElement('button');
+    inviteTabBtn.type = 'button';
+    inviteTabBtn.className =
+      this.visitorsTab === 'invite' ? 'visitors-tab-btn active' : 'visitors-tab-btn';
+    inviteTabBtn.setAttribute('role', 'tab');
+    inviteTabBtn.setAttribute('aria-selected', String(this.visitorsTab === 'invite'));
+    inviteTabBtn.textContent = 'Invite';
+    inviteTabBtn.addEventListener('click', () => {
+      if (this.visitorsTab === 'invite') return;
+      this.audioModule?.playUiClick();
+      this.visitorsTab = 'invite';
+      this.renderVisitorsPopover();
+    });
 
-    if (active.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'visitors-empty';
-      empty.textContent = this.store.isHouseOpen()
-        ? 'Guests drop by automatically while Open, or invite anyone below.'
-        : 'House is Closed. Invite a guest below or switch to Open.';
-      this.visitorsPopoverEl.appendChild(empty);
-    } else {
-      const activeList = document.createElement('div');
-      activeList.className = 'active-visitors-list';
-      const seenByArchetype = new Map<string, number>();
+    tabBar.append(hereTabBtn, inviteTabBtn);
+    this.visitorsPopoverEl.appendChild(tabBar);
 
-      for (const snap of active) {
-        const def = this.store.data.visitorsById.get(snap.visitorId);
-        const occ = seenByArchetype.get(snap.visitorId) ?? 0;
-        seenByArchetype.set(snap.visitorId, occ + 1);
-        const variantIdx = snap.variantIndex ?? (occ % 3);
-
-        const card = document.createElement('div');
-        card.className = 'active-visitor-card';
-
-        const headerRow = document.createElement('div');
-        headerRow.className = 'active-visitor-head';
-
-        const personalName = snap.name ?? def?.name ?? snap.visitorId;
-        const archetypeLabel = snap.archetypeName ?? def?.name ?? snap.visitorId;
-        const portrait = this.createVisitorPortrait(
-          def,
-          variantIdx,
-          snap.color ?? '#E8BFA8',
-          snap.visitorId,
-        );
-        portrait.title = snap.personality
-          ? `${archetypeLabel} — ${snap.personality}`
-          : archetypeLabel;
-
-        const identity = document.createElement('div');
-        identity.className = 'active-visitor-info';
-
-        const compactRow = document.createElement('div');
-        compactRow.className = 'active-visitor-compact';
-
-        const nameEl = document.createElement('span');
-        nameEl.className = 'active-visitor-name';
-        nameEl.textContent = personalName;
-
-        const emojiEl = document.createElement('span');
-        emojiEl.className = 'visitor-mood-emoji';
-        emojiEl.textContent = this.resolveVisitorEmoji(snap.lastEmote, snap.mood);
-        emojiEl.title = snap.mood;
-
-        const score = Math.max(
-          0,
-          Math.min(
-            100,
-            snap.moodScore ??
-              (snap.mood === 'delighted'
-                ? 95
-                : snap.mood === 'happy'
-                  ? 76
-                  : snap.mood === 'neutral'
-                    ? 52
-                    : snap.mood === 'bored'
-                      ? 25
-                      : 10),
-          ),
-        );
-
-        const barTrack = document.createElement('div');
-        barTrack.className = 'mood-bar-track';
-        barTrack.title = `Mood: ${Math.round(score)}%`;
-        const barFill = document.createElement('div');
-        barFill.className = `mood-bar-fill mood-${snap.mood}`;
-        barFill.style.width = `${Math.round(score)}%`;
-        barTrack.appendChild(barFill);
-
-        compactRow.append(nameEl, emojiEl, barTrack);
-        identity.appendChild(compactRow);
-
-        const sendHomeBtn = this.makeBtn('×', () => {
+    if (this.visitorsTab === 'here') {
+      if (active.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'visitors-empty';
+        empty.textContent = this.store.isHouseOpen()
+          ? 'Guests drop by automatically while Open, or switch to Invite.'
+          : 'House is Closed. Switch to Invite or open the house.';
+        this.visitorsPopoverEl.appendChild(empty);
+      } else {
+        const topActionRow = document.createElement('div');
+        topActionRow.className = 'visitors-section-header';
+        const hint = document.createElement('span');
+        hint.className = 'visitors-click-hint';
+        hint.textContent = 'Click a guest to focus & inspect';
+        const dismissAllBtn = this.makeBtn('Dismiss All', () => {
           this.audioModule?.playUiClick();
-          this.visitorModule?.dismiss(snap.instanceId);
+          this.clearSelectedVisitor();
+          this.visitorModule?.dismissAll();
         });
-        sendHomeBtn.className = 'btn icon-close';
-        sendHomeBtn.title = 'Send Home';
-        sendHomeBtn.setAttribute('aria-label', `Send ${personalName} home`);
+        dismissAllBtn.className = 'btn btn-xs';
+        topActionRow.append(hint, dismissAllBtn);
+        this.visitorsPopoverEl.appendChild(topActionRow);
 
-        headerRow.append(portrait, identity, sendHomeBtn);
-        card.appendChild(headerRow);
+        const activeList = document.createElement('div');
+        activeList.className = 'active-visitors-list';
+        const seenByArchetype = new Map<string, number>();
 
-        // Single crisp 1-line reaction with subtle ♥ / ✕ tone dot
-        const reactionText = (snap.thought || snap.activity || 'Looking around').trim();
-        const isNegative =
-          (snap.matchedDislikes?.length ?? 0) > 0 ||
-          snap.mood === 'bored' ||
-          snap.mood === 'leaving';
+        for (const snap of active) {
+          const def = this.store.data.visitorsById.get(snap.visitorId);
+          const occ = seenByArchetype.get(snap.visitorId) ?? 0;
+          seenByArchetype.set(snap.visitorId, occ + 1);
+          const variantIdx = snap.variantIndex ?? (occ % 3);
 
-        const reactLine = document.createElement('div');
-        reactLine.className = 'visitor-react-line';
-        reactLine.title = reactionText;
+          const isSelected = this.selectedVisitorId === snap.instanceId;
+          const card = document.createElement('div');
+          card.className = isSelected
+            ? 'active-visitor-card clickable selected'
+            : 'active-visitor-card clickable';
+          card.setAttribute('role', 'button');
+          card.setAttribute('tabindex', '0');
 
-        const toneDot = document.createElement('span');
-        toneDot.className = isNegative ? 'visitor-react-dot dislike' : 'visitor-react-dot like';
-        toneDot.textContent = isNegative ? '✕' : '♥';
-        toneDot.setAttribute('aria-hidden', 'true');
+          const personalName = snap.name ?? def?.name ?? snap.visitorId;
+          const archetypeLabel = snap.archetypeName ?? def?.name ?? snap.visitorId;
+          card.title = `Focus on ${personalName} (${archetypeLabel})`;
+          card.addEventListener('click', () => {
+            this.audioModule?.playUiClick();
+            this.selectVisitor(snap.instanceId, true);
+          });
+          card.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              this.audioModule?.playUiClick();
+              this.selectVisitor(snap.instanceId, true);
+            }
+          });
 
-        const reactSpan = document.createElement('span');
-        reactSpan.className = 'visitor-react-text';
-        reactSpan.textContent = reactionText;
+          const headerRow = document.createElement('div');
+          headerRow.className = 'active-visitor-head';
 
-        reactLine.append(toneDot, reactSpan);
-        card.appendChild(reactLine);
+          const portrait = this.createVisitorPortrait(
+            def,
+            variantIdx,
+            snap.color ?? '#E8BFA8',
+            snap.visitorId,
+          );
 
-        activeList.appendChild(card);
+          const identity = document.createElement('div');
+          identity.className = 'active-visitor-info';
+
+          const compactRow = document.createElement('div');
+          compactRow.className = 'active-visitor-compact';
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'active-visitor-name';
+          nameEl.textContent = personalName;
+
+          const emojiEl = document.createElement('span');
+          emojiEl.className = 'visitor-mood-emoji';
+          emojiEl.textContent = this.resolveVisitorEmoji(snap.lastEmote, snap.mood);
+          emojiEl.title = snap.mood;
+
+          const score = Math.max(
+            0,
+            Math.min(
+              100,
+              snap.moodScore ??
+                (snap.mood === 'delighted'
+                  ? 95
+                  : snap.mood === 'happy'
+                    ? 76
+                    : snap.mood === 'neutral'
+                      ? 52
+                      : snap.mood === 'bored'
+                        ? 25
+                        : 10),
+            ),
+          );
+
+          const barTrack = document.createElement('div');
+          barTrack.className = 'mood-bar-track';
+          barTrack.title = `Mood: ${Math.round(score)}%`;
+          const barFill = document.createElement('div');
+          barFill.className = `mood-bar-fill mood-${snap.mood}`;
+          barFill.style.width = `${Math.round(score)}%`;
+          barTrack.appendChild(barFill);
+
+          compactRow.append(nameEl, emojiEl, barTrack);
+          identity.appendChild(compactRow);
+
+          const sendHomeBtn = document.createElement('button');
+          sendHomeBtn.type = 'button';
+          sendHomeBtn.className = 'btn icon-close';
+          sendHomeBtn.textContent = '×';
+          sendHomeBtn.title = 'Send Home';
+          sendHomeBtn.setAttribute('aria-label', `Send ${personalName} home`);
+          sendHomeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.audioModule?.playUiClick();
+            if (this.selectedVisitorId === snap.instanceId) {
+              this.clearSelectedVisitor();
+            }
+            this.visitorModule?.dismiss(snap.instanceId);
+          });
+
+          headerRow.append(portrait, identity, sendHomeBtn);
+          card.appendChild(headerRow);
+          activeList.appendChild(card);
+        }
+        this.visitorsPopoverEl.appendChild(activeList);
       }
-      this.visitorsPopoverEl.appendChild(activeList);
+      return;
     }
 
-    const inviteLabel = document.createElement('div');
-    inviteLabel.className = 'popover-section-label';
-    inviteLabel.textContent = `Invite (${this.store.data.visitors.visitors.length})`;
-    this.visitorsPopoverEl.appendChild(inviteLabel);
-
+    // Tab 2: Invite Archetypes
     const inviteList = document.createElement('div');
     inviteList.className = 'invite-visitors-list';
     for (const visitor of this.store.data.visitors.visitors) {
@@ -4088,6 +4642,9 @@ export class HudController {
     if (this.activePopover === 'visitors') {
       this.renderVisitorsPopover();
     }
+    if (this.selectedVisitorId) {
+      this.renderVisitorProfileCard();
+    }
   }
 
   private syncDockToolButtons(): void {
@@ -4115,8 +4672,9 @@ export class HudController {
     if (!this.soundBtnEl) return;
     const muted = this.audioModule?.isMuted() ?? false;
     this.soundBtnEl.innerHTML = '';
-    this.soundBtnEl.appendChild(createIconEl(muted ? 'soundOff' : 'soundOn', 16));
-    this.soundBtnEl.title = muted ? 'Sound muted — click to unmute' : 'Sound on — click to mute';
+    this.soundBtnEl.appendChild(createIconEl(muted ? 'soundOff' : 'soundOn', 21));
+    this.soundBtnEl.dataset.tooltip = muted ? 'Sound Off' : 'Sound';
+    this.soundBtnEl.removeAttribute('title');
     this.soundBtnEl.setAttribute('aria-label', muted ? 'Unmute sound' : 'Mute sound');
     this.soundBtnEl.classList.toggle('muted-state', muted);
   }
@@ -4146,11 +4704,12 @@ export class HudController {
     const timeIcon = timeHourToStorybookIcon(timeHour, running);
     const weatherIcon = getWeatherStorybookIconName(activeWeather.id);
 
-    this.setStorybookSlotIcon(this.atmoLocSlotEl, locIcon, 20);
-    this.setStorybookSlotIcon(this.atmoTimeSlotEl, timeIcon, 20);
-    this.setStorybookSlotIcon(this.atmoWeatherSlotEl, weatherIcon, 20);
+    this.setStorybookSlotIcon(this.atmoLocSlotEl, locIcon, 22);
+    this.setStorybookSlotIcon(this.atmoTimeSlotEl, timeIcon, 22);
+    this.setStorybookSlotIcon(this.atmoWeatherSlotEl, weatherIcon, 22);
 
-    this.atmosphereBtnEl.title = `${activeView.name} · ${timeHourToLabel(timeHour, running)} · ${activeWeather.name}`;
+    this.atmosphereBtnEl.dataset.tooltip = `${activeView.name} · ${timeHourToLabel(timeHour, running)} · ${activeWeather.name}`;
+    this.atmosphereBtnEl.removeAttribute('title');
   }
 
   private syncHud(): void {
@@ -4160,7 +4719,7 @@ export class HudController {
     this.setStorybookSlotIcon(
       this.roomIconSlotEl,
       getRoomStorybookIconName(evaluation.labelInfo.id),
-      20,
+      22,
     );
     this.roomLabelTextEl.textContent = evaluation.labelInfo.label;
 

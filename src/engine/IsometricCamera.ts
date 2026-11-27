@@ -36,6 +36,7 @@ export class IsometricCamera {
   private preCinematicTarget = new THREE.Vector3(0, 0.5, 0);
 
   private onStepChange?: (quarter: number) => void;
+  private onManualPanListeners = new Set<() => void>();
 
   constructor(width: number, height: number, onStepChange?: (quarter: number) => void) {
     this.aspect = Math.max(0.1, width / Math.max(1, height));
@@ -132,10 +133,56 @@ export class IsometricCamera {
     return this.transitionZoomScale;
   }
 
+  onManualPan(listener: () => void): () => void {
+    this.onManualPanListeners.add(listener);
+    return () => this.onManualPanListeners.delete(listener);
+  }
+
+  private emitManualPan(): void {
+    for (const listener of this.onManualPanListeners) {
+      listener();
+    }
+  }
+
+  /**
+   * Smoothly focuses the camera target on a world XZ point (clamped to `panLimit`),
+   * optionally raising zoom to at least `minZoom` without zooming out if already closer.
+   */
+  focusOnWorldPoint(x: number, z: number, minZoom?: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    this.desiredTarget.set(
+      THREE.MathUtils.clamp(x, -this.panLimit, this.panLimit),
+      0.5,
+      THREE.MathUtils.clamp(z, -this.panLimit, this.panLimit),
+    );
+    if (minZoom !== undefined && Number.isFinite(minZoom)) {
+      this.desiredZoom = Math.max(
+        this.desiredZoom,
+        THREE.MathUtils.clamp(minZoom, MIN_ZOOM, MAX_ZOOM),
+      );
+    }
+  }
+
+  /**
+   * Smoothly steers `desiredTarget` toward a world XZ point without touching zoom
+   * (used for live visitor camera following).
+   */
+  setTargetSmooth(x: number, z: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(z)) return;
+    this.desiredTarget.set(
+      THREE.MathUtils.clamp(x, -this.panLimit, this.panLimit),
+      0.5,
+      THREE.MathUtils.clamp(z, -this.panLimit, this.panLimit),
+    );
+  }
+
   /**
    * Pans camera in screen-space pixel delta (trackpad two-finger scroll or click-drag).
    */
   panByPixels(dxPixels: number, dyPixels: number, viewportHeight: number): void {
+    if (dxPixels !== 0 || dyPixels !== 0) {
+      this.emitManualPan();
+    }
     const worldPerPixel = (BASE_FRUSTUM_HALF_HEIGHT * 2) / (Math.max(1, viewportHeight) * this.currentZoom);
 
     // Screen right vector projected onto the XZ ground plane
@@ -165,6 +212,7 @@ export class IsometricCamera {
   }
 
   resetView(): void {
+    this.emitManualPan();
     this.desiredTarget.set(0, 0.5, 0);
     this.desiredZoom = DEFAULT_ZOOM;
     // Snap smoothly back to nearest multiple of 4 (45° default)
