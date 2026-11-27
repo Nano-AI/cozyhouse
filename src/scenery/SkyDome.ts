@@ -510,18 +510,26 @@ export function createSkyDome(
 }
 
 interface LinearCloud {
-  /** True world-space horizontal X coordinate in [-WORLD_CLOUD_SPAN, +WORLD_CLOUD_SPAN]. */
-  x: number;
-  /** True world-space horizontal Z coordinate in [-WORLD_CLOUD_SPAN, +WORLD_CLOUD_SPAN]. */
-  z: number;
-  /** World-space altitude above ground (13.5..17.5), high above the house. */
+  /** World-space position along the horizontal wind axis W = (+0.7071, -0.7071) in [-WORLD_CLOUD_SPAN, +WORLD_CLOUD_SPAN]. */
+  along: number;
+  /** Fixed perpendicular world-space lane offset along P = (+0.7071, +0.7071), always |lane| >= 23.5 (never enters central lot). */
+  lane: number;
+  /** World-space altitude above ground (7.0..10.5), projecting naturally across the outer horizon & sky. */
   baseY: number;
   /** Fixed world-space yaw rotation (never rotates with the camera). */
   rotY: number;
   speedMul: number;
   bobPhase: number;
   baseScale: number;
-  puffOffsets: Array<{ ox: number; oy: number; oz: number; sx: number; sy: number; sz: number }>;
+  puffOffsets: Array<{
+    ox: number;
+    oy: number;
+    oz: number;
+    sx: number;
+    sy: number;
+    sz: number;
+    shade: number;
+  }>;
 }
 
 export interface LinearCloudFieldHandle {
@@ -537,17 +545,20 @@ export interface LinearCloudFieldHandle {
   dispose(): void;
 }
 
-/** Wide world-space sky grid half-extent (184 x 184) so clouds wrap strictly off-screen. */
-const WORLD_CLOUD_SPAN = 92;
+/** Wide world-space sky corridor half-extent (180 units) so clouds wrap strictly off-screen. */
+const WORLD_CLOUD_SPAN = 90;
 /** Fixed world-space horizontal wind vector (glides left-to-right at default 45° iso view). */
 const WIND_DIR_X = Math.SQRT1_2;
 const WIND_DIR_Z = -Math.SQRT1_2;
+/** Perpendicular world-space lane axis keeping clouds permanently outside central lot clearance. */
+const PERP_DIR_X = Math.SQRT1_2;
+const PERP_DIR_Z = Math.SQRT1_2;
 
 /**
- * Pure world-space linear wind-drifting cumulus cloud layer rendered as a SINGLE
- * InstancedMesh draw call. Clouds stay 100% anchored to the 3D world (never moving with
- * the camera), maintain constant scale (`c.baseScale`, zero shrinking), and wrap only
- * once outside `±WORLD_CLOUD_SPAN`.
+ * Pure 3D world-space sculpted opaque storybook cumulus cloud layer rendered as a SINGLE
+ * InstancedMesh draw call. Clouds stay 100% anchored to the world (zero camera drift),
+ * glide along outer-sky lanes strictly outside the central house lot (`|lane| >= 23.5`),
+ * maintain 100% constant world scale (`c.baseScale`), and wrap cleanly off-screen.
  */
 export function createLinearCloudField(
   weather: WeatherDef,
@@ -560,62 +571,70 @@ export function createLinearCloudField(
   group.updateMatrix();
 
   const puffGeo = new THREE.IcosahedronGeometry(1, 1);
+  // Opaque flat-shaded matte storybook cumulus with soft pastel emissive bounce (zero double-blended rings)
   const cloudMat = new THREE.MeshStandardMaterial({
     color: '#FAFBFD',
+    emissive: '#EAEFF6',
+    emissiveIntensity: 0.26,
     roughness: 0.94,
     metalness: 0.0,
     flatShading: true,
-    transparent: true,
-    opacity: 0.72,
-    depthWrite: false,
+    transparent: false,
+    depthWrite: true,
   });
 
   const clouds: LinearCloud[] = [];
-  const cols = 6;
-  const rows = 4;
-  const count = cols * rows;
+  // Two symmetric scenic outer-sky corridors (10 NW horizon + 10 SE opposite horizon)
+  // so clouds frame the outer landscape/sky at all 4 camera angles and never cross the central lot.
+  const laneRows = [-24.5, -31.5, -40.0, -49.5, -58.0, 24.5, 31.5, 40.0, 49.5, 58.0];
+  const cloudsPerRow = 2;
+  const count = laneRows.length * cloudsPerRow;
   let totalPuffs = 0;
 
   for (let i = 0; i < count; i++) {
-    const baseScale = 1.35 + seededHash(i * 3 + 1) * 1.15;
-    const puffCount = 4 + (i % 3);
-    const puffOffsets: LinearCloud['puffOffsets'] = [];
+    const rowIdx = Math.floor(i / cloudsPerRow);
+    const slotIdx = i % cloudsPerRow;
+    const baseScale = 1.28 + seededHash(i * 3 + 1) * 0.82;
+    const crestSign = i % 2 === 0 ? 1 : -1;
 
-    for (let p = 0; p < puffCount; p++) {
-      const spreadX = (p - (puffCount - 1) * 0.5) * 0.88;
-      const spreadZ = (seededHash(i * 11 + p * 7) - 0.5) * 0.72;
-      const spreadY = p === Math.floor(puffCount / 2) ? 0.28 : (seededHash(i * 5 + p) - 0.45) * 0.22;
-      const r = p === Math.floor(puffCount / 2) ? 0.95 : 0.58 + seededHash(i * 13 + p) * 0.28;
-      puffOffsets.push({
-        ox: spreadX,
-        oy: spreadY,
-        oz: spreadZ,
-        sx: r * 1.42,
-        sy: r * 0.56,
-        sz: r * 1.02,
-      });
-      totalPuffs++;
-    }
+    // 5 sculpted flat-bottomed storybook cumulus puffs:
+    // wide flat base + 2 side billows + tall central crown + asymmetric upper crest
+    const puffOffsets: LinearCloud['puffOffsets'] = [
+      { ox: 0.0, oy: -0.14, oz: 0.0, sx: 1.52, sy: 0.42, sz: 1.08, shade: 0.90 },
+      { ox: -0.96, oy: -0.02, oz: 0.08, sx: 0.90, sy: 0.52, sz: 0.80, shade: 0.95 },
+      { ox: 0.98, oy: -0.04, oz: -0.06, sx: 0.88, sy: 0.48, sz: 0.78, shade: 0.96 },
+      { ox: 0.04 * crestSign, oy: 0.24, oz: 0.02, sx: 1.04, sy: 0.70, sz: 0.88, shade: 1.00 },
+      {
+        ox: 0.48 * crestSign,
+        oy: 0.16,
+        oz: -0.12 * crestSign,
+        sx: 0.76,
+        sy: 0.54,
+        sz: 0.72,
+        shade: 0.985,
+      },
+    ];
+    totalPuffs += puffOffsets.length;
 
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x =
+    const rawLane = laneRows[rowIdx] + (seededHash(i * 19 + 3) - 0.5) * 2.0;
+    const lane = rawLane < 0 ? Math.min(-23.5, rawLane) : Math.max(23.5, rawLane);
+
+    // Evenly stagger clouds along the [-90..+90] corridor with row-dependent phase offset
+    const frac = (slotIdx + 0.5 + (rowIdx % 4) * 0.23) / cloudsPerRow;
+    const wrappedFrac = frac - Math.floor(frac);
+    const along =
       -WORLD_CLOUD_SPAN +
-      ((col + 0.5) / cols) * (WORLD_CLOUD_SPAN * 2) +
-      (seededHash(i * 17 + 2) - 0.5) * 20;
-    const z =
-      -WORLD_CLOUD_SPAN +
-      ((row + 0.5) / rows) * (WORLD_CLOUD_SPAN * 2) +
-      (seededHash(i * 23 + 5) - 0.5) * 26;
-    const baseY = 13.5 + seededHash(i * 29 + 9) * 4.0;
+      wrappedFrac * (WORLD_CLOUD_SPAN * 2) +
+      (seededHash(i * 17 + 2) - 0.5) * 14;
+    const baseY = 7.0 + seededHash(i * 29 + 9) * 3.5;
 
     clouds.push({
-      x,
-      z,
+      along,
+      lane,
       baseY,
-      // World-space yaw roughly aligned with the horizontal breeze (never rotates with camera)
-      rotY: Math.PI / 4 + (seededHash(i * 31) - 0.5) * 0.5,
-      speedMul: 0.78 + seededHash(i * 37) * 0.48,
+      // Fixed world-space yaw roughly aligned with horizontal breeze (zero camera rotation)
+      rotY: Math.PI / 4 + (seededHash(i * 31) - 0.5) * 0.36,
+      speedMul: 0.78 + seededHash(i * 37) * 0.44,
       bobPhase: seededHash(i * 41) * Math.PI * 2,
       baseScale,
       puffOffsets,
@@ -624,10 +643,32 @@ export function createLinearCloudField(
 
   const instancedClouds = new THREE.InstancedMesh(puffGeo, cloudMat, totalPuffs);
   instancedClouds.name = 'LinearCloudInstances';
-  instancedClouds.renderOrder = 2;
+  instancedClouds.castShadow = false;
+  instancedClouds.receiveShadow = false;
   instancedClouds.frustumCulled = false;
   instancedClouds.matrixAutoUpdate = false;
   instancedClouds.updateMatrix();
+
+  // Per-puff storybook shading: crisp warm cream on upper crowns, soft sky-cool tint on flat bases
+  const puffCol = new THREE.Color();
+  let cIdx = 0;
+  for (let i = 0; i < clouds.length; i++) {
+    const puffs = clouds[i].puffOffsets;
+    for (let p = 0; p < puffs.length; p++) {
+      const s = puffs[p].shade;
+      if (s >= 0.98) {
+        puffCol.setRGB(1.0, 0.994, 0.982);
+      } else if (s >= 0.94) {
+        puffCol.setRGB(s * 0.995, s * 1.0, Math.min(1, s * 1.02));
+      } else {
+        puffCol.setRGB(s * 0.985, s * 1.01, Math.min(1, s * 1.055));
+      }
+      instancedClouds.setColorAt(cIdx++, puffCol);
+    }
+  }
+  if (instancedClouds.instanceColor) {
+    instancedClouds.instanceColor.needsUpdate = true;
+  }
   group.add(instancedClouds);
 
   const baseColor = new THREE.Color();
@@ -638,33 +679,30 @@ export function createLinearCloudField(
     const { a, b, t } = findKeyframeSegment(h);
     const nightWeight = computeStarNightFactor(h);
 
-    let baseOpacity = 0.68;
     if (w.lightning) {
-      baseColor.set('#6C798E');
-      baseOpacity = 0.84;
+      baseColor.set('#7A889E');
     } else if (w.id === 'rain') {
-      baseColor.set('#A4B2C4');
-      baseOpacity = 0.78;
+      baseColor.set('#B6C3D4');
     } else if (w.id === 'fog') {
-      baseColor.set('#E4E8EB');
-      baseOpacity = 0.65;
+      baseColor.set('#EAEFEF');
     } else if (w.id === 'snow') {
-      baseColor.set('#EFF5FB');
-      baseOpacity = 0.76;
+      baseColor.set('#F2F7FC');
     } else {
       baseColor.set('#FAFBFD');
-      baseOpacity = 0.68;
     }
 
     keyTint.copy(a.cloudTint).lerp(b.cloudTint, t);
-    const blend = (a.cloudBlend + (b.cloudBlend - a.cloudBlend) * t) * (w.lightning ? 0.55 : 1.0);
+    const blend = (a.cloudBlend + (b.cloudBlend - a.cloudBlend) * t) * (w.lightning ? 0.52 : 0.78);
     baseColor.lerp(keyTint, blend);
     if (w.lightning && nightWeight > 0.1) {
-      baseColor.lerp(COL_STORM_NIGHT_CLOUD, nightWeight * 0.7);
+      baseColor.lerp(COL_STORM_NIGHT_CLOUD, nightWeight * 0.65);
     }
 
     cloudMat.color.copy(baseColor);
-    cloudMat.opacity = baseOpacity * (1.0 - nightWeight * 0.15);
+    cloudMat.emissive.copy(baseColor);
+    cloudMat.emissiveIntensity = w.lightning
+      ? 0.18 + nightWeight * 0.08
+      : 0.25 + nightWeight * 0.13;
   };
 
   applyThemeTint(weather, timeOfDay, timeHour);
@@ -679,24 +717,25 @@ export function createLinearCloudField(
 
       for (let i = 0; i < clouds.length; i++) {
         const c = clouds[i];
-        c.x += WIND_DIR_X * baseSpeed * c.speedMul * dt;
-        c.z += WIND_DIR_Z * baseSpeed * c.speedMul * dt;
+        c.along += baseSpeed * c.speedMul * dt;
 
         // Wrap strictly outside the visible world frustum (never shrinks or pops in-frame)
-        if (c.x > WORLD_CLOUD_SPAN) c.x -= WORLD_CLOUD_SPAN * 2;
-        else if (c.x < -WORLD_CLOUD_SPAN) c.x += WORLD_CLOUD_SPAN * 2;
-        if (c.z > WORLD_CLOUD_SPAN) c.z -= WORLD_CLOUD_SPAN * 2;
-        else if (c.z < -WORLD_CLOUD_SPAN) c.z += WORLD_CLOUD_SPAN * 2;
+        if (c.along > WORLD_CLOUD_SPAN) c.along -= WORLD_CLOUD_SPAN * 2;
+        else if (c.along < -WORLD_CLOUD_SPAN) c.along += WORLD_CLOUD_SPAN * 2;
 
-        const cy = c.baseY + Math.sin(elapsed * 0.42 + c.bobPhase) * 0.16;
+        const cx = c.along * WIND_DIR_X + c.lane * PERP_DIR_X;
+        const cz = c.along * WIND_DIR_Z + c.lane * PERP_DIR_Z;
+        const cy = c.baseY + Math.sin(elapsed * 0.42 + c.bobPhase) * 0.14;
+
         const camDepth =
-          (c.x - cameraPos.x) * cameraForward.x +
+          (cx - cameraPos.x) * cameraForward.x +
           (cy - cameraPos.y) * cameraForward.y +
-          (c.z - cameraPos.z) * cameraForward.z;
+          (cz - cameraPos.z) * cameraForward.z;
 
         // Pure world-anchored constant scale (zero nearFade/farFade shrinking!).
-        // Only cull if strictly behind the camera near plane.
-        const visible = camDepth >= 2.0;
+        // Cull clouds on the camera foreground/behind-lens side (camDepth < 10) so clouds
+        // only frame the scenic outer horizon and never clip the lens or block the house.
+        const visible = camDepth >= 10.0;
         const cloudScale = c.baseScale;
         const cosY = Math.cos(c.rotY);
         const sinY = Math.sin(c.rotY);
@@ -714,9 +753,9 @@ export function createLinearCloudField(
             const sx = pf.sx * cloudScale;
             const sy = pf.sy * cloudScale;
             const sz = pf.sz * cloudScale;
-            const px = c.x + (pf.ox * cosY + pf.oz * sinY) * cloudScale;
+            const px = cx + (pf.ox * cosY + pf.oz * sinY) * cloudScale;
             const py = cy + pf.oy * cloudScale;
-            const pz = c.z + (-pf.ox * sinY + pf.oz * cosY) * cloudScale;
+            const pz = cz + (-pf.ox * sinY + pf.oz * cosY) * cloudScale;
 
             arr[o] = cosY * sx;
             arr[o + 1] = 0;
