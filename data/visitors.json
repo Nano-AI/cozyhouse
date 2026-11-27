@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 1,
+  "visitors": [
+    {
+      "id": "bookworm",
+      "name": "Bookworm",
+      "description": "Loves quiet corners, tall bookshelves, warm lamps, and a comfy chair.",
+      "color": "#9EB8CF",
+      "model": "models/visitors/bookworm.glb",
+      "likedTags": ["read", "cozy", "light", "coffee"],
+      "dislikedTags": ["party"],
+      "preferredInteractions": ["browse_shelf", "sit", "sip"],
+      "walkSpeed": 1.35,
+      "patienceSeconds": 90,
+      "voiceProfile": {
+        "basePitch": 280,
+        "pitchVariance": 35,
+        "syllableRate": 5.2,
+        "waveform": "sine"
+      }
+    },
+    {
+      "id": "coffee_snob",
+      "name": "Coffee Snob",
+      "description": "Here for the espresso machine, pastry case, and warm café ambiance.",
+      "color": "#C9A17E",
+      "model": "models/visitors/coffee-snob.glb",
+      "likedTags": ["coffee", "cafe", "serve", "seating"],
+      "dislikedTags": [],
+      "preferredInteractions": ["order_coffee", "sit", "admire"],
+      "walkSpeed": 1.5,
+      "patienceSeconds": 75,
+      "voiceProfile": {
+        "basePitch": 320,
+        "pitchVariance": 45,
+        "syllableRate": 6.4,
+        "waveform": "triangle"
+      }
+    },
+    {
+      "id": "cat_person",
+      "name": "Cat Person",
+      "description": "Immediately gravitates toward cats, cat trees, and wall shelves.",
+      "color": "#F0B6C2",
+      "model": "models/visitors/cat-person.glb",
+      "likedTags": ["cat", "pet", "cozy"],
+      "dislikedTags": ["party"],
+      "preferredInteractions": ["pet_cat", "admire", "sit"],
+      "walkSpeed": 1.4,
+      "patienceSeconds": 95,
+      "voiceProfile": {
+        "basePitch": 390,
+        "pitchVariance": 60,
+        "syllableRate": 6.8,
+        "waveform": "sine"
+      }
+    },
+    {
+      "id": "party_goer",
+      "name": "Party-Goer",
+      "description": "Lives for turntables, disco balls, neon glow, and dancing.",
+      "color": "#CEB5E6",
+      "model": "models/visitors/party-goer.glb",
+      "likedTags": ["party", "music", "nightlife", "drinks"],
+      "dislikedTags": ["sleep"],
+      "preferredInteractions": ["dance", "admire", "sip"],
+      "walkSpeed": 1.85,
+      "patienceSeconds": 65,
+      "voiceProfile": {
+        "basePitch": 350,
+        "pitchVariance": 80,
+        "syllableRate": 8.0,
+        "waveform": "triangle"
+      }
+    },
+    {
+      "id": "plant_lover",
+      "name": "Plant Lover",
+      "description": "Counts every potted leaf and trailing vine near a bright window.",
+      "color": "#94C5A3",
+      "model": "models/visitors/plant-lover.glb",
+      "likedTags": ["plants", "window", "cozy", "decor"],
+      "dislikedTags": [],
+      "preferredInteractions": ["admire_plant", "look_out_window", "sit"],
+      "walkSpeed": 1.3,
+      "patienceSeconds": 85,
+      "voiceProfile": {
+        "basePitch": 305,
+        "pitchVariance": 40,
+        "syllableRate": 5.5,
+        "waveform": "sine"
+      }
+    },
+    {
+      "id": "night_owl",
+      "name": "Night Owl",
+      "description": "Drawn to soft lamps, neon signs, late-night coffee, and music.",
+      "color": "#8E99C7",
+      "model": "models/visitors/night-owl.glb",
+      "likedTags": ["nightlife", "light", "music", "coffee"],
+      "dislikedTags": [],
+      "preferredInteractions": ["sit", "sip", "browse_shelf"],
+      "walkSpeed": 1.45,
+      "patienceSeconds": 80,
+      "voiceProfile": {
+        "basePitch": 240,
+        "pitchVariance": 30,
+        "syllableRate": 4.8,
+        "waveform": "sine"
+      }
+    }
+  ]
+}

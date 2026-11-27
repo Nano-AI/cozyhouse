@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "defaultLabel": {
+    "id": "cozy_room",
+    "label": "Cozy Room",
+    "description": "Place furniture to shape what this house becomes.",
+    "accentColor": "#E8BFA8"
+  },
+  "rules": [
+    {
+      "id": "live_in_cafe",
+      "label": "Live-in Café",
+      "priority": 100,
+      "requiredTags": { "serve": 1, "sleep": 1 },
+      "description": "Brew espresso in the morning and nap upstairs.",
+      "accentColor": "#D4AE92"
+    },
+    {
+      "id": "cat_cafe",
+      "label": "Cat Café",
+      "priority": 95,
+      "requiredTags": { "serve": 1, "cat": 1 },
+      "description": "Warm mugs and purring companions.",
+      "accentColor": "#F0B6C2"
+    },
+    {
+      "id": "party_pad",
+      "label": "Party Pad",
+      "priority": 85,
+      "requiredTags": { "party": 2 },
+      "description": "Turntables, shimmer, and late-night grooves.",
+      "accentColor": "#CEB5E6"
+    },
+    {
+      "id": "cafe",
+      "label": "Café",
+      "priority": 75,
+      "requiredTags": { "serve": 1, "coffee": 1 },
+      "description": "A neighborhood coffee spot with a gentle hum.",
+      "accentColor": "#D4AE92"
+    },
+    {
+      "id": "cat_sanctuary",
+      "label": "Cat Sanctuary",
+      "priority": 70,
+      "requiredTags": { "cat": 2 },
+      "description": "Built from floor to ceiling for feline royalty.",
+      "accentColor": "#F0B6C2"
+    },
+    {
+      "id": "home",
+      "label": "Home",
+      "priority": 50,
+      "requiredTags": { "sleep": 1 },
+      "description": "A calm private sanctuary to call your own.",
+      "accentColor": "#E8BFA8"
+    }
+  ]
+}

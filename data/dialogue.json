@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "moods": ["delighted", "happy", "neutral", "bored", "leaving"],
+  "scriptNotes": "Hand-written invented phonetic script (Vela-cozy). Never generated at runtime.",
+  "default": {
+    "delighted": [
+      { "id": "def_del_1", "text": "Milo-taka! Suna veli!", "emote": "sparkles", "pitchOffset": 1.18, "speedMultiplier": 1.15 },
+      { "id": "def_del_2", "text": "Opa luma, kiki-noa!", "emote": "heart", "pitchOffset": 1.22, "speedMultiplier": 1.12 }
+    ],
+    "happy": [
+      { "id": "def_hap_1", "text": "Tala pino, meya.", "emote": "smile", "pitchOffset": 1.08, "speedMultiplier": 1.05 },
+      { "id": "def_hap_2", "text": "Nori-vema, sulo!", "emote": "note", "pitchOffset": 1.1, "speedMultiplier": 1.04 }
+    ],
+    "neutral": [
+      { "id": "def_neu_1", "text": "Humu... lena to?", "emote": "dots", "pitchOffset": 1.0, "speedMultiplier": 0.96 },
+      { "id": "def_neu_2", "text": "Pelo vasa.", "emote": "look", "pitchOffset": 0.98, "speedMultiplier": 1.0 }
+    ],
+    "bored": [
+      { "id": "def_bor_1", "text": "Bura... mmm-tolo.", "emote": "yawn", "pitchOffset": 0.86, "speedMultiplier": 0.82 }
+    ],
+    "leaving": [
+      { "id": "def_lea_1", "text": "Sali-va, noko!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.9 }
+    ]
+  },
+  "byVisitor": {
+    "bookworm": {
+      "delighted": [
+        { "id": "bw_del_1", "text": "Foli-nara! Peka luma!", "emote": "book", "pitchOffset": 1.12, "speedMultiplier": 1.08 }
+      ],
+      "happy": [
+        { "id": "bw_hap_1", "text": "Sssha, veli-palo.", "emote": "glasses", "pitchOffset": 1.04, "speedMultiplier": 0.98 }
+      ]
+    },
+    "coffee_snob": {
+      "delighted": [
+        { "id": "cs_del_1", "text": "Kofa-miri! Aroma-te!", "emote": "coffee", "pitchOffset": 1.15, "speedMultiplier": 1.12 }
+      ],
+      "bored": [
+        { "id": "cs_bor_1", "text": "Nulo kofa... pff.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.88 }
+      ]
+    },
+    "cat_person": {
+      "delighted": [
+        { "id": "cp_del_1", "text": "Miu-pipi! Soka-lulu!", "emote": "paw", "pitchOffset": 1.28, "speedMultiplier": 1.18 }
+      ]
+    },
+    "party_goer": {
+      "delighted": [
+        { "id": "pg_del_1", "text": "Zuma-taka! Bopa-bopa!", "emote": "music", "pitchOffset": 1.24, "speedMultiplier": 1.25 }
+      ]
+    }
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "defaultViewId": "suburbs",
+  "defaultWeatherId": "clear",
+  "views": [
+    {
+      "id": "suburbs",
+      "name": "Suburbs",
+      "description": "Quiet tree-lined yards and pastel rooftops.",
+      "skyTop": "#D7E8F3",
+      "skyHorizon": "#F6EDE2",
+      "groundColor": "#C9DCB8",
+      "fogColor": "#EFECE4",
+      "sunColor": "#FFF4DC",
+      "sunIntensity": 1.15,
+      "ambientColor": "#FFF6EC",
+      "ambientIntensity": 0.9
+    },
+    {
+      "id": "city",
+      "name": "City",
+      "description": "Warm pastel towers humming in the distance.",
+      "skyTop": "#C8D7EC",
+      "skyHorizon": "#F1DFD6",
+      "groundColor": "#C7C9CE",
+      "fogColor": "#E8E2DF",
+      "sunColor": "#FFEED6",
+      "sunIntensity": 1.05,
+      "ambientColor": "#F5EEF5",
+      "ambientIntensity": 0.88
+    },
+    {
+      "id": "beach",
+      "name": "Beach",
+      "description": "Soft sand, turquoise shallows, and sea breeze.",
+      "skyTop": "#BCE2F2",
+      "skyHorizon": "#FBF0DC",
+      "groundColor": "#EFE0BC",
+      "fogColor": "#F2EFE7",
+      "sunColor": "#FFF6DF",
+      "sunIntensity": 1.25,
+      "ambientColor": "#FFF8EE",
+      "ambientIntensity": 0.95
+    },
+    {
+      "id": "forest",
+      "name": "Forest",
+      "description": "Dappled pines and mossy clearings.",
+      "skyTop": "#C5DFD5",
+      "skyHorizon": "#E9EFE3",
+      "groundColor": "#A8C6A2",
+      "fogColor": "#E3EBE2",
+      "sunColor": "#F8F3DC",
+      "sunIntensity": 0.98,
+      "ambientColor": "#EEF6EE",
+      "ambientIntensity": 0.85
+    },
+    {
+      "id": "mountains",
+      "name": "Mountains",
+      "description": "Crisp alpine air and snow-dusted peaks.",
+      "skyTop": "#BDD6EC",
+      "skyHorizon": "#EEF2F7",
+      "groundColor": "#C4D1C8",
+      "fogColor": "#E6ECF2",
+      "sunColor": "#FFF7EB",
+      "sunIntensity": 1.18,
+      "ambientColor": "#F1F5FA",
+      "ambientIntensity": 0.9
+    },
+    {
+      "id": "countryside",
+      "name": "Countryside",
+      "description": "Rolling golden meadows and soft hills.",
+      "skyTop": "#CEE5F2",
+      "skyHorizon": "#F8EED8",
+      "groundColor": "#D5D9A9",
+      "fogColor": "#F2EFE2",
+      "sunColor": "#FFF2D1",
+      "sunIntensity": 1.2,
+      "ambientColor": "#FFF7E8",
+      "ambientIntensity": 0.92
+    }
+  ],
+  "weathers": [
+    {
+      "id": "clear",
+      "name": "Clear",
+      "skyTint": "#FFFFFF",
+      "lightMultiplier": 1.0,
+      "fogDensity": 0.0,
+      "particleType": "none",
+      "particleRate": 0,
+      "windStrength": 0.1,
+      "ambientSound": "audio/weather-clear.ogg",
+      "lightning": false
+    },
+    {
+      "id": "rain",
+      "name": "Rain",
+      "skyTint": "#BCC9D6",
+      "lightMultiplier": 0.78,
+      "fogDensity": 0.012,
+      "particleType": "rain",
+      "particleRate": 220,
+      "windStrength": 0.35,
+      "ambientSound": "audio/weather-rain.ogg",
+      "lightning": false
+    },
+    {
+      "id": "snow",
+      "name": "Snow",
+      "skyTint": "#E3ECF5",
+      "lightMultiplier": 0.92,
+      "fogDensity": 0.014,
+      "particleType": "snow",
+      "particleRate": 140,
+      "windStrength": 0.2,
+      "ambientSound": "audio/weather-snow.ogg",
+      "lightning": false
+    },
+    {
+      "id": "fog",
+      "name": "Fog",
+      "skyTint": "#DCE0E3",
+      "lightMultiplier": 0.85,
+      "fogDensity": 0.028,
+      "particleType": "none",
+      "particleRate": 0,
+      "windStrength": 0.05,
+      "ambientSound": "audio/weather-fog.ogg",
+      "lightning": false
+    },
+    {
+      "id": "thunderstorm",
+      "name": "Thunderstorm",
+      "skyTint": "#8E9DB0",
+      "lightMultiplier": 0.62,
+      "fogDensity": 0.018,
+      "particleType": "rain",
+      "particleRate": 360,
+      "windStrength": 0.7,
+      "ambientSound": "audio/weather-thunderstorm.ogg",
+      "lightning": true
+    }
+  ]
+}
