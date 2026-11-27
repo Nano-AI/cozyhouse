@@ -52,6 +52,7 @@ interface CityElevatorRig {
 const CAR_PALETTE = ['#F09E8C', '#8AC0DE', '#F2D27E', '#9ACBA6', '#CBB0E2', '#F2B8C6'];
 const BOAT_PALETTE = ['#F2A590', '#86C8CF', '#F2D488', '#A5CFA8', '#DFB6CE'];
 const GROUND_Y = -0.015;
+const CITY_STREET_Y = -34;
 
 function easeOutCubic(t: number): number {
   const k = Math.max(0, Math.min(1, t));
@@ -106,26 +107,29 @@ export class ArrivalTransportManager {
   /**
    * Syncs active biome and lot dimensions. Rebuilds the persistent City elevator kiosk
    * only when switching into/out of `city` or resizing the lot.
+   * Returns `true` if the biome changed (never fires stale dropoff callbacks from old biomes).
    */
-  syncEnvironment(biome: string, gridWidth: number, gridDepth: number): void {
+  syncEnvironment(biome: string, gridWidth: number, gridDepth: number): boolean {
     const changed =
       this.biome !== biome || this.gridWidth !== gridWidth || this.gridDepth !== gridDepth;
-    if (!changed) return;
+    if (!changed) return false;
 
     const biomeChanged = this.biome !== biome;
     this.biome = biome;
     this.gridWidth = gridWidth;
     this.gridDepth = gridDepth;
 
-    // Immediately fire & dispose any in-flight trips from the previous biome so nobody strands
+    // Cancel old-biome vehicle trips cleanly WITHOUT firing stale dropoff coordinates!
     if (biomeChanged) {
-      this.clearActiveTrips(true);
+      this.clearActiveTrips(false);
     }
 
     // Rebuild or tear down City terrace elevator kiosk
     if (this.elevator) {
-      for (const p of this.elevator.pendingCallbacks) {
-        p.fn();
+      if (!biomeChanged) {
+        for (const p of this.elevator.pendingCallbacks) {
+          p.fn();
+        }
       }
       this.root.remove(this.elevator.group);
       disposeGroupResources(this.elevator.group);
@@ -136,6 +140,8 @@ export class ArrivalTransportManager {
       this.elevator = this.createCityElevatorKiosk(gridDepth / 2);
       this.root.add(this.elevator.group);
     }
+
+    return biomeChanged;
   }
 
   /**
@@ -631,8 +637,23 @@ export class ArrivalTransportManager {
       flatShading: true,
     });
     const stoneMat = new THREE.MeshStandardMaterial({
-      color: '#DDD7CE',
+      color: '#DBD6CE',
       roughness: 0.86,
+      flatShading: true,
+    });
+    const ledgeMat = new THREE.MeshStandardMaterial({
+      color: '#EFEAE2',
+      roughness: 0.82,
+      flatShading: true,
+    });
+    const mullionMat = new THREE.MeshStandardMaterial({
+      color: '#B7B1A9',
+      roughness: 0.84,
+      flatShading: true,
+    });
+    const terracePadMat = new THREE.MeshStandardMaterial({
+      color: '#E2DDD5',
+      roughness: 0.88,
       flatShading: true,
     });
     const darkTrimMat = new THREE.MeshStandardMaterial({
@@ -678,13 +699,29 @@ export class ArrivalTransportManager {
       return m;
     };
 
-    // Structural elevator shaft extending cleanly down below terrace alongside apartment building
-    addMesh(new THREE.BoxGeometry(1.78, 14, 1.38), stoneMat, 0, -7.02, 0, false);
+    // Attached full-height concrete elevator shaft column extending cleanly from y = -0.022 down to CITY_STREET_Y = -34
+    const shaftTopY = -0.022;
+    const shaftHeight = shaftTopY - CITY_STREET_Y;
+    const shaftCenterY = CITY_STREET_Y + shaftHeight / 2;
+    const shaftCenterZ = 0.06; // Spans local z = -0.71 .. +0.83 -> locks solidly into apartment tower wall at -(halfD + 0.23)!
+    addMesh(new THREE.BoxGeometry(1.82, shaftHeight, 1.54), stoneMat, 0, shaftCenterY, shaftCenterZ, false);
 
-    // Travertine threshold pad bridging seamlessly over terrace parapet to lot edge
-    addMesh(new THREE.BoxGeometry(1.74, 0.04, 0.92), stoneMat, 0, 0.004, 0.72, false);
+    // Architectural top ledge collar + floor-level trim bands matching the main high-rise shaft (zero Z-fighting!)
+    addMesh(new THREE.BoxGeometry(1.94, 0.14, 1.62), ledgeMat, 0, -0.094, shaftCenterZ - 0.02, false);
+    for (let by = -4.2; by > CITY_STREET_Y + 1.5; by -= 4.2) {
+      addMesh(new THREE.BoxGeometry(1.9, 0.12, 1.58), ledgeMat, 0, by, shaftCenterZ - 0.02, false);
+    }
 
-    // Kiosk cab shell (back, left, right walls & roof canopy)
+    // Subtle proud vertical mullion ribs along the exterior shaft faces (proud >= 0.015, never coplanar)
+    addMesh(new THREE.BoxGeometry(0.08, shaftHeight - 0.2, 0.08), mullionMat, -0.92, shaftCenterY, -0.68, false);
+    addMesh(new THREE.BoxGeometry(0.08, shaftHeight - 0.2, 0.08), mullionMat, 0.92, shaftCenterY, -0.68, false);
+    addMesh(new THREE.BoxGeometry(0.08, shaftHeight - 0.2, 0.06), mullionMat, -0.45, shaftCenterY, -0.73, false);
+    addMesh(new THREE.BoxGeometry(0.08, shaftHeight - 0.2, 0.06), mullionMat, 0.45, shaftCenterY, -0.73, false);
+
+    // Solid flush concrete threshold landing bridging cleanly into the rooftop terrace at z = -(halfD + 0.18)
+    addMesh(new THREE.BoxGeometry(1.84, 0.06, 0.96), terracePadMat, 0, -0.004, 0.78, false);
+
+    // Kiosk cab shell (back, left, right walls & roof canopy, strictly non-coplanar with shaft)
     addMesh(new THREE.BoxGeometry(1.72, 2.38, 0.12), stoneMat, 0, 1.19, -0.62);
     addMesh(new THREE.BoxGeometry(0.14, 2.38, 1.3), stoneMat, -0.8, 1.19, 0);
     addMesh(new THREE.BoxGeometry(0.14, 2.38, 1.3), stoneMat, 0.8, 1.19, 0);

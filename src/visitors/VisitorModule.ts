@@ -382,6 +382,7 @@ export class VisitorModule {
   private audioModule: AudioModule | null;
 
   private navGrid: NavGrid;
+  private currentBiome: string;
   private active: ActiveVisitorRuntime[] = [];
   private changeListeners = new Set<() => void>();
   private itemTriggerCooldowns = new Map<string, number>();
@@ -408,6 +409,7 @@ export class VisitorModule {
     this.sceneManager.scene.add(this.visitorsRoot);
 
     const initialState = store.getState();
+    this.currentBiome = initialState.sceneryViewId;
     this.navGrid = buildNavGrid(initialState, store.data);
     this.transport = new ArrivalTransportManager(this.sceneManager.scene);
     this.transport.syncEnvironment(
@@ -854,13 +856,119 @@ export class VisitorModule {
     });
   }
 
+  /**
+   * Hard safety clamp in `city` biome so NO visitor can ever walk past the rooftop
+   * glass parapet into thin air (allows only the North elevator landing corridor while arriving/leaving).
+   */
+  private clampToCityTerrace(v: ActiveVisitorRuntime, state: HouseState): void {
+    if (state.sceneryViewId !== 'city' || v.seatAnchor) return;
+
+    const halfW = state.gridWidth / 2;
+    const halfD = state.gridDepth / 2;
+    const maxX = Math.max(0.5, halfW - 0.15);
+    const maxZ = Math.max(0.5, halfD - 0.15);
+    const minTerraceZ = -maxZ;
+
+    const inElevatorTransit =
+      v.phase === 'entering' ||
+      v.phase === 'leaving' ||
+      v.phase === 'waiting_pickup' ||
+      v.phase === 'arriving_transport';
+
+    if (inElevatorTransit && v.worldZ < minTerraceZ && Math.abs(v.worldX) <= 0.65) {
+      v.worldX = Math.max(-0.58, Math.min(0.58, v.worldX));
+      v.worldZ = Math.max(-(halfD + 0.95), v.worldZ);
+    } else {
+      v.worldX = Math.max(-maxX, Math.min(maxX, v.worldX));
+      v.worldZ = Math.max(minTerraceZ, Math.min(maxZ, v.worldZ));
+    }
+    v.mesh.root.position.set(v.worldX, v.worldY, v.worldZ);
+  }
+
   private handleHouseChanged(): void {
     const state = this.store.getState();
     this.navGrid = buildNavGrid(state, this.store.data);
+    const biomeChanged = state.sceneryViewId !== this.currentBiome;
+    this.currentBiome = state.sceneryViewId;
     this.transport.syncEnvironment(state.sceneryViewId, state.gridWidth, state.gridDepth);
 
+    const halfW = state.gridWidth / 2;
+    const halfD = state.gridDepth / 2;
+    const freshRoute = biomeChanged ? this.transport.computeRoute(0) : null;
+    const toRemoveOnSwitch: ActiveVisitorRuntime[] = [];
+
     let changed = false;
+    let relocateSlot = 0;
+
     for (const v of this.active) {
+      // On biome switch (e.g. Beach -> City), cleanly resolve every in-transit or exterior visitor!
+      if (biomeChanged && freshRoute) {
+        if (v.phase === 'leaving' || v.phase === 'waiting_pickup') {
+          // Already departed behind the biome transition clouds — cleanly despawn!
+          toRemoveOnSwitch.push(v);
+          changed = true;
+          continue;
+        }
+
+        const outsideLot =
+          Math.abs(v.worldX) > halfW - 0.35 || Math.abs(v.worldZ) > halfD - 0.35;
+        const hasExteriorWaypoints =
+          v.exteriorPath.length > 0 ||
+          v.path.some(
+            (pt) => Math.abs(pt.wx) > halfW - 0.1 || Math.abs(pt.wz) > halfD - 0.1,
+          );
+
+        if (v.phase === 'arriving_transport' || outsideLot || hasExteriorWaypoints) {
+          // Relocate cleanly onto a valid walkable tile inside the new biome's lot entry!
+          const entryWorld = tileCenterToWorld(
+            freshRoute.lotEdgeTile.x,
+            freshRoute.lotEdgeTile.z,
+            state.gridWidth,
+            state.gridDepth,
+          );
+          const jitterX = ((relocateSlot % 3) - 1) * 0.6;
+          relocateSlot += 1;
+          const safeTile = findNearestWalkableTile(
+            this.navGrid,
+            entryWorld.wx + jitterX,
+            entryWorld.wz,
+          );
+          const safeWorld = tileCenterToWorld(
+            safeTile.x,
+            safeTile.z,
+            state.gridWidth,
+            state.gridDepth,
+          );
+
+          v.exteriorPath = [];
+          v.path = [];
+          v.pathTiles = [];
+          v.pendingRoute = null;
+          v.departureRoute = null;
+          v.seatAnchor = null;
+          v.seatBlend = 0;
+          v.currentTile = safeTile;
+          v.worldX = safeWorld.wx;
+          v.worldY = 0;
+          v.worldZ = safeWorld.wz;
+          v.mesh.root.visible = true;
+          v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+          if (v.phase === 'arriving_transport') {
+            v.spawnPopTimer = 0.001;
+          } else {
+            v.mesh.setScalePop(1);
+          }
+
+          v.phase = 'entering';
+          v.pose = 'walk';
+          v.activity = 'Walking to the door';
+          this.planDoorEntryPath(v, safeTile);
+          this.clampToCityTerrace(v, state);
+          changed = true;
+          continue;
+        }
+      }
+
       if (v.phase === 'arriving_transport') {
         const nextRoute = this.transport.computeRoute(this.spawnCounter);
         v.pendingRoute = nextRoute;
@@ -965,9 +1073,20 @@ export class VisitorModule {
         }
       }
 
+      this.clampToCityTerrace(v, state);
+
       if (this.updateVisitorMood(v, 0, true)) {
         changed = true;
       }
+    }
+
+    if (toRemoveOnSwitch.length > 0) {
+      const remIds = new Set(toRemoveOnSwitch.map((r) => r.instanceId));
+      for (const rem of toRemoveOnSwitch) {
+        this.visitorsRoot.remove(rem.mesh.root);
+        rem.mesh.dispose();
+      }
+      this.active = this.active.filter((v) => !remIds.has(v.instanceId));
     }
 
     if (changed) {
@@ -2417,6 +2536,7 @@ export class VisitorModule {
     this.enforcePersonalSpace(dt);
 
     for (const v of this.active) {
+      this.clampToCityTerrace(v, state);
       if (v.seatAnchor) continue;
       const fx = Math.floor(v.worldX + state.gridWidth / 2);
       const fz = Math.floor(v.worldZ + state.gridDepth / 2);

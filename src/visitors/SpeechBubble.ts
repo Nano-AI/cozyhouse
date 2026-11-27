@@ -32,13 +32,25 @@ const EMOTE_EMOJI_MAP: Record<string, string> = {
 };
 
 const EXTRA_EMOTE_COLOR: Record<string, string> = {
-  food: '#F7DC9F',
-  art: '#F6CAD6',
-  vinyl: '#CFD9F5',
-  sofa: '#F3D2BE',
-  thumbsDown: '#F4C3C2',
-  unimpressed: '#E5D4E8',
-  grimace: '#F5CDB6',
+  food: '#F5CF7B',
+  art: '#F2B2C4',
+  vinyl: '#B8C8F2',
+  sofa: '#ECC0A4',
+  thumbsDown: '#F0AEAC',
+  unimpressed: '#D8BFE0',
+  grimace: '#F0BC9C',
+};
+
+/**
+ * Bright yellow / white emojis pop dramatically against a rich warm-dark storybook disc.
+ */
+const DARK_DISC_BY_EMOTE: Record<string, string> = {
+  sparkles: '#3C3448',
+  star: '#3C3448',
+  moon: '#343A52',
+  zzz: '#3B3750',
+  cloud: '#4A5668',
+  dots: '#4C433C',
 };
 
 const MOOD_FALLBACK_EMOJI: Record<VisitorMood, string> = {
@@ -56,6 +68,9 @@ const MOOD_TINT_COLOR: Record<VisitorMood, string> = {
   bored: '#C8BFE6',
   leaving: '#F2B88B',
 };
+
+const INK_COLOR = '#2D2620';
+const PAPER_COLOR = '#FFFDF7';
 
 /**
  * Resolves a dialogue emote ID into a vivid, expressive emoji glyph.
@@ -75,16 +90,12 @@ export function resolveEmoteEmoji(
   return fallbackGlyph && fallbackGlyph.length <= 2 ? fallbackGlyph : '✨';
 }
 
-function darkenHex(hex: string, factor = 0.84): string {
-  const c = new THREE.Color(hex || '#D8C7B6');
-  c.multiplyScalar(factor);
-  return `#${c.getHexString()}`;
-}
-
 /**
- * Sleek emoji-only pastel thought/emotion bubble floating above a visitor.
- * Displays ONLY a crisp expressive emoji + a subtle animated 3-bar "blabbering" soundwave
- * while the visitor's audible gibberish voice is playing — zero text or random glyphs.
+ * Crisp high-contrast storybook ink-line emoji thought/emotion bubble floating above a visitor.
+ * - `fog: false`, `toneMapped: false`, `renderOrder = 120` prevent scene fog, night dimming,
+ *   translucent ceilings, or ACES tone mapping from washing out contrast.
+ * - Displays ONLY a crisp expressive emoji + a dark-ink animated 3-bar "blabbering" soundwave
+ *   while audible gibberish voice plays — zero text or random glyphs.
  */
 export class SpeechBubble {
   readonly sprite: THREE.Sprite;
@@ -94,6 +105,7 @@ export class SpeechBubble {
   private readonly texture: THREE.CanvasTexture;
   private readonly material: THREE.SpriteMaterial;
 
+  private emoteId = 'sparkles';
   private emoji = '✨';
   private accentColor = '#F2D7B6';
   private remaining = 0;
@@ -122,12 +134,14 @@ export class SpeechBubble {
       opacity: 0,
       depthTest: false,
       depthWrite: false,
+      fog: false,
+      toneMapped: false,
     });
 
     this.sprite = new THREE.Sprite(this.material);
     this.sprite.position.set(0, this.baseOffsetY, 0);
     this.sprite.visible = false;
-    this.sprite.renderOrder = 22;
+    this.sprite.renderOrder = 120;
   }
 
   setBaseHeight(y: number): void {
@@ -146,7 +160,7 @@ export class SpeechBubble {
   }
 
   /**
-   * Displays an emoji-only emotion bubble with animated soundwave bars for `blabberSeconds`.
+   * Displays a crisp high-contrast emoji bubble with animated dark-ink blabber bars.
    */
   showEmote(
     emote: EmoteVisual,
@@ -154,6 +168,7 @@ export class SpeechBubble {
     durationSeconds = 3.9,
     blabberSeconds = 1.65,
   ): void {
+    this.emoteId = emote.id || 'dots';
     this.emoji = resolveEmoteEmoji(emote.id, emote.glyph, mood);
     this.accentColor =
       EXTRA_EMOTE_COLOR[emote.id] ||
@@ -188,66 +203,92 @@ export class SpeechBubble {
     const bx = (w - boxW) / 2;
     const by = 14;
     const radius = 48;
-    const borderStroke = darkenHex(this.accentColor, 0.82);
+    const tailY = by + boxH - 1;
 
-    // Soft floating drop shadow
-    ctx.fillStyle = 'rgba(65, 52, 42, 0.16)';
+    // 1. Crisp storybook offset shadow beneath pill & tail
+    ctx.fillStyle = 'rgba(45, 38, 32, 0.28)';
     ctx.beginPath();
-    ctx.roundRect(bx, by + 7, boxW, boxH, radius);
+    ctx.roundRect(bx, by + 8, boxW, boxH, radius);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 16, tailY + 5);
+    ctx.lineTo(cx + 16, tailY + 5);
+    ctx.lineTo(cx, tailY + 26);
+    ctx.closePath();
     ctx.fill();
 
-    // Warm cream pill body
-    ctx.fillStyle = 'rgba(255, 252, 247, 0.97)';
-    ctx.strokeStyle = borderStroke;
-    ctx.lineWidth = 6;
+    // 2. Bold dark-ink outline & 100% opaque warm cream paper fill for pill
+    ctx.fillStyle = PAPER_COLOR;
+    ctx.strokeStyle = INK_COLOR;
+    ctx.lineWidth = 8;
+    ctx.lineJoin = 'round';
     ctx.beginPath();
     ctx.roundRect(bx, by, boxW, boxH, radius);
     ctx.fill();
     ctx.stroke();
 
-    // Soft pastel circular backdrop behind the emoji
-    const emojiCy = showWave ? by + boxH * 0.45 : by + boxH * 0.5;
-    ctx.save();
-    ctx.globalAlpha = 0.42;
-    ctx.fillStyle = this.accentColor;
+    // 3. Matching bold ink speech tail seamlessly joined to pill bottom
+    ctx.fillStyle = PAPER_COLOR;
+    ctx.strokeStyle = INK_COLOR;
+    ctx.lineWidth = 8;
+    ctx.lineJoin = 'round';
     ctx.beginPath();
-    ctx.arc(cx, emojiCy, 44, 0, Math.PI * 2);
+    ctx.moveTo(cx - 15, tailY - 2);
+    ctx.lineTo(cx, tailY + 20);
+    ctx.lineTo(cx + 15, tailY - 2);
+    ctx.closePath();
     ctx.fill();
-    ctx.restore();
+    ctx.stroke();
 
-    // Cute cozy speech tail at bottom center
-    const tailY = by + boxH - 1;
-    ctx.fillStyle = 'rgba(255, 252, 247, 0.97)';
+    // Cover inner seam across top of tail with warm cream paper for a unified silhouette
+    ctx.fillStyle = PAPER_COLOR;
     ctx.beginPath();
-    ctx.moveTo(cx - 14, tailY - 2);
-    ctx.lineTo(cx + 14, tailY - 2);
-    ctx.lineTo(cx, tailY + 19);
+    ctx.moveTo(cx - 18, tailY - 8);
+    ctx.lineTo(cx + 18, tailY - 8);
+    ctx.lineTo(cx + 12, tailY + 2);
+    ctx.lineTo(cx - 12, tailY + 2);
     ctx.closePath();
     ctx.fill();
 
-    ctx.strokeStyle = borderStroke;
-    ctx.lineWidth = 5;
-    ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx - 14, tailY);
-    ctx.lineTo(cx, tailY + 19);
-    ctx.lineTo(cx + 14, tailY);
-    ctx.stroke();
+    // 4. High-contrast circular tint disc behind emoji
+    //    (rich warm-dark disc for pale/yellow/white emojis so ✨ ⭐ 💭 ☁️ 🌙 💤 pop vividly!)
+    const emojiCy = showWave ? by + boxH * 0.44 : by + boxH * 0.5;
+    const darkDisc = DARK_DISC_BY_EMOTE[this.emoteId];
+    ctx.save();
+    if (darkDisc) {
+      ctx.fillStyle = darkDisc;
+      ctx.beginPath();
+      ctx.arc(cx, emojiCy, 44, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = this.accentColor;
+      ctx.globalAlpha = 0.78;
+      ctx.beginPath();
+      ctx.arc(cx, emojiCy, 44, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
 
-    // Crisp, large expressive emoji (zero text!)
-    ctx.fillStyle = '#3A312B';
-    ctx.font = '68px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+    // 5. Crisp, large expressive emoji with subtle dark drop shadow (zero text!)
+    ctx.save();
+    ctx.fillStyle = INK_COLOR;
+    ctx.shadowColor = 'rgba(45, 38, 32, 0.38)';
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2;
+    ctx.font = '66px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(this.emoji, cx, emojiCy + 3);
+    ctx.restore();
 
-    // Animated 3-bar blabbering soundwave along bottom rim while voice plays
+    // 6. High-contrast dark-ink animated 3-bar blabbering soundwave while voice plays
     if (showWave) {
       const waveBaseY = by + boxH - 22;
       const barWidth = 9;
-      const gap = 14;
+      const gap = 15;
       const offsets = [0, 1.5, 3.0];
-      ctx.fillStyle = darkenHex(this.accentColor, 0.7);
+      ctx.fillStyle = INK_COLOR;
 
       for (let i = 0; i < 3; i++) {
         const pulse = 0.5 + 0.5 * Math.sin(phase * 13.5 + offsets[i]);
