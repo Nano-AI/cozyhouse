@@ -16,6 +16,31 @@ export type WallKind = 'structure' | 'mounted';
 /** Quarter-turn clockwise rotation: 0 = 0°, 1 = 90°, 2 = 180°, 3 = 270°. */
 export type RotationQuarter = 0 | 1 | 2 | 3;
 
+export type TimeOfDay = 'morning' | 'day' | 'sunset' | 'night';
+
+export const DEFAULT_TIME_HOUR = 11.5;
+
+export function timeHourToBucket(hour: number): TimeOfDay {
+  const h = ((hour % 24) + 24) % 24;
+  if (h >= 5.5 && h < 9.5) return 'morning';
+  if (h >= 9.5 && h < 17) return 'day';
+  if (h >= 17 && h < 20.2) return 'sunset';
+  return 'night';
+}
+
+export function timeOfDayToDefaultHour(tod: TimeOfDay): number {
+  switch (tod) {
+    case 'morning':
+      return 7.5;
+    case 'day':
+      return 12.0;
+    case 'sunset':
+      return 18.6;
+    case 'night':
+      return 22.5;
+  }
+}
+
 export interface CatalogTab {
   id: CatalogTabId;
   label: string;
@@ -71,12 +96,20 @@ export interface VoiceProfile {
   waveform: 'sine' | 'triangle' | 'square' | 'sawtooth';
 }
 
+export interface VisitorPersonaDef {
+  name: string;
+  pronouns: string;
+  trait: string;
+}
+
 export interface VisitorDef {
   id: string;
   name: string;
   description: string;
   color: string;
   model: string;
+  archetypeIcon?: string;
+  personas?: VisitorPersonaDef[];
   likedTags: string[];
   dislikedTags: string[];
   preferredInteractions: string[];
@@ -207,6 +240,8 @@ export interface HouseState {
   gridDepth: number;
   sceneryViewId: string;
   weatherId: string;
+  timeOfDay?: TimeOfDay;
+  timeHour?: number;
   roomTypeOverride: string | null;
   items: PlacedItem[];
 }

@@ -24,12 +24,60 @@
       "accentColor": "#F0B6C2"
     },
     {
+      "id": "live_in_bar",
+      "label": "Live-in Bar",
+      "priority": 92,
+      "requiredTags": { "bar": 1, "drinks": 1, "sleep": 1 },
+      "description": "Mix nightcaps downstairs and drift straight to sleep.",
+      "accentColor": "#CEB5E6"
+    },
+    {
+      "id": "book_cafe",
+      "label": "Book Café",
+      "priority": 90,
+      "requiredTags": { "read": 1, "coffee": 1 },
+      "description": "Quiet pages, warm roast, and unhurried afternoons.",
+      "accentColor": "#B7CEDC"
+    },
+    {
       "id": "party_pad",
       "label": "Party Pad",
       "priority": 85,
       "requiredTags": { "party": 2 },
       "description": "Turntables, shimmer, and late-night grooves.",
       "accentColor": "#CEB5E6"
+    },
+    {
+      "id": "smoothie_bar",
+      "label": "Smoothie Bar",
+      "priority": 82,
+      "requiredTags": { "smoothie": 1 },
+      "description": "Fresh fruit blends and sunlit counter stools.",
+      "accentColor": "#F2C79D"
+    },
+    {
+      "id": "diner",
+      "label": "Retro Diner",
+      "priority": 80,
+      "requiredTags": { "diner": 1 },
+      "description": "Chrome stools, vinyl booths, and comfort plates.",
+      "accentColor": "#E9B0A6"
+    },
+    {
+      "id": "neighborhood_diner",
+      "label": "Diner",
+      "priority": 78,
+      "requiredTags": { "cook": 1, "dining": 1, "serve": 1 },
+      "description": "Sizzling specials served hot to cozy tables.",
+      "accentColor": "#EED79B"
+    },
+    {
+      "id": "bar",
+      "label": "Bar",
+      "priority": 76,
+      "requiredTags": { "bar": 1, "drinks": 1 },
+      "description": "Soft amber glow, clinking glasses, and easy conversation.",
+      "accentColor": "#C4B4DF"
     },
     {
       "id": "cafe",
@@ -48,11 +96,59 @@
       "accentColor": "#F0B6C2"
     },
     {
+      "id": "night_lounge",
+      "label": "Night Lounge",
+      "priority": 68,
+      "requiredTags": { "nightlife": 2, "music": 1 },
+      "description": "Neon shimmer and mellow basslines after dusk.",
+      "accentColor": "#A8B2DC"
+    },
+    {
+      "id": "plant_haven",
+      "label": "Plant Haven",
+      "priority": 66,
+      "requiredTags": { "plants": 4 },
+      "description": "Sunlight filtering through a lush indoor canopy.",
+      "accentColor": "#AED6C4"
+    },
+    {
+      "id": "music_lounge",
+      "label": "Music Lounge",
+      "priority": 64,
+      "requiredTags": { "music": 2 },
+      "description": "Warm speakers, spinning vinyl, and deep listening.",
+      "accentColor": "#C9BFE6"
+    },
+    {
+      "id": "reading_nook",
+      "label": "Reading Nook",
+      "priority": 62,
+      "requiredTags": { "read": 2, "cozy": 2 },
+      "description": "Soft lamps and stacked shelves built for rainy days.",
+      "accentColor": "#B7CEDC"
+    },
+    {
+      "id": "home_kitchen",
+      "label": "Home Kitchen",
+      "priority": 58,
+      "requiredTags": { "cook": 2, "dining": 1 },
+      "description": "Simmering pots and a welcoming dining table.",
+      "accentColor": "#EED79B"
+    },
+    {
       "id": "home",
       "label": "Home",
       "priority": 50,
       "requiredTags": { "sleep": 1 },
       "description": "A calm private sanctuary to call your own.",
+      "accentColor": "#E8BFA8"
+    },
+    {
+      "id": "cozy_lounge",
+      "label": "Cozy Lounge",
+      "priority": 40,
+      "requiredTags": { "cozy": 3 },
+      "description": "Soft cushions and gentle corners made for lingering.",
       "accentColor": "#E8BFA8"
     }
   ]

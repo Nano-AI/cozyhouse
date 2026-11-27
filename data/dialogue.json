@@ -5,48 +5,303 @@
   "default": {
     "delighted": [
       { "id": "def_del_1", "text": "Milo-taka! Suna veli!", "emote": "sparkles", "pitchOffset": 1.18, "speedMultiplier": 1.15 },
-      { "id": "def_del_2", "text": "Opa luma, kiki-noa!", "emote": "heart", "pitchOffset": 1.22, "speedMultiplier": 1.12 }
+      { "id": "def_del_2", "text": "Opa luma, kiki-noa!", "emote": "heart", "pitchOffset": 1.22, "speedMultiplier": 1.12 },
+      { "id": "def_del_3", "text": "Vela-sani! Tolo mira!", "emote": "star", "pitchOffset": 1.20, "speedMultiplier": 1.16 },
+      { "id": "def_del_4", "text": "Piko-lala, nura so!", "emote": "sparkles", "pitchOffset": 1.16, "speedMultiplier": 1.14 }
     ],
     "happy": [
       { "id": "def_hap_1", "text": "Tala pino, meya.", "emote": "smile", "pitchOffset": 1.08, "speedMultiplier": 1.05 },
-      { "id": "def_hap_2", "text": "Nori-vema, sulo!", "emote": "note", "pitchOffset": 1.1, "speedMultiplier": 1.04 }
+      { "id": "def_hap_2", "text": "Nori-vema, sulo!", "emote": "note", "pitchOffset": 1.10, "speedMultiplier": 1.04 },
+      { "id": "def_hap_3", "text": "Kala-pumi, leno va.", "emote": "smile", "pitchOffset": 1.06, "speedMultiplier": 1.02 },
+      { "id": "def_hap_4", "text": "Sera lomi, teko!", "emote": "heart", "pitchOffset": 1.11, "speedMultiplier": 1.07 }
     ],
     "neutral": [
-      { "id": "def_neu_1", "text": "Humu... lena to?", "emote": "dots", "pitchOffset": 1.0, "speedMultiplier": 0.96 },
-      { "id": "def_neu_2", "text": "Pelo vasa.", "emote": "look", "pitchOffset": 0.98, "speedMultiplier": 1.0 }
+      { "id": "def_neu_1", "text": "Humu... lena to?", "emote": "dots", "pitchOffset": 1.00, "speedMultiplier": 0.96 },
+      { "id": "def_neu_2", "text": "Pelo vasa.", "emote": "look", "pitchOffset": 0.98, "speedMultiplier": 1.00 },
+      { "id": "def_neu_3", "text": "Mora-teki, sano?", "emote": "look", "pitchOffset": 1.01, "speedMultiplier": 0.98 },
+      { "id": "def_neu_4", "text": "Nala... vemu ko.", "emote": "dots", "pitchOffset": 0.96, "speedMultiplier": 0.94 }
     ],
     "bored": [
-      { "id": "def_bor_1", "text": "Bura... mmm-tolo.", "emote": "yawn", "pitchOffset": 0.86, "speedMultiplier": 0.82 }
+      { "id": "def_bor_1", "text": "Bura... mmm-tolo.", "emote": "yawn", "pitchOffset": 0.86, "speedMultiplier": 0.82 },
+      { "id": "def_bor_2", "text": "Sulo... vana-ma...", "emote": "cloud", "pitchOffset": 0.84, "speedMultiplier": 0.80 },
+      { "id": "def_bor_3", "text": "Noko-pff... luma.", "emote": "zzz", "pitchOffset": 0.82, "speedMultiplier": 0.78 }
     ],
     "leaving": [
-      { "id": "def_lea_1", "text": "Sali-va, noko!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.9 }
+      { "id": "def_lea_1", "text": "Sali-va, noko!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.90 },
+      { "id": "def_lea_2", "text": "Tava-meli, pono.", "emote": "wave", "pitchOffset": 0.89, "speedMultiplier": 0.88 },
+      { "id": "def_lea_3", "text": "Kora-su, vela-mi.", "emote": "cloud", "pitchOffset": 0.87, "speedMultiplier": 0.86 }
     ]
   },
   "byVisitor": {
     "bookworm": {
       "delighted": [
-        { "id": "bw_del_1", "text": "Foli-nara! Peka luma!", "emote": "book", "pitchOffset": 1.12, "speedMultiplier": 1.08 }
+        { "id": "bw_del_1", "text": "Foli-nara! Peka luma!", "emote": "book", "pitchOffset": 1.14, "speedMultiplier": 1.10 },
+        { "id": "bw_del_2", "text": "Lira-vela! Moku sani!", "emote": "sparkles", "pitchOffset": 1.17, "speedMultiplier": 1.12 },
+        { "id": "bw_del_3", "text": "Telo-pali, sssha-noa!", "emote": "star", "pitchOffset": 1.15, "speedMultiplier": 1.08 }
       ],
       "happy": [
-        { "id": "bw_hap_1", "text": "Sssha, veli-palo.", "emote": "glasses", "pitchOffset": 1.04, "speedMultiplier": 0.98 }
+        { "id": "bw_hap_1", "text": "Sssha, veli-palo.", "emote": "glasses", "pitchOffset": 1.05, "speedMultiplier": 1.00 },
+        { "id": "bw_hap_2", "text": "Nora-feli, mimi ko.", "emote": "book", "pitchOffset": 1.07, "speedMultiplier": 1.02 },
+        { "id": "bw_hap_3", "text": "Pula sena, kovi.", "emote": "smile", "pitchOffset": 1.04, "speedMultiplier": 0.99 }
+      ],
+      "neutral": [
+        { "id": "bw_neu_1", "text": "Humu... feli-na?", "emote": "glasses", "pitchOffset": 0.99, "speedMultiplier": 0.95 },
+        { "id": "bw_neu_2", "text": "Palo-tuka, sssha.", "emote": "look", "pitchOffset": 0.97, "speedMultiplier": 0.94 },
+        { "id": "bw_neu_3", "text": "Meli... tona veko?", "emote": "dots", "pitchOffset": 1.00, "speedMultiplier": 0.96 }
+      ],
+      "bored": [
+        { "id": "bw_bor_1", "text": "Zuma-taka... pff, nolo.", "emote": "sweat", "pitchOffset": 0.85, "speedMultiplier": 0.84 },
+        { "id": "bw_bor_2", "text": "Kala-foli... mmm-na.", "emote": "yawn", "pitchOffset": 0.83, "speedMultiplier": 0.80 },
+        { "id": "bw_bor_3", "text": "Vela-shhh... nulo.", "emote": "cloud", "pitchOffset": 0.82, "speedMultiplier": 0.79 }
+      ],
+      "leaving": [
+        { "id": "bw_lea_1", "text": "Foli-va, sali-ko.", "emote": "wave", "pitchOffset": 0.88, "speedMultiplier": 0.88 },
+        { "id": "bw_lea_2", "text": "Sssha-noko, pali.", "emote": "book", "pitchOffset": 0.86, "speedMultiplier": 0.86 },
+        { "id": "bw_lea_3", "text": "Melo-sura, teva.", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.89 }
       ]
     },
     "coffee_snob": {
       "delighted": [
-        { "id": "cs_del_1", "text": "Kofa-miri! Aroma-te!", "emote": "coffee", "pitchOffset": 1.15, "speedMultiplier": 1.12 }
+        { "id": "cs_del_1", "text": "Kofa-miri! Oruma-te!", "emote": "coffee", "pitchOffset": 1.16, "speedMultiplier": 1.14 },
+        { "id": "cs_del_2", "text": "Bura-kofa! Sani-melo!", "emote": "sparkles", "pitchOffset": 1.19, "speedMultiplier": 1.16 },
+        { "id": "cs_del_3", "text": "Tika-puro! Vema-kofa!", "emote": "heart", "pitchOffset": 1.15, "speedMultiplier": 1.12 }
+      ],
+      "happy": [
+        { "id": "cs_hap_1", "text": "Puro-kofa, sulo-te.", "emote": "coffee", "pitchOffset": 1.07, "speedMultiplier": 1.06 },
+        { "id": "cs_hap_2", "text": "Nori-moka, feli!", "emote": "smile", "pitchOffset": 1.09, "speedMultiplier": 1.05 },
+        { "id": "cs_hap_3", "text": "Luma-sipi, kora.", "emote": "note", "pitchOffset": 1.05, "speedMultiplier": 1.03 }
+      ],
+      "neutral": [
+        { "id": "cs_neu_1", "text": "Kofa... vema ko?", "emote": "look", "pitchOffset": 0.99, "speedMultiplier": 0.98 },
+        { "id": "cs_neu_2", "text": "Humu, puro-taka?", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.96 },
+        { "id": "cs_neu_3", "text": "Miri-sano, peko.", "emote": "coffee", "pitchOffset": 1.01, "speedMultiplier": 0.99 }
       ],
       "bored": [
-        { "id": "cs_bor_1", "text": "Nulo kofa... pff.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.88 }
+        { "id": "cs_bor_1", "text": "Nulo kofa... pff.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.85 },
+        { "id": "cs_bor_2", "text": "Bura-sipi... mmm-noko.", "emote": "yawn", "pitchOffset": 0.83, "speedMultiplier": 0.81 },
+        { "id": "cs_bor_3", "text": "Vana-kofa... telo.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.83 }
+      ],
+      "leaving": [
+        { "id": "cs_lea_1", "text": "Kofa-va, noko!", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.90 },
+        { "id": "cs_lea_2", "text": "Sali-puro, meko.", "emote": "cloud", "pitchOffset": 0.87, "speedMultiplier": 0.87 },
+        { "id": "cs_lea_3", "text": "Tava-miri, sulo.", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.91 }
       ]
     },
     "cat_person": {
       "delighted": [
-        { "id": "cp_del_1", "text": "Miu-pipi! Soka-lulu!", "emote": "paw", "pitchOffset": 1.28, "speedMultiplier": 1.18 }
+        { "id": "cp_del_1", "text": "Miu-pipi! Soka-lulu!", "emote": "paw", "pitchOffset": 1.28, "speedMultiplier": 1.18 },
+        { "id": "cp_del_2", "text": "Purr-nana! Kiki-miu!", "emote": "heart", "pitchOffset": 1.26, "speedMultiplier": 1.20 },
+        { "id": "cp_del_3", "text": "Moka-pafu! Velu-miu!", "emote": "sparkles", "pitchOffset": 1.24, "speedMultiplier": 1.16 }
+      ],
+      "happy": [
+        { "id": "cp_hap_1", "text": "Miu-melo, pafu-ta.", "emote": "paw", "pitchOffset": 1.13, "speedMultiplier": 1.08 },
+        { "id": "cp_hap_2", "text": "Soka-nini, luma!", "emote": "smile", "pitchOffset": 1.11, "speedMultiplier": 1.06 },
+        { "id": "cp_hap_3", "text": "Pipi-kora, meya.", "emote": "heart", "pitchOffset": 1.12, "speedMultiplier": 1.05 }
+      ],
+      "neutral": [
+        { "id": "cp_neu_1", "text": "Miu... lena ko?", "emote": "look", "pitchOffset": 1.01, "speedMultiplier": 0.98 },
+        { "id": "cp_neu_2", "text": "Pafu-nana... to?", "emote": "dots", "pitchOffset": 0.99, "speedMultiplier": 0.95 },
+        { "id": "cp_neu_3", "text": "Soka-vema, miu?", "emote": "paw", "pitchOffset": 1.02, "speedMultiplier": 0.97 }
+      ],
+      "bored": [
+        { "id": "cp_bor_1", "text": "Nulo miu... mmm-pafu.", "emote": "cloud", "pitchOffset": 0.86, "speedMultiplier": 0.82 },
+        { "id": "cp_bor_2", "text": "Kiki-noko... bura.", "emote": "yawn", "pitchOffset": 0.84, "speedMultiplier": 0.79 },
+        { "id": "cp_bor_3", "text": "Pff... zuma-tolo.", "emote": "sweat", "pitchOffset": 0.85, "speedMultiplier": 0.83 }
+      ],
+      "leaving": [
+        { "id": "cp_lea_1", "text": "Miu-va, pipi-ko!", "emote": "wave", "pitchOffset": 0.93, "speedMultiplier": 0.91 },
+        { "id": "cp_lea_2", "text": "Sali-pafu, noko.", "emote": "paw", "pitchOffset": 0.90, "speedMultiplier": 0.88 },
+        { "id": "cp_lea_3", "text": "Lulu-va, meya!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.90 }
       ]
     },
     "party_goer": {
       "delighted": [
-        { "id": "pg_del_1", "text": "Zuma-taka! Bopa-bopa!", "emote": "music", "pitchOffset": 1.24, "speedMultiplier": 1.25 }
+        { "id": "pg_del_1", "text": "Zuma-taka! Bopa-bopa!", "emote": "music", "pitchOffset": 1.24, "speedMultiplier": 1.25 },
+        { "id": "pg_del_2", "text": "Diko-pali! Rava-zuma!", "emote": "sparkles", "pitchOffset": 1.26, "speedMultiplier": 1.28 },
+        { "id": "pg_del_3", "text": "Viba-loka! Taka-boom!", "emote": "star", "pitchOffset": 1.22, "speedMultiplier": 1.24 },
+        { "id": "pg_del_4", "text": "Kiki-zuma! Bopa-noa!", "emote": "note", "pitchOffset": 1.25, "speedMultiplier": 1.26 }
+      ],
+      "happy": [
+        { "id": "pg_hap_1", "text": "Bopa-nori, viba!", "emote": "music", "pitchOffset": 1.12, "speedMultiplier": 1.14 },
+        { "id": "pg_hap_2", "text": "Taka-sulo, mika!", "emote": "note", "pitchOffset": 1.10, "speedMultiplier": 1.11 },
+        { "id": "pg_hap_3", "text": "Zuma-piko, lala!", "emote": "smile", "pitchOffset": 1.13, "speedMultiplier": 1.12 }
+      ],
+      "neutral": [
+        { "id": "pg_neu_1", "text": "Viba... lena zuma?", "emote": "look", "pitchOffset": 1.01, "speedMultiplier": 1.02 },
+        { "id": "pg_neu_2", "text": "Bopa-ko... humu?", "emote": "dots", "pitchOffset": 0.99, "speedMultiplier": 0.98 },
+        { "id": "pg_neu_3", "text": "Taka-melo, to?", "emote": "music", "pitchOffset": 1.02, "speedMultiplier": 1.00 }
+      ],
+      "bored": [
+        { "id": "pg_bor_1", "text": "Nulo bopa... zzz-na.", "emote": "yawn", "pitchOffset": 0.84, "speedMultiplier": 0.80 },
+        { "id": "pg_bor_2", "text": "Shhh-tolo... bura!", "emote": "zzz", "pitchOffset": 0.81, "speedMultiplier": 0.77 },
+        { "id": "pg_bor_3", "text": "Pff... nulo viba.", "emote": "sweat", "pitchOffset": 0.85, "speedMultiplier": 0.82 }
+      ],
+      "leaving": [
+        { "id": "pg_lea_1", "text": "Zuma-va, bopa-ko!", "emote": "wave", "pitchOffset": 0.93, "speedMultiplier": 0.94 },
+        { "id": "pg_lea_2", "text": "Sali-diko, noko!", "emote": "music", "pitchOffset": 0.90, "speedMultiplier": 0.91 },
+        { "id": "pg_lea_3", "text": "Viba-va, taka!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.92 }
+      ]
+    },
+    "plant_lover": {
+      "delighted": [
+        { "id": "pl_del_1", "text": "Vena-luma! Klori-na!", "emote": "leaf", "pitchOffset": 1.16, "speedMultiplier": 1.10 },
+        { "id": "pl_del_2", "text": "Soli-feli! Moya-vera!", "emote": "sparkles", "pitchOffset": 1.19, "speedMultiplier": 1.12 },
+        { "id": "pl_del_3", "text": "Peta-suna! Liva-noa!", "emote": "heart", "pitchOffset": 1.17, "speedMultiplier": 1.09 }
+      ],
+      "happy": [
+        { "id": "pl_hap_1", "text": "Klori-meya, suna.", "emote": "leaf", "pitchOffset": 1.08, "speedMultiplier": 1.03 },
+        { "id": "pl_hap_2", "text": "Vena-palo, sulo!", "emote": "smile", "pitchOffset": 1.06, "speedMultiplier": 1.01 },
+        { "id": "pl_hap_3", "text": "Liva-telo, nora.", "emote": "note", "pitchOffset": 1.09, "speedMultiplier": 1.04 }
+      ],
+      "neutral": [
+        { "id": "pl_neu_1", "text": "Suna... vena ko?", "emote": "look", "pitchOffset": 0.99, "speedMultiplier": 0.96 },
+        { "id": "pl_neu_2", "text": "Humu, klori-to?", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.94 },
+        { "id": "pl_neu_3", "text": "Moya... lena feli?", "emote": "leaf", "pitchOffset": 1.00, "speedMultiplier": 0.97 }
+      ],
+      "bored": [
+        { "id": "pl_bor_1", "text": "Nulo vena... mmm-ko.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.81 },
+        { "id": "pl_bor_2", "text": "Suna-noko... bura.", "emote": "yawn", "pitchOffset": 0.83, "speedMultiplier": 0.79 },
+        { "id": "pl_bor_3", "text": "Klori-pff... vana.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.82 }
+      ],
+      "leaving": [
+        { "id": "pl_lea_1", "text": "Vena-va, suna-ko!", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.89 },
+        { "id": "pl_lea_2", "text": "Sali-liva, meya.", "emote": "leaf", "pitchOffset": 0.88, "speedMultiplier": 0.87 },
+        { "id": "pl_lea_3", "text": "Klori-va, noko.", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.88 }
+      ]
+    },
+    "night_owl": {
+      "delighted": [
+        { "id": "no_del_1", "text": "Luno-vela! Noka-sani!", "emote": "moon", "pitchOffset": 1.13, "speedMultiplier": 1.08 },
+        { "id": "no_del_2", "text": "Stela-luma! Miri-noa!", "emote": "star", "pitchOffset": 1.15, "speedMultiplier": 1.10 },
+        { "id": "no_del_3", "text": "Vela-kofa, luno-te!", "emote": "sparkles", "pitchOffset": 1.12, "speedMultiplier": 1.09 }
+      ],
+      "happy": [
+        { "id": "no_hap_1", "text": "Luno-melo, sssha.", "emote": "moon", "pitchOffset": 1.05, "speedMultiplier": 1.00 },
+        { "id": "no_hap_2", "text": "Noka-vema, kora.", "emote": "note", "pitchOffset": 1.06, "speedMultiplier": 1.01 },
+        { "id": "no_hap_3", "text": "Stela-pino, luma.", "emote": "star", "pitchOffset": 1.04, "speedMultiplier": 0.99 }
+      ],
+      "neutral": [
+        { "id": "no_neu_1", "text": "Humu... luno to?", "emote": "dots", "pitchOffset": 0.98, "speedMultiplier": 0.93 },
+        { "id": "no_neu_2", "text": "Noka-vasa, pelo.", "emote": "look", "pitchOffset": 0.96, "speedMultiplier": 0.95 },
+        { "id": "no_neu_3", "text": "Vela... stela ko?", "emote": "moon", "pitchOffset": 0.99, "speedMultiplier": 0.94 }
+      ],
+      "bored": [
+        { "id": "no_bor_1", "text": "Bura-luno... zzz.", "emote": "zzz", "pitchOffset": 0.82, "speedMultiplier": 0.78 },
+        { "id": "no_bor_2", "text": "Mmm-noka... tolo.", "emote": "yawn", "pitchOffset": 0.80, "speedMultiplier": 0.76 },
+        { "id": "no_bor_3", "text": "Nulo stela... pff.", "emote": "cloud", "pitchOffset": 0.83, "speedMultiplier": 0.80 }
+      ],
+      "leaving": [
+        { "id": "no_lea_1", "text": "Luno-va, noka.", "emote": "wave", "pitchOffset": 0.87, "speedMultiplier": 0.85 },
+        { "id": "no_lea_2", "text": "Sali-stela, ko.", "emote": "moon", "pitchOffset": 0.86, "speedMultiplier": 0.84 },
+        { "id": "no_lea_3", "text": "Vela-meli, noko.", "emote": "wave", "pitchOffset": 0.89, "speedMultiplier": 0.87 }
+      ]
+    },
+    "foodie": {
+      "delighted": [
+        { "id": "fd_del_1", "text": "Noma-pali! Savori-te!", "emote": "food", "pitchOffset": 1.20, "speedMultiplier": 1.15 },
+        { "id": "fd_del_2", "text": "Tasti-luma! Moka-sani!", "emote": "sparkles", "pitchOffset": 1.22, "speedMultiplier": 1.16 },
+        { "id": "fd_del_3", "text": "Pani-melo! Kiki-noma!", "emote": "heart", "pitchOffset": 1.18, "speedMultiplier": 1.12 }
+      ],
+      "happy": [
+        { "id": "fd_hap_1", "text": "Savori-ko, noma-ta.", "emote": "food", "pitchOffset": 1.08, "speedMultiplier": 1.06 },
+        { "id": "fd_hap_2", "text": "Milo-pani, sulo!", "emote": "smile", "pitchOffset": 1.10, "speedMultiplier": 1.05 },
+        { "id": "fd_hap_3", "text": "Tika-noma, luma.", "emote": "note", "pitchOffset": 1.07, "speedMultiplier": 1.03 }
+      ],
+      "neutral": [
+        { "id": "fd_neu_1", "text": "Noma... lena pani?", "emote": "look", "pitchOffset": 1.00, "speedMultiplier": 0.98 },
+        { "id": "fd_neu_2", "text": "Humu, savori ko?", "emote": "dots", "pitchOffset": 0.98, "speedMultiplier": 0.96 },
+        { "id": "fd_neu_3", "text": "Pelo-pani, vasa?", "emote": "food", "pitchOffset": 1.01, "speedMultiplier": 0.99 }
+      ],
+      "bored": [
+        { "id": "fd_bor_1", "text": "Nulo noma... mmm-ko.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.82 },
+        { "id": "fd_bor_2", "text": "Bura-pani... pff.", "emote": "yawn", "pitchOffset": 0.83, "speedMultiplier": 0.80 },
+        { "id": "fd_bor_3", "text": "Vana-tasti... noko.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.82 }
+      ],
+      "leaving": [
+        { "id": "fd_lea_1", "text": "Noma-va, sali-ko!", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.90 },
+        { "id": "fd_lea_2", "text": "Savori-va, meya.", "emote": "food", "pitchOffset": 0.89, "speedMultiplier": 0.88 },
+        { "id": "fd_lea_3", "text": "Pani-noko, tava!", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.89 }
+      ]
+    },
+    "artist": {
+      "delighted": [
+        { "id": "ar_del_1", "text": "Kolo-mira! Vela-pinta!", "emote": "art", "pitchOffset": 1.18, "speedMultiplier": 1.12 },
+        { "id": "ar_del_2", "text": "Suna-kolo! Luma-feli!", "emote": "sparkles", "pitchOffset": 1.21, "speedMultiplier": 1.14 },
+        { "id": "ar_del_3", "text": "Pinta-noa! Sani-te!", "emote": "star", "pitchOffset": 1.17, "speedMultiplier": 1.10 }
+      ],
+      "happy": [
+        { "id": "ar_hap_1", "text": "Kolo-sulo, mira-ta.", "emote": "art", "pitchOffset": 1.07, "speedMultiplier": 1.04 },
+        { "id": "ar_hap_2", "text": "Pinta-melo, luma!", "emote": "smile", "pitchOffset": 1.09, "speedMultiplier": 1.03 },
+        { "id": "ar_hap_3", "text": "Vema-kolo, nora.", "emote": "heart", "pitchOffset": 1.06, "speedMultiplier": 1.01 }
+      ],
+      "neutral": [
+        { "id": "ar_neu_1", "text": "Kolo... lena mira?", "emote": "look", "pitchOffset": 0.99, "speedMultiplier": 0.96 },
+        { "id": "ar_neu_2", "text": "Humu, pinta-to?", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.94 },
+        { "id": "ar_neu_3", "text": "Vasa-kolo, pelo?", "emote": "art", "pitchOffset": 1.00, "speedMultiplier": 0.97 }
+      ],
+      "bored": [
+        { "id": "ar_bor_1", "text": "Nulo kolo... mmm-va.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.81 },
+        { "id": "ar_bor_2", "text": "Pinta-noko... bura.", "emote": "yawn", "pitchOffset": 0.83, "speedMultiplier": 0.79 },
+        { "id": "ar_bor_3", "text": "Sulo-pff... vana.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.82 }
+      ],
+      "leaving": [
+        { "id": "ar_lea_1", "text": "Kolo-va, mira-ko!", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.89 },
+        { "id": "ar_lea_2", "text": "Sali-pinta, meya.", "emote": "art", "pitchOffset": 0.88, "speedMultiplier": 0.87 },
+        { "id": "ar_lea_3", "text": "Luma-va, noko.", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.88 }
+      ]
+    },
+    "musician": {
+      "delighted": [
+        { "id": "mu_del_1", "text": "Rimo-vela! Soni-luma!", "emote": "vinyl", "pitchOffset": 1.16, "speedMultiplier": 1.14 },
+        { "id": "mu_del_2", "text": "Tona-sani! Melo-groove!", "emote": "music", "pitchOffset": 1.19, "speedMultiplier": 1.16 },
+        { "id": "mu_del_3", "text": "Vina-kora! Soni-noa!", "emote": "sparkles", "pitchOffset": 1.15, "speedMultiplier": 1.12 }
+      ],
+      "happy": [
+        { "id": "mu_hap_1", "text": "Soni-melo, rimo-ta.", "emote": "note", "pitchOffset": 1.07, "speedMultiplier": 1.05 },
+        { "id": "mu_hap_2", "text": "Vina-luma, kora!", "emote": "vinyl", "pitchOffset": 1.08, "speedMultiplier": 1.04 },
+        { "id": "mu_hap_3", "text": "Tona-pino, meya.", "emote": "smile", "pitchOffset": 1.05, "speedMultiplier": 1.02 }
+      ],
+      "neutral": [
+        { "id": "mu_neu_1", "text": "Soni... lena rimo?", "emote": "look", "pitchOffset": 0.99, "speedMultiplier": 0.97 },
+        { "id": "mu_neu_2", "text": "Humu, vina-ko?", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.95 },
+        { "id": "mu_neu_3", "text": "Tona-vasa, pelo?", "emote": "note", "pitchOffset": 1.00, "speedMultiplier": 0.98 }
+      ],
+      "bored": [
+        { "id": "mu_bor_1", "text": "Nulo soni... mmm-tolo.", "emote": "cloud", "pitchOffset": 0.84, "speedMultiplier": 0.80 },
+        { "id": "mu_bor_2", "text": "Rimo-noko... bura.", "emote": "yawn", "pitchOffset": 0.82, "speedMultiplier": 0.78 },
+        { "id": "mu_bor_3", "text": "Vina-pff... zzz.", "emote": "zzz", "pitchOffset": 0.81, "speedMultiplier": 0.77 }
+      ],
+      "leaving": [
+        { "id": "mu_lea_1", "text": "Soni-va, rimo-ko!", "emote": "wave", "pitchOffset": 0.89, "speedMultiplier": 0.88 },
+        { "id": "mu_lea_2", "text": "Sali-vina, noko.", "emote": "note", "pitchOffset": 0.87, "speedMultiplier": 0.86 },
+        { "id": "mu_lea_3", "text": "Tona-va, meya!", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.89 }
+      ]
+    },
+    "homebody": {
+      "delighted": [
+        { "id": "hb_del_1", "text": "Pafu-luma! Moya-sani!", "emote": "sofa", "pitchOffset": 1.15, "speedMultiplier": 1.08 },
+        { "id": "hb_del_2", "text": "Kosi-vela! Nura-noa!", "emote": "heart", "pitchOffset": 1.18, "speedMultiplier": 1.10 },
+        { "id": "hb_del_3", "text": "Sulo-pafu! Luma-te!", "emote": "sparkles", "pitchOffset": 1.14, "speedMultiplier": 1.07 }
+      ],
+      "happy": [
+        { "id": "hb_hap_1", "text": "Kosi-meya, pafu-ta.", "emote": "sofa", "pitchOffset": 1.06, "speedMultiplier": 1.01 },
+        { "id": "hb_hap_2", "text": "Nura-sulo, luma.", "emote": "smile", "pitchOffset": 1.07, "speedMultiplier": 1.02 },
+        { "id": "hb_hap_3", "text": "Moya-pino, kora.", "emote": "heart", "pitchOffset": 1.05, "speedMultiplier": 1.00 }
+      ],
+      "neutral": [
+        { "id": "hb_neu_1", "text": "Kosi... lena pafu?", "emote": "look", "pitchOffset": 0.98, "speedMultiplier": 0.94 },
+        { "id": "hb_neu_2", "text": "Humu, nura-to?", "emote": "dots", "pitchOffset": 0.96, "speedMultiplier": 0.93 },
+        { "id": "hb_neu_3", "text": "Pelo-moya, vasa.", "emote": "sofa", "pitchOffset": 0.99, "speedMultiplier": 0.95 }
+      ],
+      "bored": [
+        { "id": "hb_bor_1", "text": "Nulo kosi... mmm-zzz.", "emote": "yawn", "pitchOffset": 0.83, "speedMultiplier": 0.79 },
+        { "id": "hb_bor_2", "text": "Pafu-noko... bura.", "emote": "cloud", "pitchOffset": 0.81, "speedMultiplier": 0.77 },
+        { "id": "hb_bor_3", "text": "Zuma-pff... tolo.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.81 }
+      ],
+      "leaving": [
+        { "id": "hb_lea_1", "text": "Kosi-va, nura-ko!", "emote": "wave", "pitchOffset": 0.89, "speedMultiplier": 0.86 },
+        { "id": "hb_lea_2", "text": "Sali-pafu, meya.", "emote": "sofa", "pitchOffset": 0.87, "speedMultiplier": 0.85 },
+        { "id": "hb_lea_3", "text": "Moya-va, noko.", "emote": "wave", "pitchOffset": 0.88, "speedMultiplier": 0.87 }
       ]
     }
   }

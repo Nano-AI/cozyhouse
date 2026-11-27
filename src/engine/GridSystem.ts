@@ -44,6 +44,34 @@ export function canonicalWallEdgeKey(x: number, z: number, rotation: RotationQua
   }
 }
 
+export function parseCanonicalWallEdgeKey(key: string): {
+  axis: 'H' | 'V';
+  ex: number;
+  ez: number;
+} {
+  const [axis, exStr, ezStr] = key.split(':');
+  return {
+    axis: axis === 'V' ? 'V' : 'H',
+    ex: Number(exStr),
+    ez: Number(ezStr),
+  };
+}
+
+function wallEdgeCutsRect(
+  axis: 'H' | 'V',
+  ex: number,
+  ez: number,
+  rx: number,
+  rz: number,
+  rw: number,
+  rd: number,
+): boolean {
+  if (axis === 'H') {
+    return ex >= rx && ex < rx + rw && ez > rz && ez < rz + rd;
+  }
+  return ez >= rz && ez < rz + rd && ex > rx && ex < rx + rw;
+}
+
 export function tileToWorldCenter(
   x: number,
   z: number,
@@ -177,12 +205,19 @@ export function validatePlacement(
   // Structural walls occupy grid edges
   if (def.layer === 'wall' && def.wallKind === 'structure') {
     const edgeKey = canonicalWallEdgeKey(candidate.x, candidate.z, candidate.rotation);
+    const parsed = parseCanonicalWallEdgeKey(edgeKey);
     for (const existing of state.items) {
       if (ignoreUids?.has(existing.uid)) continue;
       const exDef = data.itemsById.get(existing.itemId);
-      if (exDef?.layer === 'wall' && exDef.wallKind === 'structure') {
+      if (!exDef) continue;
+      if (exDef.layer === 'wall' && exDef.wallKind === 'structure') {
         if (canonicalWallEdgeKey(existing.x, existing.z, existing.rotation) === edgeKey) {
           return { valid: false, reason: 'Wall edge already occupied' };
+        }
+      } else if (exDef.layer === 'floor' && (exDef.subLayer ?? 'object') === 'object') {
+        const exEff = getEffectiveFootprint(exDef, existing.rotation);
+        if (wallEdgeCutsRect(parsed.axis, parsed.ex, parsed.ez, existing.x, existing.z, exEff.w, exEff.d)) {
+          return { valid: false, reason: 'Cannot place wall through furniture' };
         }
       }
     }
@@ -199,7 +234,7 @@ export function validatePlacement(
     if (!parent || !parentDef || parentDef.layer !== 'wall' || parentDef.wallKind !== 'structure') {
       return { valid: false, reason: 'Requires a wall segment' };
     }
-    if (parent.itemId === 'window_wide' || parent.itemId === 'door_wood') {
+    if (parentDef.tags.includes('window') || parentDef.tags.includes('door')) {
       return { valid: false, reason: 'Cannot mount on doors or windows' };
     }
     // Check overlap with other mounted items on the same wall face
@@ -268,7 +303,17 @@ export function validatePlacement(
   for (const existing of state.items) {
     if (ignoreUids?.has(existing.uid)) continue;
     const exDef = data.itemsById.get(existing.itemId);
-    if (!exDef || exDef.layer !== 'floor') continue;
+    if (!exDef) continue;
+    if (mySub === 'object' && exDef.layer === 'wall' && exDef.wallKind === 'structure') {
+      const parsed = parseCanonicalWallEdgeKey(
+        canonicalWallEdgeKey(existing.x, existing.z, existing.rotation),
+      );
+      if (wallEdgeCutsRect(parsed.axis, parsed.ex, parsed.ez, candidate.x, candidate.z, eff.w, eff.d)) {
+        return { valid: false, reason: 'Blocked by wall' };
+      }
+      continue;
+    }
+    if (exDef.layer !== 'floor') continue;
     const exSub = exDef.subLayer ?? 'object';
     if (exSub !== mySub) continue;
     const exEff = getEffectiveFootprint(exDef, existing.rotation);
@@ -281,92 +326,157 @@ export function validatePlacement(
 }
 
 /**
- * Renders the cozy pastel lot slab, soft beveled diorama plinth, and crisp grid lines.
+ * Flat ground-level buildable lot plane with toggleable Sims-style architectural grid tiles.
+ * Zero stacked platforms — sits completely flush at y = 0 with the surrounding scenery.
  */
 export class GridVisual {
   readonly group = new THREE.Group();
   readonly groundPlane: THREE.Mesh;
 
+  private readonly gridOverlay = new THREE.Group();
+  private yardColorHex = '#c9dcb8';
+  private yardVisible = true;
+  private gridVisible = false;
+
   constructor(gridWidth: number, gridDepth: number) {
     this.group.name = 'HouseGrid';
 
-    // Diorama plinth slab beneath the house lot
-    const plinthGeo = new THREE.BoxGeometry(gridWidth + 0.8, 0.55, gridDepth + 0.8);
-    const plinthMat = new THREE.MeshStandardMaterial({
-      color: 0xe6dfd3,
-      roughness: 0.92,
-      metalness: 0.0,
-      flatShading: true,
-    });
-    const plinth = new THREE.Mesh(plinthGeo, plinthMat);
-    plinth.position.y = -0.285;
-    plinth.receiveShadow = true;
-    this.group.add(plinth);
-
-    // Subtle soft-grass / courtyard surround rim
-    const yardGeo = new THREE.BoxGeometry(gridWidth + 2.4, 0.25, gridDepth + 2.4);
-    const yardMat = new THREE.MeshStandardMaterial({
-      color: 0xc9dcb8,
-      roughness: 0.95,
-      metalness: 0.0,
-      flatShading: true,
-    });
-    const yard = new THREE.Mesh(yardGeo, yardMat);
-    yard.position.y = -0.45;
-    yard.receiveShadow = true;
-    yard.name = 'LotYard';
-    this.group.add(yard);
-
-    // Raycastable build plane at y = 0
+    // Flush invisible shadow-receiving build plane at y = 0 (zero elevated slab!)
     const planeGeo = new THREE.PlaneGeometry(gridWidth, gridDepth);
     planeGeo.rotateX(-Math.PI / 2);
-    const planeMat = new THREE.MeshStandardMaterial({
-      color: 0xf4efe6,
-      roughness: 0.95,
-      metalness: 0.0,
+    const planeMat = new THREE.ShadowMaterial({
+      opacity: 0.16,
+      transparent: true,
+      depthWrite: false,
     });
     this.groundPlane = new THREE.Mesh(planeGeo, planeMat);
-    this.groundPlane.position.y = -0.005;
+    this.groundPlane.position.y = 0.001;
     this.groundPlane.receiveShadow = true;
     this.groundPlane.name = 'BuildPlane';
     this.group.add(this.groundPlane);
 
-    // Subtle architectural grid lines
-    const points: number[] = [];
+    // Toggleable architectural build grid (shown in Edit Mode or when Grid toggle is active)
+    this.gridOverlay.name = 'BuildableGridOverlay';
+    this.gridOverlay.visible = this.gridVisible;
+
     const halfW = gridWidth / 2;
     const halfD = gridDepth / 2;
-    const y = 0.004;
 
+    // Subtle tinted translucent build zone wash so buildable tiles read clearly on any terrain
+    const washGeo = new THREE.PlaneGeometry(gridWidth, gridDepth);
+    washGeo.rotateX(-Math.PI / 2);
+    const washMat = new THREE.MeshBasicMaterial({
+      color: 0xfffaf0,
+      transparent: true,
+      opacity: 0.14,
+      depthWrite: false,
+    });
+    const wash = new THREE.Mesh(washGeo, washMat);
+    wash.position.y = 0.003;
+    this.gridOverlay.add(wash);
+
+    // Interior grid lines
+    const linePoints: number[] = [];
+    const yLine = 0.005;
     for (let i = 0; i <= gridWidth; i++) {
       const x = i - halfW;
-      points.push(x, y, -halfD, x, y, halfD);
+      linePoints.push(x, yLine, -halfD, x, yLine, halfD);
     }
     for (let j = 0; j <= gridDepth; j++) {
       const z = j - halfD;
-      points.push(-halfW, y, z, halfW, y, z);
+      linePoints.push(-halfW, yLine, z, halfW, yLine, z);
     }
 
     const lineGeo = new THREE.BufferGeometry();
-    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(points, 3));
+    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePoints, 3));
     const lineMat = new THREE.LineBasicMaterial({
-      color: 0xc8bfb0,
+      color: 0x6f685e,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.34,
     });
-    const lines = new THREE.LineSegments(lineGeo, lineMat);
-    this.group.add(lines);
+    this.gridOverlay.add(new THREE.LineSegments(lineGeo, lineMat));
+
+    // Soft intersection cross-ticks for crisp tile readability
+    const tickPoints: number[] = [];
+    const tickHalf = 0.07;
+    const yTick = 0.006;
+    for (let i = 0; i <= gridWidth; i++) {
+      const x = i - halfW;
+      for (let j = 0; j <= gridDepth; j++) {
+        const z = j - halfD;
+        const tx0 = Math.max(-halfW, x - tickHalf);
+        const tx1 = Math.min(halfW, x + tickHalf);
+        const tz0 = Math.max(-halfD, z - tickHalf);
+        const tz1 = Math.min(halfD, z + tickHalf);
+        tickPoints.push(tx0, yTick, z, tx1, yTick, z);
+        tickPoints.push(x, yTick, tz0, x, yTick, tz1);
+      }
+    }
+    const tickGeo = new THREE.BufferGeometry();
+    tickGeo.setAttribute('position', new THREE.Float32BufferAttribute(tickPoints, 3));
+    const tickMat = new THREE.LineBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.58,
+    });
+    this.gridOverlay.add(new THREE.LineSegments(tickGeo, tickMat));
+
+    // Crisp outer lot boundary line
+    const borderPts = [
+      new THREE.Vector3(-halfW, 0.008, -halfD),
+      new THREE.Vector3(halfW, 0.008, -halfD),
+      new THREE.Vector3(halfW, 0.008, halfD),
+      new THREE.Vector3(-halfW, 0.008, halfD),
+    ];
+    const borderGeo = new THREE.BufferGeometry().setFromPoints(borderPts);
+    const borderMat = new THREE.LineBasicMaterial({
+      color: 0xf5ece0,
+      transparent: true,
+      opacity: 0.85,
+    });
+    this.gridOverlay.add(new THREE.LineLoop(borderGeo, borderMat));
+
+    this.group.add(this.gridOverlay);
+
+    // Freeze static transforms on all grid meshes & lines
+    this.group.traverse((obj) => {
+      obj.updateMatrix();
+      obj.matrixAutoUpdate = false;
+    });
+  }
+
+  setGridVisible(visible: boolean): void {
+    this.gridVisible = visible;
+    this.gridOverlay.visible = visible;
+  }
+
+  isGridVisible(): boolean {
+    return this.gridVisible;
   }
 
   setYardColor(hex: string): void {
-    const yard = this.group.getObjectByName('LotYard') as THREE.Mesh | undefined;
-    if (yard && yard.material instanceof THREE.MeshStandardMaterial) {
-      yard.material.color.set(hex);
-    }
+    this.yardColorHex = hex;
+  }
+
+  getYardColor(): string {
+    return this.yardColorHex;
+  }
+
+  setYardVisible(visible: boolean): void {
+    this.yardVisible = visible;
+  }
+
+  isYardVisible(): boolean {
+    return this.yardVisible;
   }
 
   dispose(): void {
     this.group.traverse((obj) => {
-      if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
+      if (
+        obj instanceof THREE.Mesh ||
+        obj instanceof THREE.LineSegments ||
+        obj instanceof THREE.LineLoop
+      ) {
         obj.geometry.dispose();
         if (Array.isArray(obj.material)) {
           obj.material.forEach((m) => m.dispose());

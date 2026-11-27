@@ -1,8 +1,12 @@
-import type {
-  GameDataBundle,
-  HouseState,
-  PlacedItem,
-  RotationQuarter,
+import {
+  DEFAULT_TIME_HOUR,
+  timeHourToBucket,
+  timeOfDayToDefaultHour,
+  type GameDataBundle,
+  type HouseState,
+  type PlacedItem,
+  type RotationQuarter,
+  type TimeOfDay,
 } from '../data/schemas';
 import { generateItemUid } from '../state/houseStore';
 
@@ -29,6 +33,8 @@ export interface SerializedHouseV1 {
   g: [number, number];
   s: string;
   w: string;
+  t?: TimeOfDay;
+  th?: number;
   o?: string | null;
   i: SerializedItemTuple[];
 }
@@ -79,6 +85,17 @@ export function serializeHouse(state: HouseState): SerializedHouseV1 {
     i: tuples,
   };
 
+  if (state.timeOfDay && state.timeOfDay !== 'day') {
+    payload.t = state.timeOfDay;
+  }
+
+  if (state.timeHour !== undefined && Number.isFinite(state.timeHour)) {
+    const roundedHour = Math.round(Math.max(0, Math.min(24, state.timeHour)) * 100) / 100;
+    if (Math.abs(roundedHour - DEFAULT_TIME_HOUR) > 0.005 || payload.t !== undefined) {
+      payload.th = roundedHour;
+    }
+  }
+
   if (state.roomTypeOverride) {
     payload.o = state.roomTypeOverride;
   }
@@ -126,6 +143,24 @@ export function deserializeHouse(raw: unknown, data: GameDataBundle): Deserializ
     typeof obj.w === 'string' && data.weathersById.has(obj.w)
       ? obj.w
       : data.scenery.defaultWeatherId;
+
+  const rawTod: TimeOfDay | null =
+    obj.t === 'morning' || obj.t === 'day' || obj.t === 'sunset' || obj.t === 'night'
+      ? obj.t
+      : null;
+
+  let timeHour: number;
+  let timeOfDay: TimeOfDay;
+  if (typeof obj.th === 'number' && Number.isFinite(obj.th)) {
+    timeHour = Math.round(Math.max(0, Math.min(24, obj.th)) * 100) / 100;
+    timeOfDay = timeHourToBucket(timeHour);
+  } else if (rawTod) {
+    timeOfDay = rawTod;
+    timeHour = timeOfDayToDefaultHour(rawTod);
+  } else {
+    timeOfDay = 'day';
+    timeHour = DEFAULT_TIME_HOUR;
+  }
 
   const roomTypeOverride = typeof obj.o === 'string' && obj.o.trim() ? obj.o.trim() : null;
 
@@ -208,6 +243,8 @@ export function deserializeHouse(raw: unknown, data: GameDataBundle): Deserializ
       gridDepth,
       sceneryViewId,
       weatherId,
+      timeOfDay,
+      timeHour,
       roomTypeOverride,
       items,
     },

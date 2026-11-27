@@ -4,110 +4,242 @@
     {
       "id": "bookworm",
       "name": "Bookworm",
+      "archetypeIcon": "📖",
       "description": "Loves quiet corners, tall bookshelves, warm lamps, and a comfy chair.",
       "color": "#9EB8CF",
       "model": "models/visitors/bookworm.glb",
-      "likedTags": ["read", "cozy", "light", "coffee"],
+      "likedTags": ["read", "cozy", "light", "coffee", "seating"],
       "dislikedTags": ["party"],
       "preferredInteractions": ["browse_shelf", "sit", "sip"],
-      "walkSpeed": 1.35,
-      "patienceSeconds": 90,
+      "walkSpeed": 1.4,
+      "patienceSeconds": 38,
       "voiceProfile": {
         "basePitch": 280,
         "pitchVariance": 35,
         "syllableRate": 5.2,
         "waveform": "sine"
-      }
+      },
+      "personas": [
+        { "name": "Maya", "pronouns": "she/her", "trait": "Collects annotated paperbacks and seeks out warm reading lamps." },
+        { "name": "Julian", "pronouns": "he/him", "trait": "Always carries a well-loved novel and a soft knit scarf." },
+        { "name": "Rowan", "pronouns": "they/them", "trait": "Finds pure bliss in quiet shelves, warm tea, and plush chairs." }
+      ]
     },
     {
       "id": "coffee_snob",
       "name": "Coffee Snob",
+      "archetypeIcon": "☕",
       "description": "Here for the espresso machine, pastry case, and warm café ambiance.",
       "color": "#C9A17E",
       "model": "models/visitors/coffee-snob.glb",
-      "likedTags": ["coffee", "cafe", "serve", "seating"],
-      "dislikedTags": [],
-      "preferredInteractions": ["order_coffee", "sit", "admire"],
-      "walkSpeed": 1.5,
-      "patienceSeconds": 75,
+      "likedTags": ["coffee", "cafe", "serve", "seating", "drinks"],
+      "dislikedTags": ["party"],
+      "preferredInteractions": ["order_coffee", "sip", "sit"],
+      "walkSpeed": 1.55,
+      "patienceSeconds": 34,
       "voiceProfile": {
         "basePitch": 320,
         "pitchVariance": 45,
         "syllableRate": 6.4,
         "waveform": "triangle"
-      }
+      },
+      "personas": [
+        { "name": "Leo", "pronouns": "he/him", "trait": "Can identify a single-origin espresso roast from three rooms away." },
+        { "name": "Clara", "pronouns": "she/her", "trait": "Judges every space by its crema, pastries, and café seating." },
+        { "name": "Devon", "pronouns": "they/them", "trait": "Chases velvety oat lattes and minimalist café counter vibes." }
+      ]
     },
     {
       "id": "cat_person",
       "name": "Cat Person",
-      "description": "Immediately gravitates toward cats, cat trees, and wall shelves.",
+      "archetypeIcon": "🐾",
+      "description": "Immediately gravitates toward cats, cat trees, plushies, and cozy nooks.",
       "color": "#F0B6C2",
       "model": "models/visitors/cat-person.glb",
-      "likedTags": ["cat", "pet", "cozy"],
+      "likedTags": ["cat", "pet", "cozy", "plushie", "seating"],
       "dislikedTags": ["party"],
       "preferredInteractions": ["pet_cat", "admire", "sit"],
-      "walkSpeed": 1.4,
-      "patienceSeconds": 95,
+      "walkSpeed": 1.45,
+      "patienceSeconds": 40,
       "voiceProfile": {
         "basePitch": 390,
         "pitchVariance": 60,
         "syllableRate": 6.8,
         "waveform": "sine"
-      }
+      },
+      "personas": [
+        { "name": "Mina", "pronouns": "she/her", "trait": "Immediately befriends every cat and checks out the softest cushions." },
+        { "name": "Toby", "pronouns": "he/him", "trait": "Never walks past a cat tree without offering gentle chin scratches." },
+        { "name": "Avery", "pronouns": "they/them", "trait": "Dreams of running a sunlit cat lounge stocked with cozy toys." }
+      ]
     },
     {
       "id": "party_goer",
       "name": "Party-Goer",
+      "archetypeIcon": "🎧",
       "description": "Lives for turntables, disco balls, neon glow, and dancing.",
       "color": "#CEB5E6",
       "model": "models/visitors/party-goer.glb",
-      "likedTags": ["party", "music", "nightlife", "drinks"],
-      "dislikedTags": ["sleep"],
+      "likedTags": ["party", "music", "nightlife", "dance", "drinks"],
+      "dislikedTags": ["sleep", "read"],
       "preferredInteractions": ["dance", "admire", "sip"],
       "walkSpeed": 1.85,
-      "patienceSeconds": 65,
+      "patienceSeconds": 30,
       "voiceProfile": {
         "basePitch": 350,
         "pitchVariance": 80,
         "syllableRate": 8.0,
         "waveform": "triangle"
-      }
+      },
+      "personas": [
+        { "name": "Zara", "pronouns": "she/her", "trait": "Brings nonstop energy wherever there's a glowing beat and dance floor." },
+        { "name": "Nico", "pronouns": "he/him", "trait": "Lives for turntable drops, disco reflections, and upbeat basslines." },
+        { "name": "Kai", "pronouns": "they/them", "trait": "Chases neon lights, synth grooves, and midnight mocktails." }
+      ]
     },
     {
       "id": "plant_lover",
       "name": "Plant Lover",
+      "archetypeIcon": "🌿",
       "description": "Counts every potted leaf and trailing vine near a bright window.",
       "color": "#94C5A3",
       "model": "models/visitors/plant-lover.glb",
       "likedTags": ["plants", "window", "cozy", "decor"],
-      "dislikedTags": [],
+      "dislikedTags": ["nightlife"],
       "preferredInteractions": ["admire_plant", "look_out_window", "sit"],
-      "walkSpeed": 1.3,
-      "patienceSeconds": 85,
+      "walkSpeed": 1.35,
+      "patienceSeconds": 36,
       "voiceProfile": {
         "basePitch": 305,
         "pitchVariance": 40,
         "syllableRate": 5.5,
         "waveform": "sine"
-      }
+      },
+      "personas": [
+        { "name": "Elena", "pronouns": "she/her", "trait": "Knows the Latin name of every fern and checks how the sunlight falls." },
+        { "name": "Mateo", "pronouns": "he/him", "trait": "Happiest around terracotta pots, bright picture windows, and vines." },
+        { "name": "Sage", "pronouns": "they/them", "trait": "Propagates clippings everywhere and admires trailing ceiling ivy." }
+      ]
     },
     {
       "id": "night_owl",
       "name": "Night Owl",
+      "archetypeIcon": "🌙",
       "description": "Drawn to soft lamps, neon signs, late-night coffee, and music.",
       "color": "#8E99C7",
       "model": "models/visitors/night-owl.glb",
-      "likedTags": ["nightlife", "light", "music", "coffee"],
+      "likedTags": ["nightlife", "light", "music", "coffee", "bar"],
       "dislikedTags": [],
-      "preferredInteractions": ["sit", "sip", "browse_shelf"],
-      "walkSpeed": 1.45,
-      "patienceSeconds": 80,
+      "preferredInteractions": ["sit", "sip", "browse_shelf", "dance"],
+      "walkSpeed": 1.5,
+      "patienceSeconds": 36,
       "voiceProfile": {
         "basePitch": 240,
         "pitchVariance": 30,
         "syllableRate": 4.8,
         "waveform": "sine"
-      }
+      },
+      "personas": [
+        { "name": "Sora", "pronouns": "they/them", "trait": "Thrives under warm desk lamps, neon glow, and late-night beats." },
+        { "name": "Nadia", "pronouns": "she/her", "trait": "Loves midnight playlists, moody lighting, and quiet bar stools." },
+        { "name": "Ethan", "pronouns": "he/him", "trait": "Stays up sketching with lo-fi records and a strong evening brew." }
+      ]
+    },
+    {
+      "id": "foodie",
+      "name": "Foodie",
+      "archetypeIcon": "🍳",
+      "description": "Drawn to gleaming stoves, stocked pantries, kitchen counters, and dining sets.",
+      "color": "#E9B872",
+      "model": "models/visitors/foodie.glb",
+      "likedTags": ["cook", "kitchen", "dining", "food", "diner"],
+      "dislikedTags": [],
+      "preferredInteractions": ["admire", "sit", "sip"],
+      "walkSpeed": 1.5,
+      "patienceSeconds": 36,
+      "voiceProfile": {
+        "basePitch": 335,
+        "pitchVariance": 50,
+        "syllableRate": 6.2,
+        "waveform": "triangle"
+      },
+      "personas": [
+        { "name": "Chloe", "pronouns": "she/her", "trait": "Admires stocked pantries, warm stoves, and inviting dining tables." },
+        { "name": "Omar", "pronouns": "he/him", "trait": "Inspects every kitchen island and dreams up cozy tasting menus." },
+        { "name": "Jules", "pronouns": "they/them", "trait": "Loves retro diners, whistling kettles, and fresh-baked pastries." }
+      ]
+    },
+    {
+      "id": "artist",
+      "name": "Indie Artist",
+      "archetypeIcon": "🎨",
+      "description": "Appreciates framed art, warm lighting, handcrafted decor, and leafy corners.",
+      "color": "#E5A4B4",
+      "model": "models/visitors/artist.glb",
+      "likedTags": ["art", "decor", "plants", "light", "read"],
+      "dislikedTags": [],
+      "preferredInteractions": ["admire", "admire_plant", "browse_shelf"],
+      "walkSpeed": 1.4,
+      "patienceSeconds": 38,
+      "voiceProfile": {
+        "basePitch": 310,
+        "pitchVariance": 52,
+        "syllableRate": 5.8,
+        "waveform": "sine"
+      },
+      "personas": [
+        { "name": "Priya", "pronouns": "she/her", "trait": "Studies gallery walls, warm color palettes, and sculpted ceramics." },
+        { "name": "Theo", "pronouns": "he/him", "trait": "Draws inspiration from indie posters, sunlit mirrors, and lush foliage." },
+        { "name": "Quinn", "pronouns": "they/them", "trait": "Curates cozy textures, woven tapestries, and sculptural lamps." }
+      ]
+    },
+    {
+      "id": "musician",
+      "name": "Vinyl Lover",
+      "archetypeIcon": "🎵",
+      "description": "Seeks out vinyl records, turntables, warm soundscapes, and a late espresso.",
+      "color": "#A5B4E0",
+      "model": "models/visitors/musician.glb",
+      "likedTags": ["music", "cozy", "nightlife", "coffee"],
+      "dislikedTags": [],
+      "preferredInteractions": ["dance", "admire", "sit", "sip"],
+      "walkSpeed": 1.5,
+      "patienceSeconds": 36,
+      "voiceProfile": {
+        "basePitch": 265,
+        "pitchVariance": 42,
+        "syllableRate": 5.6,
+        "waveform": "triangle"
+      },
+      "personas": [
+        { "name": "Marcus", "pronouns": "he/him", "trait": "Flips through vinyl crates listening for warm analog crackle." },
+        { "name": "Yuki", "pronouns": "she/her", "trait": "Pairs mellow jazz records with soft lighting and warm coffee." },
+        { "name": "Alex", "pronouns": "they/them", "trait": "Collects rare pressings and loves a cozy listening lounge." }
+      ]
+    },
+    {
+      "id": "homebody",
+      "name": "Cozy Homebody",
+      "archetypeIcon": "🛋️",
+      "description": "Lives for plush sofas, fluffy beds, soft woven rugs, and squishy plushies.",
+      "color": "#E4B69C",
+      "model": "models/visitors/homebody.glb",
+      "likedTags": ["home", "sleep", "cozy", "seating", "plushie"],
+      "dislikedTags": ["party"],
+      "preferredInteractions": ["sit", "admire"],
+      "walkSpeed": 1.3,
+      "patienceSeconds": 40,
+      "voiceProfile": {
+        "basePitch": 295,
+        "pitchVariance": 36,
+        "syllableRate": 5.0,
+        "waveform": "sine"
+      },
+      "personas": [
+        { "name": "Hannah", "pronouns": "she/her", "trait": "Ranks every sofa by nap potential and adores soft woven rugs." },
+        { "name": "Ben", "pronouns": "he/him", "trait": "Nothing beats a fluffy bed, a warm lamp, and a quiet afternoon in." },
+        { "name": "Sam", "pronouns": "they/them", "trait": "Collects squishy plushies and loves a calm, welcoming sanctuary." }
+      ]
     }
   ]
 }

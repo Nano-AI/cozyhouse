@@ -1,21 +1,53 @@
-import type {
-  GameDataBundle,
-  HouseState,
-  PlacedItem,
-  RotationQuarter,
+import {
+  DEFAULT_TIME_HOUR,
+  timeHourToBucket,
+  timeOfDayToDefaultHour,
+  type GameDataBundle,
+  type HouseState,
+  type PlacedItem,
+  type RotationQuarter,
+  type TimeOfDay,
 } from '../data/schemas';
+import { getEffectiveFootprint } from '../engine/GridSystem';
 
-export type InteractionMode = 'select' | 'place' | 'move';
+export type InteractionMode = 'select' | 'place' | 'move' | 'bulk-select' | 'erase';
+export type EraseFilter = 'all' | 'floor' | 'wall' | 'furniture';
+export type ExpandSide = 'north' | 'south' | 'east' | 'west';
+export type WallViewMode = 'auto' | 'translucent' | 'solid';
+
+const MUSIC_PARTY_HUBS = new Set(['dj_booth', 'record_player', 'diner_jukebox', 'karaoke_mic']);
+const MUSIC_PARTY_LINKED = new Set([
+  'dj_booth',
+  'disco_ball',
+  'speaker_tower',
+  'subwoofer_box',
+  'floor_uplight',
+  'party_spotlight',
+  'laser_bar',
+  'dance_floor_tile',
+  'led_strip_wall',
+  'fog_machine',
+  'string_lights',
+  'record_player',
+  'diner_jukebox',
+]);
+const CAFE_LINKED = new Set(['coffee_grinder', 'pourover_stand', 'pastry_case']);
+const PET_TOYS = new Set(['cat_feather_wand', 'cat_ball_track', 'cat_tunnel', 'scratch_post']);
+const CAT_ITEMS = new Set(['cat_calico', 'cat_sleepy', 'cat_kitten', 'cat_loaf']);
 
 export interface StoreEventMap {
   houseChanged: { state: HouseState; reason: string };
-  selectionChanged: { selectedUid: string | null };
+  selectionChanged: { selectedUid: string | null; selectedUids: string[] };
   modeChanged: {
     mode: InteractionMode;
     placementItemId: string | null;
     placementVariantId: string | null;
     placementRotation: RotationQuarter;
+    eraseFilter: EraseFilter;
   };
+  editModeChanged: { editMode: boolean };
+  gridVisibilityChanged: { visible: boolean };
+  wallViewChanged: { mode: WallViewMode; showCeiling: boolean };
   itemInteracted: { item: PlacedItem };
   toast: { message: string; tone?: 'info' | 'success' | 'error' };
 }
@@ -23,13 +55,24 @@ export interface StoreEventMap {
 type Listener<T> = (payload: T) => void;
 
 const MAX_HISTORY = 80;
+const MIN_GRID_SIZE = 8;
+const MAX_GRID_SIZE = 36;
 
 function cloneHouseState(state: HouseState): HouseState {
+  const timeHour =
+    state.timeHour !== undefined && Number.isFinite(state.timeHour)
+      ? state.timeHour
+      : state.timeOfDay
+        ? timeOfDayToDefaultHour(state.timeOfDay)
+        : DEFAULT_TIME_HOUR;
+  const timeOfDay = state.timeOfDay ?? timeHourToBucket(timeHour);
   return {
     gridWidth: state.gridWidth,
     gridDepth: state.gridDepth,
     sceneryViewId: state.sceneryViewId,
     weatherId: state.weatherId,
+    timeOfDay,
+    timeHour,
     roomTypeOverride: state.roomTypeOverride,
     items: state.items.map((item) => ({ ...item })),
   };
@@ -47,16 +90,28 @@ export class HouseStore {
   private undoStack: HouseState[] = [];
   private redoStack: HouseState[] = [];
 
-  private selectedUid: string | null = null;
+  private editMode = false;
+  private gridVisible = false;
+  private wallViewMode: WallViewMode = 'auto';
+  private showCeiling = true;
+  private selectedUids: string[] = [];
   private mode: InteractionMode = 'select';
   private placementItemId: string | null = null;
   private placementVariantId: string | null = null;
   private placementRotation: RotationQuarter = 0;
+  private eraseFilter: EraseFilter = 'all';
+
+  private batchDepth = 0;
+  private batchHistoryPushed = false;
+  private batchMutated = false;
 
   private listeners: { [K in keyof StoreEventMap]: Set<Listener<StoreEventMap[K]>> } = {
     houseChanged: new Set(),
     selectionChanged: new Set(),
     modeChanged: new Set(),
+    editModeChanged: new Set(),
+    gridVisibilityChanged: new Set(),
+    wallViewChanged: new Set(),
     itemInteracted: new Set(),
     toast: new Set(),
   };
@@ -77,12 +132,92 @@ export class HouseStore {
     }
   }
 
+  private emitSelectionChanged(): void {
+    this.emit('selectionChanged', {
+      selectedUid: this.getSelectedUid(),
+      selectedUids: this.getSelectedUids(),
+    });
+  }
+
+  private emitMutation(reason: string): void {
+    if (this.batchDepth > 0) {
+      this.batchMutated = true;
+      this.emit('houseChanged', { state: this.state, reason: 'batch-step' });
+    } else {
+      this.emit('houseChanged', { state: this.state, reason });
+    }
+  }
+
   notify(message: string, tone: 'info' | 'success' | 'error' = 'info'): void {
     this.emit('toast', { message, tone });
   }
 
   getState(): HouseState {
     return this.state;
+  }
+
+  isEditMode(): boolean {
+    return this.editMode;
+  }
+
+  setEditMode(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.editMode === next) return;
+    this.editMode = next;
+    if (!next) {
+      this.clearSelection();
+      if (this.mode !== 'select') {
+        this.setSelectMode();
+      }
+    }
+    this.emit('editModeChanged', { editMode: this.editMode });
+  }
+
+  toggleEditMode(): void {
+    this.setEditMode(!this.editMode);
+  }
+
+  isGridVisible(): boolean {
+    return this.gridVisible;
+  }
+
+  setGridVisible(visible: boolean): void {
+    const next = Boolean(visible);
+    if (this.gridVisible === next) return;
+    this.gridVisible = next;
+    this.emit('gridVisibilityChanged', { visible: this.gridVisible });
+  }
+
+  getWallViewMode(): WallViewMode {
+    return this.wallViewMode;
+  }
+
+  setWallViewMode(mode: WallViewMode): void {
+    if (this.wallViewMode === mode) return;
+    this.wallViewMode = mode;
+    this.emit('wallViewChanged', { mode: this.wallViewMode, showCeiling: this.showCeiling });
+  }
+
+  cycleWallViewMode(): WallViewMode {
+    const next: WallViewMode =
+      this.wallViewMode === 'auto'
+        ? 'translucent'
+        : this.wallViewMode === 'translucent'
+          ? 'solid'
+          : 'auto';
+    this.setWallViewMode(next);
+    return next;
+  }
+
+  isCeilingVisible(): boolean {
+    return this.showCeiling;
+  }
+
+  setCeilingVisible(visible: boolean): void {
+    const next = Boolean(visible);
+    if (this.showCeiling === next) return;
+    this.showCeiling = next;
+    this.emit('wallViewChanged', { mode: this.wallViewMode, showCeiling: this.showCeiling });
   }
 
   getItem(uid: string): PlacedItem | undefined {
@@ -94,12 +229,23 @@ export class HouseStore {
   }
 
   getSelectedUid(): string | null {
-    return this.selectedUid;
+    return this.selectedUids.length === 1 ? this.selectedUids[0] : null;
+  }
+
+  getSelectedUids(): string[] {
+    return [...this.selectedUids];
+  }
+
+  getSelectedItems(): PlacedItem[] {
+    if (this.selectedUids.length === 0) return [];
+    const set = new Set(this.selectedUids);
+    return this.state.items.filter((i) => set.has(i.uid));
   }
 
   getSelectedItem(): PlacedItem | null {
-    if (!this.selectedUid) return null;
-    return this.getItem(this.selectedUid) ?? null;
+    const uid = this.getSelectedUid();
+    if (!uid) return null;
+    return this.getItem(uid) ?? null;
   }
 
   getModeState() {
@@ -108,7 +254,12 @@ export class HouseStore {
       placementItemId: this.placementItemId,
       placementVariantId: this.placementVariantId,
       placementRotation: this.placementRotation,
+      eraseFilter: this.eraseFilter,
     };
+  }
+
+  getEraseFilter(): EraseFilter {
+    return this.eraseFilter;
   }
 
   canUndo(): boolean {
@@ -119,7 +270,32 @@ export class HouseStore {
     return this.redoStack.length > 0;
   }
 
+  beginBatch(): void {
+    if (this.batchDepth === 0) {
+      this.batchHistoryPushed = false;
+      this.batchMutated = false;
+    }
+    this.batchDepth += 1;
+  }
+
+  endBatch(reason = 'batch'): void {
+    if (this.batchDepth === 0) return;
+    this.batchDepth -= 1;
+    if (this.batchDepth === 0) {
+      const mutated = this.batchMutated;
+      this.batchHistoryPushed = false;
+      this.batchMutated = false;
+      if (mutated) {
+        this.emit('houseChanged', { state: this.state, reason });
+      }
+    }
+  }
+
   private pushHistory(): void {
+    if (this.batchDepth > 0) {
+      if (this.batchHistoryPushed) return;
+      this.batchHistoryPushed = true;
+    }
     this.undoStack.push(cloneHouseState(this.state));
     if (this.undoStack.length > MAX_HISTORY) {
       this.undoStack.shift();
@@ -127,13 +303,57 @@ export class HouseStore {
     this.redoStack = [];
   }
 
+  private ensureEditMode(): void {
+    if (!this.editMode) {
+      this.editMode = true;
+      this.emit('editModeChanged', { editMode: true });
+    }
+  }
+
   selectItem(uid: string | null): void {
-    if (this.selectedUid === uid) return;
-    this.selectedUid = uid;
-    if (uid && this.mode === 'place') {
+    const next = uid && this.getItem(uid) ? [uid] : [];
+    const unchanged =
+      next.length === this.selectedUids.length && next.every((v, i) => v === this.selectedUids[i]);
+    if (unchanged) return;
+    this.selectedUids = next;
+    if (next.length > 0 && (this.mode === 'place' || this.mode === 'erase')) {
       this.setSelectMode();
     }
-    this.emit('selectionChanged', { selectedUid: this.selectedUid });
+    this.emitSelectionChanged();
+  }
+
+  setSelectedUids(uids: string[]): void {
+    const valid = new Set(this.state.items.map((i) => i.uid));
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+    for (const uid of uids) {
+      if (valid.has(uid) && !seen.has(uid)) {
+        seen.add(uid);
+        deduped.push(uid);
+      }
+    }
+    const unchanged =
+      deduped.length === this.selectedUids.length &&
+      deduped.every((v, i) => v === this.selectedUids[i]);
+    if (unchanged) return;
+    this.selectedUids = deduped;
+    this.emitSelectionChanged();
+  }
+
+  toggleSelectItem(uid: string): void {
+    if (!this.getItem(uid)) return;
+    if (this.selectedUids.includes(uid)) {
+      this.selectedUids = this.selectedUids.filter((id) => id !== uid);
+    } else {
+      this.selectedUids = [...this.selectedUids, uid];
+    }
+    this.emitSelectionChanged();
+  }
+
+  clearSelection(): void {
+    if (this.selectedUids.length === 0) return;
+    this.selectedUids = [];
+    this.emitSelectionChanged();
   }
 
   setSelectMode(): void {
@@ -143,18 +363,51 @@ export class HouseStore {
     this.emit('modeChanged', this.getModeState());
   }
 
+  setBulkSelectMode(): void {
+    this.ensureEditMode();
+    this.mode = 'bulk-select';
+    this.placementItemId = null;
+    this.placementVariantId = null;
+    this.emit('modeChanged', this.getModeState());
+  }
+
+  setEraseMode(filter?: EraseFilter): void {
+    this.ensureEditMode();
+    this.mode = 'erase';
+    this.placementItemId = null;
+    this.placementVariantId = null;
+    if (filter) {
+      this.eraseFilter = filter;
+    }
+    if (this.selectedUids.length > 0) {
+      this.selectedUids = [];
+      this.emitSelectionChanged();
+    }
+    this.emit('modeChanged', this.getModeState());
+  }
+
+  setEraseFilter(filter: EraseFilter): void {
+    if (this.eraseFilter === filter) return;
+    this.eraseFilter = filter;
+    this.emit('modeChanged', this.getModeState());
+  }
+
   startPlacement(itemId: string, variantId?: string): void {
     const def = this.data.itemsById.get(itemId);
     if (!def) return;
+    this.ensureEditMode();
     const chosenVariant =
       variantId && def.variants.some((v) => v.id === variantId)
         ? variantId
         : def.variants[0].id;
-    this.selectedUid = null;
+    const hadSelection = this.selectedUids.length > 0;
+    this.selectedUids = [];
     this.mode = 'place';
     this.placementItemId = itemId;
     this.placementVariantId = chosenVariant;
-    this.emit('selectionChanged', { selectedUid: null });
+    if (hadSelection) {
+      this.emitSelectionChanged();
+    }
     this.emit('modeChanged', this.getModeState());
   }
 
@@ -172,6 +425,7 @@ export class HouseStore {
   startMovingSelected(): void {
     const selected = this.getSelectedItem();
     if (!selected) return;
+    this.ensureEditMode();
     this.mode = 'move';
     this.placementItemId = selected.itemId;
     this.placementVariantId = selected.variantId;
@@ -189,7 +443,7 @@ export class HouseStore {
       ...this.state,
       items: [...this.state.items, item],
     };
-    this.emit('houseChanged', { state: this.state, reason: 'place' });
+    this.emitMutation('place');
     if (options?.selectAfter) {
       this.selectItem(item.uid);
     }
@@ -237,29 +491,123 @@ export class HouseStore {
       }),
     };
 
-    this.emit('houseChanged', { state: this.state, reason: 'move' });
+    this.emitMutation('move');
     return true;
   }
 
   setItemVariant(uid: string, variantId: string): boolean {
-    const existing = this.getItem(uid);
-    if (!existing || existing.variantId === variantId) return false;
+    return this.setItemsVariant([uid], variantId) > 0;
+  }
+
+  setItemsVariant(uids: string[], variantId: string): number {
+    if (uids.length === 0) return 0;
+    const targetSet = new Set(uids);
+    const matching = new Set<string>();
+
+    for (const it of this.state.items) {
+      if (!targetSet.has(it.uid) || it.variantId === variantId) continue;
+      const def = this.data.itemsById.get(it.itemId);
+      if (def?.variants.some((v) => v.id === variantId)) {
+        matching.add(it.uid);
+      }
+    }
+
+    if (matching.size === 0) return 0;
     this.pushHistory();
     this.state = {
       ...this.state,
-      items: this.state.items.map((it) => (it.uid === uid ? { ...it, variantId } : it)),
+      items: this.state.items.map((it) => (matching.has(it.uid) ? { ...it, variantId } : it)),
     };
-    this.emit('houseChanged', { state: this.state, reason: 'variant' });
-    return true;
+    this.emitMutation('variant');
+    return matching.size;
+  }
+
+  replaceItemsType(uids: string[], nextItemId: string, nextVariantId?: string): number {
+    if (uids.length === 0) return 0;
+    const nextDef = this.data.itemsById.get(nextItemId);
+    if (!nextDef) return 0;
+
+    const targetSet = new Set(uids);
+    const isDoorOrWindow = nextDef.tags.includes('door') || nextDef.tags.includes('window');
+    const swappedUids = new Set<string>();
+    const childrenToRemove = new Set<string>();
+    let changedCount = 0;
+
+    const nextItems: PlacedItem[] = [];
+    for (const it of this.state.items) {
+      if (!targetSet.has(it.uid)) {
+        nextItems.push(it);
+        continue;
+      }
+      const chosenVariant =
+        nextVariantId && nextDef.variants.some((v) => v.id === nextVariantId)
+          ? nextVariantId
+          : nextDef.variants.some((v) => v.id === it.variantId)
+            ? it.variantId
+            : nextDef.variants[0].id;
+
+      if (it.itemId === nextItemId && it.variantId === chosenVariant) {
+        nextItems.push(it);
+        continue;
+      }
+
+      changedCount += 1;
+      swappedUids.add(it.uid);
+      const keepActive =
+        nextDef.interaction?.type === 'toggle' || nextDef.interaction?.type === 'spin'
+          ? it.active
+          : undefined;
+      nextItems.push({
+        ...it,
+        itemId: nextItemId,
+        variantId: chosenVariant,
+        active: keepActive,
+      });
+    }
+
+    if (changedCount === 0) return 0;
+
+    if (isDoorOrWindow) {
+      for (const it of nextItems) {
+        if (it.parentUid && swappedUids.has(it.parentUid)) {
+          childrenToRemove.add(it.uid);
+        }
+      }
+    }
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      items:
+        childrenToRemove.size > 0
+          ? nextItems.filter((it) => !childrenToRemove.has(it.uid))
+          : nextItems,
+    };
+
+    if (childrenToRemove.size > 0 && this.selectedUids.some((id) => childrenToRemove.has(id))) {
+      this.selectedUids = this.selectedUids.filter((id) => !childrenToRemove.has(id));
+      this.emitSelectionChanged();
+    }
+
+    this.emitMutation('replace');
+    return changedCount;
   }
 
   deleteItem(uid: string): boolean {
-    const existing = this.getItem(uid);
-    if (!existing) return false;
+    return this.deleteItems([uid]) > 0;
+  }
 
-    this.pushHistory();
-    // Collect item and any recursively dependent children (surface/wall-mounted)
-    const toRemove = new Set<string>([uid]);
+  deleteItems(uids: string[]): number {
+    if (uids.length === 0) return 0;
+    const toRemove = new Set<string>();
+    for (const uid of uids) {
+      if (this.getItem(uid)) {
+        toRemove.add(uid);
+      }
+    }
+    if (toRemove.size === 0) return 0;
+
+    // Collect recursively dependent children (surface/wall-mounted)
     let grew = true;
     while (grew) {
       grew = false;
@@ -271,20 +619,104 @@ export class HouseStore {
       }
     }
 
+    this.pushHistory();
     this.state = {
       ...this.state,
       items: this.state.items.filter((it) => !toRemove.has(it.uid)),
     };
 
-    if (this.selectedUid && toRemove.has(this.selectedUid)) {
-      this.selectedUid = null;
-      this.emit('selectionChanged', { selectedUid: null });
+    if (this.selectedUids.some((id) => toRemove.has(id))) {
+      this.selectedUids = this.selectedUids.filter((id) => !toRemove.has(id));
+      this.emitSelectionChanged();
     }
     if (this.mode === 'move') {
       this.setSelectMode();
     }
 
-    this.emit('houseChanged', { state: this.state, reason: 'delete' });
+    this.emitMutation('delete');
+    return toRemove.size;
+  }
+
+  expandDirection(side: ExpandSide, delta: number): boolean {
+    const step = Math.round(delta);
+    if (step === 0) return false;
+
+    let nextWidth = this.state.gridWidth;
+    let nextDepth = this.state.gridDepth;
+    let offsetX = 0;
+    let offsetZ = 0;
+
+    if (side === 'east') {
+      nextWidth = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, this.state.gridWidth + step));
+    } else if (side === 'west') {
+      nextWidth = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, this.state.gridWidth + step));
+      offsetX = nextWidth - this.state.gridWidth;
+    } else if (side === 'south') {
+      nextDepth = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, this.state.gridDepth + step));
+    } else if (side === 'north') {
+      nextDepth = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, this.state.gridDepth + step));
+      offsetZ = nextDepth - this.state.gridDepth;
+    }
+
+    if (nextWidth === this.state.gridWidth && nextDepth === this.state.gridDepth) {
+      return false;
+    }
+
+    const shiftedItems: PlacedItem[] = [];
+    for (const it of this.state.items) {
+      const def = this.data.itemsById.get(it.itemId);
+      const eff = def ? getEffectiveFootprint(def, it.rotation) : { w: 1, d: 1 };
+      const nx = it.x + offsetX;
+      const nz = it.z + offsetZ;
+      if (nx < 0 || nz < 0 || nx + eff.w > nextWidth || nz + eff.d > nextDepth) {
+        this.notify('Move or remove items on that edge first', 'error');
+        return false;
+      }
+      shiftedItems.push({ ...it, x: nx, z: nz });
+    }
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      gridWidth: nextWidth,
+      gridDepth: nextDepth,
+      items: shiftedItems,
+    };
+    this.emitMutation('resize');
+    return true;
+  }
+
+  resizeGrid(nextWidth: number, nextDepth: number): boolean {
+    const clampedW = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, Math.round(nextWidth)));
+    const clampedD = Math.max(MIN_GRID_SIZE, Math.min(MAX_GRID_SIZE, Math.round(nextDepth)));
+    if (clampedW === this.state.gridWidth && clampedD === this.state.gridDepth) {
+      return false;
+    }
+
+    const offsetX = Math.floor((clampedW - this.state.gridWidth) / 2);
+    const offsetZ = Math.floor((clampedD - this.state.gridDepth) / 2);
+
+    const shiftedItems: PlacedItem[] = [];
+    for (const it of this.state.items) {
+      const def = this.data.itemsById.get(it.itemId);
+      const eff = def ? getEffectiveFootprint(def, it.rotation) : { w: 1, d: 1 };
+      const nx = it.x + offsetX;
+      const nz = it.z + offsetZ;
+      if (nx < 0 || nz < 0 || nx + eff.w > clampedW || nz + eff.d > clampedD) {
+        this.notify('Move or remove outer items before shrinking lot', 'error');
+        return false;
+      }
+      shiftedItems.push({ ...it, x: nx, z: nz });
+    }
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      gridWidth: clampedW,
+      gridDepth: clampedD,
+      items: shiftedItems,
+    };
+    this.emitMutation('resize');
     return true;
   }
 
@@ -292,18 +724,125 @@ export class HouseStore {
     const existing = this.getItem(uid);
     if (!existing) return null;
     const def = this.data.itemsById.get(existing.itemId);
-    const nextActive = def?.interaction?.type === 'toggle' || def?.interaction?.type === 'spin'
-      ? !existing.active
-      : existing.active;
+    if (!def?.interaction) return null;
+
+    const isMusicHub = MUSIC_PARTY_HUBS.has(existing.itemId);
+    const nextActive =
+      isMusicHub || def.interaction.type === 'toggle' || def.interaction.type === 'spin'
+        ? !existing.active
+        : existing.active;
 
     const updated: PlacedItem = { ...existing, active: nextActive };
+    let syncedCount = 0;
+
+    const nextItems = this.state.items.map((it) => {
+      if (it.uid === uid) return updated;
+
+      if (isMusicHub && MUSIC_PARTY_LINKED.has(it.itemId)) {
+        syncedCount += 1;
+        return { ...it, active: nextActive };
+      }
+
+      if (existing.itemId === 'espresso_machine' && nextActive === true && CAFE_LINKED.has(it.itemId)) {
+        if (!it.active) syncedCount += 1;
+        return { ...it, active: true };
+      }
+
+      return it;
+    });
+
     this.state = {
       ...this.state,
-      items: this.state.items.map((it) => (it.uid === uid ? updated : it)),
+      items: nextItems,
     };
+
     this.emit('itemInteracted', { item: updated });
+
+    if (isMusicHub && syncedCount > 0) {
+      this.notify(
+        `${def.name} + ${syncedCount} party & music ${syncedCount === 1 ? 'item' : 'items'} ${nextActive ? 'synced!' : 'paused'}`,
+        'info',
+      );
+    } else if (existing.itemId === 'espresso_machine' && nextActive === true && syncedCount > 0) {
+      this.notify(
+        `Espresso Machine + ${syncedCount} café ${syncedCount === 1 ? 'item' : 'items'} brewing!`,
+        'info',
+      );
+    } else if (PET_TOYS.has(existing.itemId)) {
+      let catsReacted = 0;
+      for (const it of this.state.items) {
+        if (it.uid !== uid && CAT_ITEMS.has(it.itemId)) {
+          this.emit('itemInteracted', { item: it });
+          catsReacted += 1;
+        }
+      }
+      if (catsReacted > 0) {
+        this.notify(
+          `${def.name}: ${catsReacted} ${catsReacted === 1 ? 'cat perked' : 'cats perked'} up!`,
+          'info',
+        );
+      }
+    }
+
     this.emit('houseChanged', { state: this.state, reason: 'interact' });
     return updated;
+  }
+
+  getTimeHour(): number {
+    if (this.state.timeHour !== undefined && Number.isFinite(this.state.timeHour)) {
+      return this.state.timeHour;
+    }
+    return this.state.timeOfDay
+      ? timeOfDayToDefaultHour(this.state.timeOfDay)
+      : DEFAULT_TIME_HOUR;
+  }
+
+  setTimeHour(hour: number, options?: { recordHistory?: boolean }): void {
+    if (!Number.isFinite(hour)) return;
+    const clamped = Math.round(Math.max(0, Math.min(24, hour)) * 100) / 100;
+    if (Math.abs(clamped - this.getTimeHour()) < 0.001) return;
+    if (options?.recordHistory === true) {
+      this.pushHistory();
+    }
+    const nextTod = timeHourToBucket(clamped);
+    this.state = { ...this.state, timeHour: clamped, timeOfDay: nextTod };
+    this.emit('houseChanged', { state: this.state, reason: 'timeOfDay' });
+  }
+
+  setTimeOfDay(timeOfDay: TimeOfDay): void {
+    const nextHour = timeOfDayToDefaultHour(timeOfDay);
+    const current = this.state.timeOfDay ?? 'day';
+    if (current === timeOfDay && Math.abs(this.getTimeHour() - nextHour) < 0.01) return;
+    this.pushHistory();
+    this.state = { ...this.state, timeOfDay, timeHour: nextHour };
+    this.emit('houseChanged', { state: this.state, reason: 'timeOfDay' });
+  }
+
+  setAllLights(on: boolean): number {
+    const nextActive = Boolean(on);
+    const matching = new Set<string>();
+    for (const it of this.state.items) {
+      const def = this.data.itemsById.get(it.itemId);
+      if (
+        def &&
+        def.interaction?.type === 'toggle' &&
+        def.tags.includes('light') &&
+        Boolean(it.active) !== nextActive
+      ) {
+        matching.add(it.uid);
+      }
+    }
+    if (matching.size === 0) return 0;
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      items: this.state.items.map((it) =>
+        matching.has(it.uid) ? { ...it, active: nextActive } : it,
+      ),
+    };
+    this.emitMutation('lights');
+    return matching.size;
   }
 
   setSceneryView(viewId: string): void {
@@ -332,9 +871,9 @@ export class HouseStore {
       this.pushHistory();
     }
     this.state = cloneHouseState(nextState);
-    this.selectedUid = null;
+    this.selectedUids = [];
     this.setSelectMode();
-    this.emit('selectionChanged', { selectedUid: null });
+    this.emitSelectionChanged();
     this.emit('houseChanged', { state: this.state, reason: options?.reason ?? 'load' });
   }
 
@@ -343,9 +882,11 @@ export class HouseStore {
     if (!prev) return false;
     this.redoStack.push(cloneHouseState(this.state));
     this.state = prev;
-    if (this.selectedUid && !this.getItem(this.selectedUid)) {
-      this.selectedUid = null;
-      this.emit('selectionChanged', { selectedUid: null });
+    const valid = new Set(this.state.items.map((i) => i.uid));
+    const pruned = this.selectedUids.filter((id) => valid.has(id));
+    if (pruned.length !== this.selectedUids.length) {
+      this.selectedUids = pruned;
+      this.emitSelectionChanged();
     }
     if (this.mode === 'move') {
       this.setSelectMode();
@@ -359,9 +900,11 @@ export class HouseStore {
     if (!next) return false;
     this.undoStack.push(cloneHouseState(this.state));
     this.state = next;
-    if (this.selectedUid && !this.getItem(this.selectedUid)) {
-      this.selectedUid = null;
-      this.emit('selectionChanged', { selectedUid: null });
+    const valid = new Set(this.state.items.map((i) => i.uid));
+    const pruned = this.selectedUids.filter((id) => valid.has(id));
+    if (pruned.length !== this.selectedUids.length) {
+      this.selectedUids = pruned;
+      this.emitSelectionChanged();
     }
     this.emit('houseChanged', { state: this.state, reason: 'redo' });
     return true;

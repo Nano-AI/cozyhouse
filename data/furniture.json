@@ -28,6 +28,86 @@
       "model": "models/basics/floor-wood.glb"
     },
     {
+      "id": "floor_herringbone",
+      "name": "Herringbone Floor",
+      "tab": "basics",
+      "tags": ["structure", "floor", "home"],
+      "footprint": [1, 1],
+      "height": 0.08,
+      "layer": "floor",
+      "subLayer": "tile",
+      "variants": [
+        { "id": "honey", "label": "Honey Parquet", "color": "#DDBB8F", "accentColor": "#D0AA7C" },
+        { "id": "ash", "label": "Soft Ash", "color": "#E6D9C7", "accentColor": "#D5C5B0" },
+        { "id": "espresso", "label": "Smoked Oak", "color": "#9B7B60", "accentColor": "#86684F" }
+      ],
+      "model": "models/basics/floor-herringbone.glb"
+    },
+    {
+      "id": "floor_tile",
+      "name": "Ceramic Floor Tile",
+      "tab": "basics",
+      "tags": ["structure", "floor", "kitchen", "cafe"],
+      "footprint": [1, 1],
+      "height": 0.08,
+      "layer": "floor",
+      "subLayer": "tile",
+      "variants": [
+        { "id": "cream", "label": "Soft Cream", "color": "#F1EAE0" },
+        { "id": "sage", "label": "Pastel Sage", "color": "#C9DAC7" },
+        { "id": "sky", "label": "Powder Blue", "color": "#C5D9E6" }
+      ],
+      "model": "models/basics/floor-tile.glb"
+    },
+    {
+      "id": "floor_terrazzo",
+      "name": "Terrazzo Floor",
+      "tab": "basics",
+      "tags": ["structure", "floor", "decor"],
+      "footprint": [1, 1],
+      "height": 0.08,
+      "layer": "floor",
+      "subLayer": "tile",
+      "variants": [
+        { "id": "ivory", "label": "Warm Ivory", "color": "#EFE8DD", "accentColor": "#DDB6A6" },
+        { "id": "blush", "label": "Rose Speckle", "color": "#EDD8D4", "accentColor": "#D8A4A0" },
+        { "id": "mint", "label": "Mint Speckle", "color": "#D7E8DF", "accentColor": "#9FC4B2" }
+      ],
+      "model": "models/basics/floor-terrazzo.glb"
+    },
+    {
+      "id": "floor_stone",
+      "name": "Flagstone Tile",
+      "tab": "basics",
+      "tags": ["structure", "floor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.08,
+      "layer": "floor",
+      "subLayer": "tile",
+      "variants": [
+        { "id": "sandstone", "label": "Sandstone", "color": "#DECBB2" },
+        { "id": "slate", "label": "Soft Slate", "color": "#AEB7C0" },
+        { "id": "pebble", "label": "Warm Pebble", "color": "#CCC4BA" }
+      ],
+      "model": "models/basics/floor-stone.glb"
+    },
+    {
+      "id": "floor_checkerboard",
+      "name": "Checkerboard Tile",
+      "tab": "basics",
+      "tags": ["structure", "floor", "diner", "cafe"],
+      "footprint": [1, 1],
+      "height": 0.08,
+      "layer": "floor",
+      "subLayer": "tile",
+      "variants": [
+        { "id": "mint_cream", "label": "Mint & Cream", "color": "#F3ECE1", "accentColor": "#A9CEBC" },
+        { "id": "butter_cocoa", "label": "Butter & Cocoa", "color": "#F2DFB4", "accentColor": "#9C7B63" },
+        { "id": "rose_ivory", "label": "Blush & Ivory", "color": "#F4ECE8", "accentColor": "#E2B2B5" }
+      ],
+      "model": "models/basics/floor-checkerboard.glb"
+    },
+    {
       "id": "wall_plain",
       "name": "Wall Segment",
       "tab": "basics",
@@ -43,6 +123,86 @@
         { "id": "slate", "label": "Evening Slate", "color": "#9CAAB8" }
       ],
       "model": "models/basics/wall-plain.glb"
+    },
+    {
+      "id": "wall_brick",
+      "name": "Brick Wall",
+      "tab": "basics",
+      "tags": ["structure", "wall", "cafe", "home"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "terracotta", "label": "Warm Brick", "color": "#D69E87", "accentColor": "#E8D7C8" },
+        { "id": "whitewash", "label": "Whitewash Brick", "color": "#EFE8DE", "accentColor": "#DED3C5" },
+        { "id": "rosewood", "label": "Rose Brick", "color": "#CFA19E", "accentColor": "#E5D5CF" }
+      ],
+      "model": "models/basics/wall-brick.glb"
+    },
+    {
+      "id": "wall_wainscot",
+      "name": "Wainscot Wall",
+      "tab": "basics",
+      "tags": ["structure", "wall", "home", "cozy"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "oat_sage", "label": "Cream & Sage", "color": "#F3EDE2", "accentColor": "#C4D4C2" },
+        { "id": "cream_oak", "label": "Cream & Oak", "color": "#F5EFE4", "accentColor": "#D2B48E" },
+        { "id": "blush_ivory", "label": "Blush & Ivory", "color": "#EBD3CE", "accentColor": "#F6F0E8" }
+      ],
+      "model": "models/basics/wall-wainscot.glb"
+    },
+    {
+      "id": "wall_glass_partition",
+      "name": "Glass Partition",
+      "tab": "basics",
+      "tags": ["structure", "wall", "light"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "brass", "label": "Warm Brass", "color": "#CDE4EE", "accentColor": "#D5B682" },
+        { "id": "charcoal", "label": "Soft Charcoal", "color": "#C6DDE9", "accentColor": "#6F7782" },
+        { "id": "cream", "label": "Cream Steel", "color": "#D2E7F0", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/basics/wall-glass-partition.glb"
+    },
+    {
+      "id": "wall_arch",
+      "name": "Archway Wall",
+      "tab": "basics",
+      "tags": ["structure", "wall", "entrance", "decor"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "plaster", "label": "Warm Plaster", "color": "#F3ECE1" },
+        { "id": "terracotta", "label": "Soft Clay", "color": "#DFAC95" },
+        { "id": "sage", "label": "Pastel Sage", "color": "#CEDCCE" }
+      ],
+      "model": "models/basics/wall-arch.glb"
+    },
+    {
+      "id": "wall_half",
+      "name": "Half Wall",
+      "tab": "basics",
+      "tags": ["structure", "wall", "cafe", "home"],
+      "footprint": [1, 1],
+      "height": 1.15,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "cream", "label": "Cream & Oak", "color": "#F4EDE2", "accentColor": "#D6B790" },
+        { "id": "mint", "label": "Mint & Birch", "color": "#C8DED1", "accentColor": "#E9D9BF" },
+        { "id": "latte", "label": "Latte Cap", "color": "#D9C3AE", "accentColor": "#B9936C" }
+      ],
+      "model": "models/basics/wall-half.glb"
     },
     {
       "id": "door_wood",
@@ -62,6 +222,57 @@
       "model": "models/basics/door-wood.glb"
     },
     {
+      "id": "door_cafe_glass",
+      "name": "Café Glass Door",
+      "tab": "basics",
+      "tags": ["structure", "door", "entrance", "cafe", "light"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "interaction": { "type": "toggle", "label": "Open / close" },
+      "variants": [
+        { "id": "matcha", "label": "Matcha Frame", "color": "#A8C6A3", "accentColor": "#F4EDE1" },
+        { "id": "latte", "label": "Latte Oak", "color": "#C9A17D", "accentColor": "#F4EDE1" },
+        { "id": "butter", "label": "Butter Cream", "color": "#EBD499", "accentColor": "#F4EDE1" }
+      ],
+      "model": "models/basics/door-cafe-glass.glb"
+    },
+    {
+      "id": "door_arched",
+      "name": "Arched Door",
+      "tab": "basics",
+      "tags": ["structure", "door", "entrance", "home"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "interaction": { "type": "toggle", "label": "Open / close" },
+      "variants": [
+        { "id": "walnut", "label": "Warm Walnut", "color": "#A98262", "accentColor": "#F3ECE1" },
+        { "id": "sage", "label": "Soft Sage", "color": "#B3CCB7", "accentColor": "#F3ECE1" },
+        { "id": "blush", "label": "Dusty Blush", "color": "#DFB4B6", "accentColor": "#F3ECE1" }
+      ],
+      "model": "models/basics/door-arched.glb"
+    },
+    {
+      "id": "door_sliding",
+      "name": "Sliding Patio Door",
+      "tab": "basics",
+      "tags": ["structure", "door", "entrance", "light"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "interaction": { "type": "toggle", "label": "Open / close" },
+      "variants": [
+        { "id": "birch", "label": "Pale Birch", "color": "#DFC7A7", "accentColor": "#F5EFE4" },
+        { "id": "charcoal", "label": "Soft Charcoal", "color": "#7B848E", "accentColor": "#F5EFE4" },
+        { "id": "cream", "label": "Warm Cream", "color": "#EAE1D3", "accentColor": "#D5C3AE" }
+      ],
+      "model": "models/basics/door-sliding.glb"
+    },
+    {
       "id": "window_wide",
       "name": "Picture Window",
       "tab": "basics",
@@ -76,6 +287,70 @@
         { "id": "charcoal", "label": "Soft Charcoal", "color": "#B8DCED", "accentColor": "#6B7280" }
       ],
       "model": "models/basics/window-wide.glb"
+    },
+    {
+      "id": "window_arched",
+      "name": "Arched Window",
+      "tab": "basics",
+      "tags": ["structure", "window", "light", "cozy"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "cream", "label": "Cream Trim", "color": "#C2E1EF", "accentColor": "#F4EDE2" },
+        { "id": "sage", "label": "Sage Trim", "color": "#C2E1EF", "accentColor": "#C4D6C4" },
+        { "id": "brass", "label": "Warm Brass", "color": "#C2E1EF", "accentColor": "#D6B786" }
+      ],
+      "model": "models/basics/window-arched.glb"
+    },
+    {
+      "id": "window_bay",
+      "name": "Bay Window",
+      "tab": "basics",
+      "tags": ["structure", "window", "light", "home"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "ivory", "label": "Warm Ivory", "color": "#BEE0EE", "accentColor": "#F3ECE1" },
+        { "id": "oak", "label": "Natural Oak", "color": "#BEE0EE", "accentColor": "#CFA982" },
+        { "id": "slate", "label": "Soft Slate", "color": "#BEE0EE", "accentColor": "#9BA9B8" }
+      ],
+      "model": "models/basics/window-bay.glb"
+    },
+    {
+      "id": "window_round",
+      "name": "Round Porthole Window",
+      "tab": "basics",
+      "tags": ["structure", "window", "light", "decor"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "brass", "label": "Soft Brass", "color": "#C3E2F0", "accentColor": "#D9BA84" },
+        { "id": "cream", "label": "Warm Cream", "color": "#C3E2F0", "accentColor": "#F4EDE2" },
+        { "id": "mint", "label": "Pastel Mint", "color": "#C3E2F0", "accentColor": "#B5D8C6" }
+      ],
+      "model": "models/basics/window-round.glb"
+    },
+    {
+      "id": "window_clerestory",
+      "name": "Clerestory Window",
+      "tab": "basics",
+      "tags": ["structure", "window", "light"],
+      "footprint": [1, 1],
+      "height": 2.6,
+      "layer": "wall",
+      "wallKind": "structure",
+      "variants": [
+        { "id": "cream", "label": "Cream Frame", "color": "#C7E4F1", "accentColor": "#F5EFE4" },
+        { "id": "charcoal", "label": "Charcoal Frame", "color": "#C7E4F1", "accentColor": "#767F8B" },
+        { "id": "oak", "label": "Warm Oak", "color": "#C7E4F1", "accentColor": "#CCA47E" }
+      ],
+      "model": "models/basics/window-clerestory.glb"
     },
     {
       "id": "bed_cozy",
@@ -95,6 +370,57 @@
       "model": "models/living/bed-cozy.glb"
     },
     {
+      "id": "bed_canopy",
+      "name": "Canopy Bed",
+      "tab": "living",
+      "tags": ["sleep", "home", "cozy"],
+      "footprint": [2, 2],
+      "height": 2.1,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Rest on bed" },
+      "variants": [
+        { "id": "linen", "label": "Sheer Linen", "color": "#EFE7DA", "accentColor": "#D4B38A" },
+        { "id": "blush", "label": "Blush Drape", "color": "#ECC2C6", "accentColor": "#D9B994" },
+        { "id": "eucalyptus", "label": "Eucalyptus", "color": "#BDD6C7", "accentColor": "#CBB08D" }
+      ],
+      "model": "models/living/bed-canopy.glb"
+    },
+    {
+      "id": "bed_daybed",
+      "name": "Cozy Daybed",
+      "tab": "living",
+      "tags": ["sleep", "seating", "cozy", "home"],
+      "footprint": [2, 1],
+      "height": 0.78,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Lounge" },
+      "variants": [
+        { "id": "oat", "label": "Oat Linen", "color": "#E5D7C3", "accentColor": "#D69E87" },
+        { "id": "sage", "label": "Soft Sage", "color": "#C3D8C5", "accentColor": "#F2EBE0" },
+        { "id": "butter", "label": "Buttercup", "color": "#EED89B", "accentColor": "#F6EFE4" }
+      ],
+      "model": "models/living/bed-daybed.glb"
+    },
+    {
+      "id": "bed_loft",
+      "name": "Loft Futon",
+      "tab": "living",
+      "tags": ["sleep", "home", "work"],
+      "footprint": [2, 2],
+      "height": 1.85,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Hop up" },
+      "variants": [
+        { "id": "birch", "label": "Birch & Sky", "color": "#AEC9DE", "accentColor": "#E5CFAF" },
+        { "id": "walnut", "label": "Walnut & Coral", "color": "#E3A79A", "accentColor": "#AC8869" },
+        { "id": "cream", "label": "Cream & Mint", "color": "#B9DACA", "accentColor": "#F0E8DA" }
+      ],
+      "model": "models/living/bed-loft.glb"
+    },
+    {
       "id": "sofa_plush",
       "name": "Plush Sofa",
       "tab": "living",
@@ -110,6 +436,242 @@
         { "id": "dusty_blue", "label": "Dusty Blue", "color": "#9EB8CF" }
       ],
       "model": "models/living/sofa-plush.glb"
+    },
+    {
+      "id": "sofa_sectional",
+      "name": "Corner Sectional",
+      "tab": "living",
+      "tags": ["seating", "home", "cozy"],
+      "footprint": [2, 2],
+      "height": 0.85,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Sink in" },
+      "variants": [
+        { "id": "cream", "label": "Bouclé Cream", "color": "#EFE6D7", "accentColor": "#D5C3AD" },
+        { "id": "sage", "label": "Velvet Sage", "color": "#B3CCB9", "accentColor": "#96B39D" },
+        { "id": "rose", "label": "Dusty Rose", "color": "#E0B4B9", "accentColor": "#C9969D" }
+      ],
+      "model": "models/living/sofa-sectional.glb"
+    },
+    {
+      "id": "loveseat_tufted",
+      "name": "Tufted Loveseat",
+      "tab": "living",
+      "tags": ["seating", "home", "cozy"],
+      "footprint": [2, 1],
+      "height": 0.84,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Sit cushion" },
+      "variants": [
+        { "id": "blush", "label": "Soft Blush", "color": "#E8BAC1" },
+        { "id": "olive", "label": "Muted Olive", "color": "#B8C49E" },
+        { "id": "sky", "label": "Powder Blue", "color": "#AEC5D9" }
+      ],
+      "model": "models/living/loveseat-tufted.glb"
+    },
+    {
+      "id": "armchair_plush",
+      "name": "Reading Armchair",
+      "tab": "living",
+      "tags": ["seating", "home", "cozy", "read"],
+      "footprint": [1, 1],
+      "height": 0.86,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Sit down" },
+      "variants": [
+        { "id": "caramel", "label": "Warm Caramel", "color": "#D4A17A" },
+        { "id": "sage", "label": "Sage Linen", "color": "#B5CCB7" },
+        { "id": "ochre", "label": "Soft Ochre", "color": "#E6C57E" }
+      ],
+      "model": "models/living/armchair-plush.glb"
+    },
+    {
+      "id": "beanbag_puff",
+      "name": "Cloud Beanbag",
+      "tab": "living",
+      "tags": ["seating", "cozy", "home"],
+      "footprint": [1, 1],
+      "height": 0.52,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Squish beanbag" },
+      "variants": [
+        { "id": "cream", "label": "Fluffy Cream", "color": "#F2EAE0" },
+        { "id": "lavender", "label": "Lilac Puff", "color": "#CEBFE3" },
+        { "id": "peach", "label": "Apricot", "color": "#F0BEA8" }
+      ],
+      "model": "models/living/beanbag-puff.glb"
+    },
+    {
+      "id": "desk_study",
+      "name": "Study Desk",
+      "tab": "living",
+      "tags": ["work", "surface", "home"],
+      "footprint": [2, 1],
+      "height": 0.76,
+      "surfaceHeight": 0.76,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D9BA94", "accentColor": "#F2EAE0" },
+        { "id": "birch", "label": "Pale Birch", "color": "#EADBC4", "accentColor": "#FAF6EE" },
+        { "id": "walnut", "label": "Walnut", "color": "#A38064", "accentColor": "#DFCBB5" }
+      ],
+      "model": "models/living/desk-study.glb"
+    },
+    {
+      "id": "desk_compact",
+      "name": "Writing Desk",
+      "tab": "living",
+      "tags": ["work", "surface", "read"],
+      "footprint": [1, 1],
+      "height": 0.76,
+      "surfaceHeight": 0.76,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "honey", "label": "Honey Wood", "color": "#D6B084" },
+        { "id": "mint", "label": "Pastel Mint", "color": "#BBDACA" },
+        { "id": "cream", "label": "Painted Cream", "color": "#EDE4D6" }
+      ],
+      "model": "models/living/desk-compact.glb"
+    },
+    {
+      "id": "chair_office",
+      "name": "Swivel Desk Chair",
+      "tab": "living",
+      "tags": ["work", "seating"],
+      "footprint": [1, 1],
+      "height": 0.92,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "spin", "label": "Spin chair" },
+      "variants": [
+        { "id": "sky", "label": "Sky Fabric", "color": "#AFC7DB", "accentColor": "#E8E2D8" },
+        { "id": "oat", "label": "Oatmeal", "color": "#E2D4C0", "accentColor": "#D1C5B4" },
+        { "id": "blush", "label": "Soft Blush", "color": "#E8BCC2", "accentColor": "#E8E2D8" }
+      ],
+      "model": "models/living/chair-office.glb"
+    },
+    {
+      "id": "wardrobe_tall",
+      "name": "Tall Wardrobe",
+      "tab": "living",
+      "tags": ["storage", "home"],
+      "footprint": [2, 1],
+      "height": 2.0,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Peek inside" },
+      "variants": [
+        { "id": "oak", "label": "Light Oak", "color": "#D6B691" },
+        { "id": "cream", "label": "Warm Cream", "color": "#EEE6D8" },
+        { "id": "sage", "label": "Muted Sage", "color": "#BACDBB" }
+      ],
+      "model": "models/living/wardrobe-tall.glb"
+    },
+    {
+      "id": "dresser_wide",
+      "name": "Wood Dresser",
+      "tab": "living",
+      "tags": ["storage", "home", "surface"],
+      "footprint": [2, 1],
+      "height": 0.85,
+      "surfaceHeight": 0.85,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "walnut", "label": "Walnut", "color": "#A88467", "accentColor": "#E3C8A8" },
+        { "id": "birch", "label": "Pale Birch", "color": "#E8D7BE", "accentColor": "#CBB18F" },
+        { "id": "slate", "label": "Dusty Slate", "color": "#A3B1BE", "accentColor": "#DFD5C7" }
+      ],
+      "model": "models/living/dresser-wide.glb"
+    },
+    {
+      "id": "tv_widescreen",
+      "name": "Flat-Screen TV",
+      "tab": "living",
+      "tags": ["media", "home"],
+      "footprint": [1, 1],
+      "height": 0.62,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Power on / off" },
+      "variants": [
+        { "id": "charcoal", "label": "Soft Charcoal", "color": "#90A5B8", "accentColor": "#5E646E" },
+        { "id": "cream", "label": "Retro Cream", "color": "#A7C4D4", "accentColor": "#EDE4D5" },
+        { "id": "sage", "label": "Sage Bezel", "color": "#A5C4BC", "accentColor": "#BFD4C4" }
+      ],
+      "model": "models/living/tv-widescreen.glb"
+    },
+    {
+      "id": "tv_retro",
+      "name": "Retro Tube TV",
+      "tab": "living",
+      "tags": ["media", "home", "decor"],
+      "footprint": [1, 1],
+      "height": 0.48,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Switch channel" },
+      "variants": [
+        { "id": "mint", "label": "Mint Case", "color": "#A8D0C0", "accentColor": "#EFE7DA" },
+        { "id": "coral", "label": "Coral Case", "color": "#E5A092", "accentColor": "#EFE7DA" },
+        { "id": "butter", "label": "Butter Yellow", "color": "#EED48E", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/living/tv-retro.glb"
+    },
+    {
+      "id": "media_console",
+      "name": "Media Console",
+      "tab": "living",
+      "tags": ["media", "storage", "surface", "home"],
+      "footprint": [2, 1],
+      "height": 0.56,
+      "surfaceHeight": 0.56,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D7B68E" },
+        { "id": "walnut", "label": "Mid-Century Walnut", "color": "#9E7A5D" },
+        { "id": "cream", "label": "Cream & Cane", "color": "#EDE4D5", "accentColor": "#D5BA96" }
+      ],
+      "model": "models/living/media-console.glb"
+    },
+    {
+      "id": "coffee_table_low",
+      "name": "Coffee Table",
+      "tab": "living",
+      "tags": ["surface", "home", "cozy"],
+      "footprint": [2, 1],
+      "height": 0.44,
+      "surfaceHeight": 0.44,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Natural Oak", "color": "#DEC19B" },
+        { "id": "walnut", "label": "Walnut", "color": "#A48063" },
+        { "id": "terrazzo", "label": "Cream Terrazzo", "color": "#EDE5D8" }
+      ],
+      "model": "models/living/coffee-table-low.glb"
+    },
+    {
+      "id": "side_table_round",
+      "name": "Round Side Table",
+      "tab": "living",
+      "tags": ["surface", "cozy", "home"],
+      "footprint": [1, 1],
+      "height": 0.54,
+      "surfaceHeight": 0.54,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "birch", "label": "Pale Birch", "color": "#E9D9C1" },
+        { "id": "peach", "label": "Matte Peach", "color": "#ECBAA6" },
+        { "id": "sage", "label": "Matte Sage", "color": "#BDD3C0" }
+      ],
+      "model": "models/living/side-table-round.glb"
     },
     {
       "id": "rug_woven",
@@ -145,6 +707,144 @@
       "model": "models/kitchen/kitchen-counter.glb"
     },
     {
+      "id": "kitchen_counter_corner",
+      "name": "Corner Kitchen Counter",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "surface"],
+      "footprint": [1, 1],
+      "height": 0.9,
+      "surfaceHeight": 0.9,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "butter", "label": "Butter Cream", "color": "#F1DFA8", "accentColor": "#FAF6EE" },
+        { "id": "mint", "label": "Pastel Mint", "color": "#B8DBC9", "accentColor": "#FAF6EE" },
+        { "id": "wood", "label": "Natural Wood", "color": "#D4B38D", "accentColor": "#FAF6EE" }
+      ],
+      "model": "models/kitchen/kitchen-counter-corner.glb"
+    },
+    {
+      "id": "kitchen_island",
+      "name": "Kitchen Island",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "dining", "surface"],
+      "footprint": [2, 1],
+      "height": 0.92,
+      "surfaceHeight": 0.92,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "cream_oak", "label": "Cream & Oak", "color": "#EFE7DA", "accentColor": "#D6B58E" },
+        { "id": "sage", "label": "Sage Butcherblock", "color": "#BDD2C0", "accentColor": "#DEC09B" },
+        { "id": "sky", "label": "Powder Blue", "color": "#BDD2E1", "accentColor": "#FAF6EE" }
+      ],
+      "model": "models/kitchen/kitchen-island.glb"
+    },
+    {
+      "id": "fridge_tall",
+      "name": "Tall Fridge",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "food", "storage"],
+      "footprint": [1, 1],
+      "height": 1.9,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Open fridge" },
+      "variants": [
+        { "id": "cream", "label": "Retro Cream", "color": "#F2EAD9", "accentColor": "#D4C6B2" },
+        { "id": "mint", "label": "Pastel Mint", "color": "#B5D9C8", "accentColor": "#EFE7DA" },
+        { "id": "blush", "label": "Blush Pink", "color": "#EDC1C7", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/kitchen/fridge-tall.glb"
+    },
+    {
+      "id": "fridge_retro",
+      "name": "Retro Mini-Fridge",
+      "tab": "kitchen",
+      "tags": ["kitchen", "drinks", "surface", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.88,
+      "surfaceHeight": 0.88,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Chill drinks" },
+      "variants": [
+        { "id": "coral", "label": "Retro Coral", "color": "#E69E8E", "accentColor": "#F5EFE4" },
+        { "id": "sky", "label": "Baby Blue", "color": "#B4D4E7", "accentColor": "#F5EFE4" },
+        { "id": "butter", "label": "Butter Yellow", "color": "#F0D894", "accentColor": "#F5EFE4" }
+      ],
+      "model": "models/kitchen/fridge-retro.glb"
+    },
+    {
+      "id": "stove_oven",
+      "name": "Stove & Oven",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "food"],
+      "footprint": [1, 1],
+      "height": 0.9,
+      "surfaceHeight": 0.9,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Simmer pot" },
+      "variants": [
+        { "id": "cream", "label": "Vintage Cream", "color": "#EFE6D6", "accentColor": "#8C867F" },
+        { "id": "sage", "label": "Sage Enamel", "color": "#B7CEBC", "accentColor": "#8C867F" },
+        { "id": "slate", "label": "Soft Charcoal", "color": "#96A2AF", "accentColor": "#E5DDD0" }
+      ],
+      "model": "models/kitchen/stove-oven.glb"
+    },
+    {
+      "id": "kitchen_sink",
+      "name": "Farmhouse Sink",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook"],
+      "footprint": [1, 1],
+      "height": 0.9,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Run tap" },
+      "variants": [
+        { "id": "cream", "label": "Porcelain Cream", "color": "#F5EFE4", "accentColor": "#D5B690" },
+        { "id": "mint", "label": "Mint Base", "color": "#BBDACA", "accentColor": "#FAF6EE" },
+        { "id": "wood", "label": "Warm Oak", "color": "#D4B38D", "accentColor": "#FAF6EE" }
+      ],
+      "model": "models/kitchen/kitchen-sink.glb"
+    },
+    {
+      "id": "microwave_oven",
+      "name": "Retro Microwave",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "food"],
+      "footprint": [1, 1],
+      "height": 0.36,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Warm snack" },
+      "variants": [
+        { "id": "mint", "label": "Pastel Mint", "color": "#B4D8C7", "accentColor": "#EFE8DC" },
+        { "id": "cream", "label": "Cream", "color": "#F1E8D8", "accentColor": "#D3C2AE" },
+        { "id": "blush", "label": "Blush Pink", "color": "#ECC0C6", "accentColor": "#EFE8DC" }
+      ],
+      "model": "models/kitchen/microwave-oven.glb"
+    },
+    {
+      "id": "dishwasher_unit",
+      "name": "Dishwasher",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "surface"],
+      "footprint": [1, 1],
+      "height": 0.9,
+      "surfaceHeight": 0.9,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Start wash" },
+      "variants": [
+        { "id": "cream", "label": "Warm Cream", "color": "#EFE6D8", "accentColor": "#FAF6EE" },
+        { "id": "sage", "label": "Soft Sage", "color": "#BED2C1", "accentColor": "#FAF6EE" },
+        { "id": "silver", "label": "Brushed Mist", "color": "#CFD6DD", "accentColor": "#FAF6EE" }
+      ],
+      "model": "models/kitchen/dishwasher-unit.glb"
+    },
+    {
       "id": "dining_table",
       "name": "Dining Table",
       "tab": "kitchen",
@@ -160,6 +860,102 @@
         { "id": "cream", "label": "Painted Cream", "color": "#EFE7D8" }
       ],
       "model": "models/kitchen/dining-table.glb"
+    },
+    {
+      "id": "dining_chair",
+      "name": "Dining Chair",
+      "tab": "kitchen",
+      "tags": ["dining", "seating", "home"],
+      "footprint": [1, 1],
+      "height": 0.86,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Pull out chair" },
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D9B991", "accentColor": "#EFE6D8" },
+        { "id": "sage", "label": "Sage Wood", "color": "#B3C9B6", "accentColor": "#EFE6D8" },
+        { "id": "coral", "label": "Soft Coral", "color": "#E2A699", "accentColor": "#D4B38D" }
+      ],
+      "model": "models/kitchen/dining-chair.glb"
+    },
+    {
+      "id": "pantry_shelf",
+      "name": "Pantry Shelf",
+      "tab": "kitchen",
+      "tags": ["kitchen", "storage", "food"],
+      "footprint": [1, 1],
+      "height": 1.85,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Natural Oak", "color": "#D8B890", "accentColor": "#EFE7DA" },
+        { "id": "cream", "label": "Warm Cream", "color": "#EFE6D8", "accentColor": "#D5B692" },
+        { "id": "mint", "label": "Pastel Mint", "color": "#BADAC8", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/kitchen/pantry-shelf.glb"
+    },
+    {
+      "id": "spice_rack",
+      "name": "Wall Spice Rack",
+      "tab": "kitchen",
+      "tags": ["kitchen", "cook", "storage"],
+      "footprint": [1, 1],
+      "height": 0.48,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.45,
+      "variants": [
+        { "id": "birch", "label": "Birch & Jars", "color": "#DFC7A5", "accentColor": "#E5A58B" },
+        { "id": "sage", "label": "Sage & Jars", "color": "#B8CEBC", "accentColor": "#ECD29B" }
+      ],
+      "model": "models/kitchen/spice-rack.glb"
+    },
+    {
+      "id": "electric_kettle",
+      "name": "Gooseneck Kettle",
+      "tab": "kitchen",
+      "tags": ["kitchen", "coffee", "cook", "drinks"],
+      "footprint": [1, 1],
+      "height": 0.32,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Boil water" },
+      "variants": [
+        { "id": "cream", "label": "Matte Cream", "color": "#F3ECE0", "accentColor": "#D4A97E" },
+        { "id": "sage", "label": "Soft Sage", "color": "#B6D0BE", "accentColor": "#D4A97E" },
+        { "id": "copper", "label": "Rose Copper", "color": "#DDA693", "accentColor": "#7E6E66" }
+      ],
+      "model": "models/kitchen/electric-kettle.glb"
+    },
+    {
+      "id": "toaster_pastel",
+      "name": "Pastel Toaster",
+      "tab": "kitchen",
+      "tags": ["kitchen", "food", "cook"],
+      "footprint": [1, 1],
+      "height": 0.28,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Pop toast" },
+      "variants": [
+        { "id": "butter", "label": "Butter Yellow", "color": "#F0DA98" },
+        { "id": "sky", "label": "Powder Blue", "color": "#B8D4E6" },
+        { "id": "blush", "label": "Blush Pink", "color": "#ECC0C6" }
+      ],
+      "model": "models/kitchen/toaster-pastel.glb"
+    },
+    {
+      "id": "fruit_bowl",
+      "name": "Ceramic Fruit Bowl",
+      "tab": "kitchen",
+      "tags": ["kitchen", "food", "dining", "decor"],
+      "footprint": [1, 1],
+      "height": 0.24,
+      "layer": "surface",
+      "variants": [
+        { "id": "cream", "label": "Cream Bowl", "color": "#F2EAE0", "accentColor": "#EEB48C" },
+        { "id": "sage", "label": "Sage Bowl", "color": "#BCD3C1", "accentColor": "#F0CA82" },
+        { "id": "terracotta", "label": "Clay Bowl", "color": "#DA9B84", "accentColor": "#B5CE9D" }
+      ],
+      "model": "models/kitchen/fruit-bowl.glb"
     },
     {
       "id": "cafe_counter",
@@ -195,6 +991,56 @@
       "model": "models/cafe-bar/espresso-machine.glb"
     },
     {
+      "id": "blender_smoothie",
+      "name": "Smoothie Blender",
+      "tab": "cafe_bar",
+      "tags": ["smoothie", "drinks", "serve", "cafe"],
+      "footprint": [1, 1],
+      "height": 0.44,
+      "layer": "surface",
+      "interaction": { "type": "spin", "label": "Blend smoothie" },
+      "variants": [
+        { "id": "berry", "label": "Berry Pink", "color": "#EBA8BA", "accentColor": "#F5EFE4" },
+        { "id": "mango", "label": "Mango Peach", "color": "#F2C48D", "accentColor": "#F5EFE4" },
+        { "id": "matcha", "label": "Matcha Mint", "color": "#AED4BA", "accentColor": "#F5EFE4" }
+      ],
+      "model": "models/cafe-bar/blender-smoothie.glb"
+    },
+    {
+      "id": "smoothie_station",
+      "name": "Smoothie Bar Station",
+      "tab": "cafe_bar",
+      "tags": ["smoothie", "serve", "drinks", "cafe", "surface"],
+      "footprint": [2, 1],
+      "height": 0.96,
+      "surfaceHeight": 0.96,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "citrus", "label": "Citrus Cream", "color": "#F3DB9F", "accentColor": "#FAF5EC" },
+        { "id": "strawberry", "label": "Berry Pastel", "color": "#EBB8C3", "accentColor": "#FAF5EC" },
+        { "id": "mint", "label": "Tropical Mint", "color": "#B3DAC7", "accentColor": "#FAF5EC" }
+      ],
+      "model": "models/cafe-bar/smoothie-station.glb"
+    },
+    {
+      "id": "bar_counter",
+      "name": "Cocktail Bar Counter",
+      "tab": "cafe_bar",
+      "tags": ["bar", "drinks", "serve", "nightlife", "surface"],
+      "footprint": [2, 1],
+      "height": 1.02,
+      "surfaceHeight": 1.02,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "walnut", "label": "Walnut & Brass", "color": "#9B795E", "accentColor": "#DFC08E" },
+        { "id": "indigo", "label": "Midnight Slate", "color": "#8E9BB8", "accentColor": "#E8DFD1" },
+        { "id": "emerald", "label": "Soft Emerald", "color": "#99BFAA", "accentColor": "#E8DFD1" }
+      ],
+      "model": "models/cafe-bar/bar-counter.glb"
+    },
+    {
       "id": "bar_stool",
       "name": "Bar Stool",
       "tab": "cafe_bar",
@@ -203,12 +1049,243 @@
       "height": 0.72,
       "layer": "floor",
       "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Hop on stool" },
       "variants": [
         { "id": "caramel", "label": "Caramel", "color": "#D19B70" },
         { "id": "sage", "label": "Sage", "color": "#A8C3AE" },
         { "id": "blush", "label": "Blush", "color": "#E3AEB5" }
       ],
       "model": "models/cafe-bar/bar-stool.glb"
+    },
+    {
+      "id": "pastry_case",
+      "name": "Glass Pastry Case",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "food", "serve", "surface"],
+      "footprint": [1, 1],
+      "height": 0.95,
+      "surfaceHeight": 0.95,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Case light" },
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D6B48E", "accentColor": "#F5E7CE" },
+        { "id": "cream", "label": "Bakery Cream", "color": "#EFE6D8", "accentColor": "#ECC2B8" },
+        { "id": "mint", "label": "Mint Patisserie", "color": "#B8DAC8", "accentColor": "#F5E7CE" }
+      ],
+      "model": "models/cafe-bar/pastry-case.glb"
+    },
+    {
+      "id": "chalkboard_menu",
+      "name": "Chalkboard Menu",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "coffee", "art", "decor"],
+      "footprint": [1, 1],
+      "height": 0.85,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.5,
+      "variants": [
+        { "id": "oak", "label": "Oak Frame", "color": "#6E737B", "accentColor": "#D2B089" },
+        { "id": "matcha", "label": "Matcha Frame", "color": "#6E737B", "accentColor": "#ACC6A9" },
+        { "id": "cream", "label": "Cream Frame", "color": "#6E737B", "accentColor": "#EDE4D5" }
+      ],
+      "model": "models/cafe-bar/chalkboard-menu.glb"
+    },
+    {
+      "id": "cafe_bistro_table",
+      "name": "Café Bistro Table",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "dining", "surface", "seating"],
+      "footprint": [1, 1],
+      "height": 0.76,
+      "surfaceHeight": 0.76,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "marble", "label": "Cream Marble", "color": "#F2ECE2", "accentColor": "#D1B086" },
+        { "id": "oak", "label": "Warm Oak", "color": "#D7B68E" },
+        { "id": "sage", "label": "Parisian Sage", "color": "#B8CFC0" }
+      ],
+      "model": "models/cafe-bar/cafe-bistro-table.glb"
+    },
+    {
+      "id": "cafe_booth",
+      "name": "Velvet Café Booth",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "diner", "seating", "cozy"],
+      "footprint": [2, 1],
+      "height": 0.95,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Slide into booth" },
+      "variants": [
+        { "id": "coral", "label": "Diner Coral", "color": "#DF9A8D", "accentColor": "#F3EAE0" },
+        { "id": "teal", "label": "Retro Teal", "color": "#99C4BF", "accentColor": "#F3EAE0" },
+        { "id": "mustard", "label": "Warm Mustard", "color": "#E5C37C", "accentColor": "#F3EAE0" }
+      ],
+      "model": "models/cafe-bar/cafe-booth.glb"
+    },
+    {
+      "id": "coffee_grinder",
+      "name": "Burr Coffee Grinder",
+      "tab": "cafe_bar",
+      "tags": ["coffee", "cafe", "serve"],
+      "footprint": [1, 1],
+      "height": 0.42,
+      "layer": "surface",
+      "interaction": { "type": "spin", "label": "Grind beans" },
+      "variants": [
+        { "id": "espresso", "label": "Roast Brown", "color": "#8E725E", "accentColor": "#E8DFD2" },
+        { "id": "cream", "label": "Matte Cream", "color": "#EFE6D6", "accentColor": "#B89A7E" },
+        { "id": "sage", "label": "Sage Matte", "color": "#B5CCBA", "accentColor": "#E8DFD2" }
+      ],
+      "model": "models/cafe-bar/coffee-grinder.glb"
+    },
+    {
+      "id": "pourover_stand",
+      "name": "Pour-Over Stand",
+      "tab": "cafe_bar",
+      "tags": ["coffee", "cafe", "drinks"],
+      "footprint": [1, 1],
+      "height": 0.36,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Drip brew" },
+      "variants": [
+        { "id": "walnut", "label": "Walnut & Glass", "color": "#A78365", "accentColor": "#DCEAF0" },
+        { "id": "brass", "label": "Brass & Glass", "color": "#D6B786", "accentColor": "#DCEAF0" },
+        { "id": "birch", "label": "Pale Birch", "color": "#E4D2B9", "accentColor": "#DCEAF0" }
+      ],
+      "model": "models/cafe-bar/pourover-stand.glb"
+    },
+    {
+      "id": "cocktail_shaker",
+      "name": "Cocktail Shaker Set",
+      "tab": "cafe_bar",
+      "tags": ["bar", "drinks", "serve", "nightlife"],
+      "footprint": [1, 1],
+      "height": 0.34,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Shake drink" },
+      "variants": [
+        { "id": "silver", "label": "Brushed Silver", "color": "#D4DCE4" },
+        { "id": "rose", "label": "Rose Gold", "color": "#E6B9BC" },
+        { "id": "brass", "label": "Warm Brass", "color": "#DFC28E" }
+      ],
+      "model": "models/cafe-bar/cocktail-shaker.glb"
+    },
+    {
+      "id": "neon_drink_menu",
+      "name": "Neon Drink Menu",
+      "tab": "cafe_bar",
+      "tags": ["bar", "drinks", "light", "nightlife", "cafe"],
+      "footprint": [1, 1],
+      "height": 0.65,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.65,
+      "interaction": { "type": "toggle", "label": "Toggle neon" },
+      "variants": [
+        { "id": "peach", "label": "Warm Peach", "color": "#F5BE95" },
+        { "id": "mint", "label": "Mint Fizz", "color": "#A5E0CF" },
+        { "id": "lavender", "label": "Neon Lilac", "color": "#CEB0EA" }
+      ],
+      "model": "models/cafe-bar/neon-drink-menu.glb"
+    },
+    {
+      "id": "bottle_shelf",
+      "name": "Bar Bottle Shelf",
+      "tab": "cafe_bar",
+      "tags": ["bar", "drinks", "storage", "nightlife"],
+      "footprint": [1, 1],
+      "height": 0.6,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.55,
+      "variants": [
+        { "id": "walnut", "label": "Walnut & Glass", "color": "#A48063", "accentColor": "#BEE0DB" },
+        { "id": "brass", "label": "Brass & Amber", "color": "#D7B885", "accentColor": "#EAC092" }
+      ],
+      "model": "models/cafe-bar/bottle-shelf.glb"
+    },
+    {
+      "id": "menu_easel",
+      "name": "Sidewalk Menu Easel",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "diner", "serve", "decor"],
+      "footprint": [1, 1],
+      "height": 1.15,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Oak A-Frame", "color": "#D4B18A", "accentColor": "#6F747C" },
+        { "id": "mint", "label": "Mint A-Frame", "color": "#B3D4C2", "accentColor": "#6F747C" },
+        { "id": "blush", "label": "Blush A-Frame", "color": "#E7BAC1", "accentColor": "#6F747C" }
+      ],
+      "model": "models/cafe-bar/menu-easel.glb"
+    },
+    {
+      "id": "cup_stack",
+      "name": "Ceramic Cup Stack",
+      "tab": "cafe_bar",
+      "tags": ["coffee", "cafe", "serve"],
+      "footprint": [1, 1],
+      "height": 0.28,
+      "layer": "surface",
+      "variants": [
+        { "id": "cream", "label": "Latte Cream", "color": "#F3EBE0", "accentColor": "#D4AE92" },
+        { "id": "matcha", "label": "Matcha Pastel", "color": "#BDD6C0", "accentColor": "#EFE7DA" },
+        { "id": "peach", "label": "Peach Glaze", "color": "#ECC0AC", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/cafe-bar/cup-stack.glb"
+    },
+    {
+      "id": "cake_stand",
+      "name": "Domed Cake Stand",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "food", "serve", "decor"],
+      "footprint": [1, 1],
+      "height": 0.34,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Admire cake" },
+      "variants": [
+        { "id": "strawberry", "label": "Berry Shortcake", "color": "#F2C6CE", "accentColor": "#F5EFE5" },
+        { "id": "lemon", "label": "Lemon Tart", "color": "#F2DF99", "accentColor": "#F5EFE5" },
+        { "id": "chocolate", "label": "Cocoa Torte", "color": "#A8836B", "accentColor": "#F5EFE5" }
+      ],
+      "model": "models/cafe-bar/cake-stand.glb"
+    },
+    {
+      "id": "tip_jar",
+      "name": "Cozy Tip Jar",
+      "tab": "cafe_bar",
+      "tags": ["cafe", "serve", "decor"],
+      "footprint": [1, 1],
+      "height": 0.24,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Drop a coin" },
+      "variants": [
+        { "id": "glass", "label": "Clear Glass", "color": "#CBE4EC", "accentColor": "#EED38B" },
+        { "id": "honey", "label": "Amber Jar", "color": "#EAC68D", "accentColor": "#F5EFE4" }
+      ],
+      "model": "models/cafe-bar/tip-jar.glb"
+    },
+    {
+      "id": "diner_jukebox",
+      "name": "Retro Diner Jukebox",
+      "tab": "cafe_bar",
+      "tags": ["diner", "music", "cafe", "nightlife"],
+      "footprint": [1, 1],
+      "height": 1.45,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Play track" },
+      "variants": [
+        { "id": "coral", "label": "Cherry Coral", "color": "#E2958B", "accentColor": "#F2DF9F" },
+        { "id": "aqua", "label": "Diner Aqua", "color": "#9FD4D0", "accentColor": "#F2DF9F" },
+        { "id": "lilac", "label": "Pastel Lilac", "color": "#C9B3E0", "accentColor": "#F2DF9F" }
+      ],
+      "model": "models/cafe-bar/diner-jukebox.glb"
     },
     {
       "id": "dj_booth",
@@ -229,6 +1306,56 @@
       "model": "models/party/dj-booth.glb"
     },
     {
+      "id": "speaker_tower",
+      "name": "Floor Speaker Tower",
+      "tab": "party",
+      "tags": ["music", "party", "nightlife"],
+      "footprint": [1, 1],
+      "height": 1.35,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Thump bass" },
+      "variants": [
+        { "id": "slate", "label": "Soft Slate", "color": "#8B93A3", "accentColor": "#CEB5E6" },
+        { "id": "walnut", "label": "Walnut Hi-Fi", "color": "#A38064", "accentColor": "#E5D8C5" },
+        { "id": "lavender", "label": "Lilac Pop", "color": "#C2ACE0", "accentColor": "#F4EDE2" }
+      ],
+      "model": "models/party/speaker-tower.glb"
+    },
+    {
+      "id": "subwoofer_box",
+      "name": "Bass Subwoofer",
+      "tab": "party",
+      "tags": ["music", "party", "dance"],
+      "footprint": [1, 1],
+      "height": 0.68,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Drop bass" },
+      "variants": [
+        { "id": "charcoal", "label": "Matte Charcoal", "color": "#7F8692", "accentColor": "#C4A8E0" },
+        { "id": "indigo", "label": "Soft Indigo", "color": "#8E99C7", "accentColor": "#F3B6D0" }
+      ],
+      "model": "models/party/subwoofer-box.glb"
+    },
+    {
+      "id": "floor_uplight",
+      "name": "Party Floor Uplight",
+      "tab": "party",
+      "tags": ["light", "party", "nightlife"],
+      "footprint": [1, 1],
+      "height": 0.35,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Toggle uplight" },
+      "variants": [
+        { "id": "violet", "label": "Violet Glow", "color": "#CDAEE8" },
+        { "id": "cyan", "label": "Aqua Glow", "color": "#9FE0DC" },
+        { "id": "coral", "label": "Sunset Glow", "color": "#F2B29C" }
+      ],
+      "model": "models/party/floor-uplight.glb"
+    },
+    {
       "id": "disco_ball",
       "name": "Disco Ball",
       "tab": "party",
@@ -245,20 +1372,197 @@
       "model": "models/party/disco-ball.glb"
     },
     {
-      "id": "bookshelf_tall",
-      "name": "Bookshelf",
-      "tab": "decor",
-      "tags": ["read", "cozy", "decor"],
+      "id": "led_strip_wall",
+      "name": "LED Light Strip",
+      "tab": "party",
+      "tags": ["light", "party", "nightlife"],
       "footprint": [1, 1],
-      "height": 1.75,
+      "height": 0.22,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.85,
+      "interaction": { "type": "toggle", "label": "Toggle LEDs" },
+      "variants": [
+        { "id": "lilac", "label": "Pastel Lilac", "color": "#CEB0EB" },
+        { "id": "mint", "label": "Cyber Mint", "color": "#9EE0CB" },
+        { "id": "pink", "label": "Bubblegum", "color": "#F3A8C8" }
+      ],
+      "model": "models/party/led-strip-wall.glb"
+    },
+    {
+      "id": "fog_machine",
+      "name": "Haze Fog Machine",
+      "tab": "party",
+      "tags": ["party", "nightlife", "dance"],
+      "footprint": [1, 1],
+      "height": 0.34,
       "layer": "floor",
       "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Puff fog" },
       "variants": [
-        { "id": "oak", "label": "Warm Oak", "color": "#D4B38A" },
-        { "id": "cream", "label": "Soft Cream", "color": "#EDE5D7" },
-        { "id": "sage", "label": "Sage", "color": "#B3C9B5" }
+        { "id": "lavender", "label": "Lavender Mist", "color": "#C7B5DF", "accentColor": "#E9E3F3" },
+        { "id": "slate", "label": "Club Slate", "color": "#9099A8", "accentColor": "#DCE4EE" }
       ],
-      "model": "models/decor/bookshelf-tall.glb"
+      "model": "models/party/fog-machine.glb"
+    },
+    {
+      "id": "party_spotlight",
+      "name": "Party Spotlight Rig",
+      "tab": "party",
+      "tags": ["light", "party", "nightlife"],
+      "footprint": [1, 1],
+      "height": 0.45,
+      "layer": "ceiling",
+      "interaction": { "type": "toggle", "label": "Toggle strobe" },
+      "variants": [
+        { "id": "magenta", "label": "Rose Beam", "color": "#EEA7CB", "accentColor": "#7B828E" },
+        { "id": "aqua", "label": "Aqua Beam", "color": "#9EE0DD", "accentColor": "#7B828E" },
+        { "id": "gold", "label": "Warm Gold", "color": "#F0DA98", "accentColor": "#7B828E" }
+      ],
+      "model": "models/party/party-spotlight.glb"
+    },
+    {
+      "id": "karaoke_mic",
+      "name": "Karaoke Mic Stand",
+      "tab": "party",
+      "tags": ["music", "party", "nightlife"],
+      "footprint": [1, 1],
+      "height": 1.45,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Sing a note" },
+      "variants": [
+        { "id": "rose", "label": "Rose Gold", "color": "#E6B6BD", "accentColor": "#868D98" },
+        { "id": "silver", "label": "Chrome", "color": "#CFD6DF", "accentColor": "#868D98" },
+        { "id": "lilac", "label": "Pop Lilac", "color": "#CBB2E5", "accentColor": "#868D98" }
+      ],
+      "model": "models/party/karaoke-mic.glb"
+    },
+    {
+      "id": "vinyl_crate",
+      "name": "Party Vinyl Crate",
+      "tab": "party",
+      "tags": ["music", "party", "storage"],
+      "footprint": [1, 1],
+      "height": 0.45,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Flip records" },
+      "variants": [
+        { "id": "oak", "label": "Oak Crate", "color": "#D4B18A", "accentColor": "#CEB5E6" },
+        { "id": "peach", "label": "Peach Crate", "color": "#EEB49E", "accentColor": "#9BB8D4" }
+      ],
+      "model": "models/party/vinyl-crate.glb"
+    },
+    {
+      "id": "dance_floor_tile",
+      "name": "Glow Dance Floor Tile",
+      "tab": "party",
+      "tags": ["floor", "dance", "party", "light"],
+      "footprint": [1, 1],
+      "height": 0.08,
+      "layer": "floor",
+      "subLayer": "tile",
+      "interaction": { "type": "toggle", "label": "Pulse floor" },
+      "variants": [
+        { "id": "lilac", "label": "Lilac Pulse", "color": "#D4BEEB", "accentColor": "#F2D5EB" },
+        { "id": "mint", "label": "Mint Pulse", "color": "#B6E2D5", "accentColor": "#DDF4EC" },
+        { "id": "sunset", "label": "Sunset Pulse", "color": "#F3C3AC", "accentColor": "#F9E2CE" }
+      ],
+      "model": "models/party/dance-floor-tile.glb"
+    },
+    {
+      "id": "balloon_arch",
+      "name": "Pastel Balloon Arch",
+      "tab": "party",
+      "tags": ["party", "decor"],
+      "footprint": [2, 1],
+      "height": 2.1,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Boop balloons" },
+      "variants": [
+        { "id": "confetti", "label": "Pastel Mix", "color": "#F0B9C9", "accentColor": "#BFE0D4" },
+        { "id": "sunset", "label": "Peach & Gold", "color": "#F2BEA2", "accentColor": "#EFE0A8" },
+        { "id": "lavender", "label": "Lilac & Sky", "color": "#CDB8E6", "accentColor": "#B8D7EA" }
+      ],
+      "model": "models/party/balloon-arch.glb"
+    },
+    {
+      "id": "string_lights",
+      "name": "Party String Lights",
+      "tab": "party",
+      "tags": ["light", "party", "cozy"],
+      "footprint": [2, 1],
+      "height": 0.35,
+      "layer": "ceiling",
+      "interaction": { "type": "toggle", "label": "Toggle bulbs" },
+      "variants": [
+        { "id": "warm", "label": "Warm Edison", "color": "#F6DF9C" },
+        { "id": "pastel", "label": "Pastel Party", "color": "#F2BBD0" },
+        { "id": "cool", "label": "Starlight", "color": "#CAE4F2" }
+      ],
+      "model": "models/party/string-lights.glb"
+    },
+    {
+      "id": "laser_bar",
+      "name": "Ceiling Laser Bar",
+      "tab": "party",
+      "tags": ["light", "party", "nightlife", "dance"],
+      "footprint": [2, 1],
+      "height": 0.3,
+      "layer": "ceiling",
+      "interaction": { "type": "toggle", "label": "Toggle beams" },
+      "variants": [
+        { "id": "neon_pink", "label": "Neon Pink", "color": "#F2A5CA", "accentColor": "#7B828E" },
+        { "id": "aqua", "label": "Soft Cyan", "color": "#9CDFD9", "accentColor": "#7B828E" }
+      ],
+      "model": "models/party/laser-bar.glb"
+    },
+    {
+      "id": "wall_vines",
+      "name": "Trailing Wall Vines",
+      "tab": "decor",
+      "tags": ["plants", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.85,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.7,
+      "variants": [
+        { "id": "ivy", "label": "English Ivy", "color": "#92C2A0" },
+        { "id": "pothos", "label": "Golden Pothos", "color": "#A6CE9A" },
+        { "id": "mint", "label": "Eucalyptus Vine", "color": "#9CC4B5" }
+      ],
+      "model": "models/decor/wall-vines.glb"
+    },
+    {
+      "id": "hanging_ivy",
+      "name": "Hanging Plant",
+      "tab": "decor",
+      "tags": ["plants", "decor"],
+      "footprint": [1, 1],
+      "height": 0.85,
+      "layer": "ceiling",
+      "variants": [
+        { "id": "sage", "label": "Trailing Ivy", "color": "#94C5A3" },
+        { "id": "fern", "label": "Soft Fern", "color": "#A7CF9D" }
+      ],
+      "model": "models/decor/hanging-ivy.glb"
+    },
+    {
+      "id": "hanging_fern",
+      "name": "Hanging Boston Fern",
+      "tab": "decor",
+      "tags": ["plants", "decor"],
+      "footprint": [1, 1],
+      "height": 0.78,
+      "layer": "ceiling",
+      "variants": [
+        { "id": "meadow", "label": "Meadow Green", "color": "#9BCB9C", "accentColor": "#D59275" },
+        { "id": "sage", "label": "Soft Sage", "color": "#A7CBB5", "accentColor": "#EFE6D8" }
+      ],
+      "model": "models/decor/hanging-fern.glb"
     },
     {
       "id": "potted_monstera",
@@ -277,20 +1581,163 @@
       "model": "models/decor/potted-monstera.glb"
     },
     {
-      "id": "table_lamp",
-      "name": "Mushroom Lamp",
+      "id": "potted_fiddle_leaf",
+      "name": "Fiddle Leaf Fig",
       "tab": "decor",
-      "tags": ["light", "cozy", "decor"],
+      "tags": ["plants", "decor", "home"],
+      "footprint": [1, 1],
+      "height": 1.55,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "woven", "label": "Woven Basket", "color": "#87BA93", "accentColor": "#D7BA91" },
+        { "id": "ceramic", "label": "Cream Ceramic", "color": "#8FC29B", "accentColor": "#EFE7DA" },
+        { "id": "terracotta", "label": "Clay Pot", "color": "#82B48D", "accentColor": "#D48D6D" }
+      ],
+      "model": "models/decor/potted-fiddle-leaf.glb"
+    },
+    {
+      "id": "potted_cactus",
+      "name": "Saguaro Cactus",
+      "tab": "decor",
+      "tags": ["plants", "decor"],
+      "footprint": [1, 1],
+      "height": 0.55,
+      "layer": "surface",
+      "variants": [
+        { "id": "terracotta", "label": "Clay Pot", "color": "#97C49B", "accentColor": "#D69072" },
+        { "id": "mustard", "label": "Ochre Pot", "color": "#9DC8A0", "accentColor": "#E5C47E" },
+        { "id": "cream", "label": "Speckled Pot", "color": "#8EBE94", "accentColor": "#EFE6D8" }
+      ],
+      "model": "models/decor/potted-cactus.glb"
+    },
+    {
+      "id": "potted_bonsai",
+      "name": "Mini Bonsai Tree",
+      "tab": "decor",
+      "tags": ["plants", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.45,
+      "layer": "surface",
+      "variants": [
+        { "id": "pine", "label": "Mossy Pine", "color": "#8BB896", "accentColor": "#8E7A6E" },
+        { "id": "sakura", "label": "Blossom Pink", "color": "#EEB9C7", "accentColor": "#8E7A6E" },
+        { "id": "maple", "label": "Autumn Coral", "color": "#E6A08B", "accentColor": "#ECE4D6" }
+      ],
+      "model": "models/decor/potted-bonsai.glb"
+    },
+    {
+      "id": "potted_snake_plant",
+      "name": "Snake Plant",
+      "tab": "decor",
+      "tags": ["plants", "decor", "home"],
+      "footprint": [1, 1],
+      "height": 0.88,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "cream", "label": "Cream Planter", "color": "#9CC6A0", "accentColor": "#F0E8DA" },
+        { "id": "blush", "label": "Blush Planter", "color": "#94BF98", "accentColor": "#E8BAC1" },
+        { "id": "slate", "label": "Slate Planter", "color": "#A2CCA6", "accentColor": "#9BA8B4" }
+      ],
+      "model": "models/decor/potted-snake-plant.glb"
+    },
+    {
+      "id": "flower_vase",
+      "name": "Wildflower Vase",
+      "tab": "decor",
+      "tags": ["plants", "decor", "cozy"],
       "footprint": [1, 1],
       "height": 0.42,
       "layer": "surface",
-      "interaction": { "type": "toggle", "label": "Toggle lamp" },
       "variants": [
-        { "id": "amber", "label": "Warm Amber", "color": "#F5D08A" },
-        { "id": "blush", "label": "Soft Blush", "color": "#F2BDC2" },
-        { "id": "mint", "label": "Mint Glass", "color": "#B6DEC9" }
+        { "id": "daisy", "label": "Sunny Daisies", "color": "#F2DC99", "accentColor": "#EAE2D4" },
+        { "id": "tulip", "label": "Blush Tulips", "color": "#EEB8C2", "accentColor": "#B8D6C7" },
+        { "id": "lavender", "label": "Dried Lavender", "color": "#C7B5DF", "accentColor": "#DFC5A5" }
       ],
-      "model": "models/decor/table-lamp.glb"
+      "model": "models/decor/flower-vase.glb"
+    },
+    {
+      "id": "vinyl_records_stack",
+      "name": "Vinyl Record Stack",
+      "tab": "decor",
+      "tags": ["music", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.34,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Browse sleeves" },
+      "variants": [
+        { "id": "indie", "label": "Indie Sleeves", "color": "#E4B29D", "accentColor": "#98B6CE" },
+        { "id": "jazz", "label": "Jazz Classics", "color": "#E6C786", "accentColor": "#8C98B8" }
+      ],
+      "model": "models/decor/vinyl-records-stack.glb"
+    },
+    {
+      "id": "record_wall_display",
+      "name": "Vinyl Record Wall",
+      "tab": "decor",
+      "tags": ["music", "art", "decor"],
+      "footprint": [1, 1],
+      "height": 0.72,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.55,
+      "variants": [
+        { "id": "pastel", "label": "Pastel Covers", "color": "#E6B9C4", "accentColor": "#7B808A" },
+        { "id": "sunset", "label": "Sunset Covers", "color": "#EEBE9B", "accentColor": "#7B808A" },
+        { "id": "mint", "label": "Mint Covers", "color": "#B3D9C7", "accentColor": "#7B808A" }
+      ],
+      "model": "models/decor/record-wall-display.glb"
+    },
+    {
+      "id": "record_player",
+      "name": "Turntable Record Player",
+      "tab": "decor",
+      "tags": ["music", "cozy", "media"],
+      "footprint": [1, 1],
+      "height": 0.32,
+      "layer": "surface",
+      "interaction": { "type": "spin", "label": "Spin record" },
+      "variants": [
+        { "id": "walnut", "label": "Walnut Plinth", "color": "#B08968", "accentColor": "#686E78" },
+        { "id": "cream", "label": "Retro Cream", "color": "#EFE6D6", "accentColor": "#686E78" },
+        { "id": "mint", "label": "Mint Suitcase", "color": "#B1D8C7", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/decor/record-player.glb"
+    },
+    {
+      "id": "poster_indie",
+      "name": "Indie Gig Poster",
+      "tab": "decor",
+      "tags": ["art", "music", "decor"],
+      "footprint": [1, 1],
+      "height": 0.78,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.55,
+      "variants": [
+        { "id": "sunset", "label": "Sunset Print", "color": "#F0BCA3", "accentColor": "#FAF4EA" },
+        { "id": "cobalt", "label": "Soft Cobalt", "color": "#9BB6D4", "accentColor": "#FAF4EA" },
+        { "id": "lilac", "label": "Dream Pop", "color": "#CEB8E4", "accentColor": "#FAF4EA" }
+      ],
+      "model": "models/decor/poster-indie.glb"
+    },
+    {
+      "id": "framed_art",
+      "name": "Framed Botanical Print",
+      "tab": "decor",
+      "tags": ["art", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.72,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.55,
+      "variants": [
+        { "id": "oak", "label": "Oak Frame", "color": "#B5D1B8", "accentColor": "#D6B58D" },
+        { "id": "brass", "label": "Brass Frame", "color": "#ECC7B8", "accentColor": "#D7B987" },
+        { "id": "cream", "label": "Cream Frame", "color": "#B9CFDD", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/decor/framed-art.glb"
     },
     {
       "id": "neon_sign",
@@ -311,18 +1758,359 @@
       "model": "models/decor/neon-sign.glb"
     },
     {
-      "id": "hanging_ivy",
-      "name": "Hanging Plant",
+      "id": "table_lamp",
+      "name": "Mushroom Lamp",
       "tab": "decor",
-      "tags": ["plants", "decor"],
+      "tags": ["light", "cozy", "decor"],
       "footprint": [1, 1],
-      "height": 0.85,
-      "layer": "ceiling",
+      "height": 0.42,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Toggle lamp" },
       "variants": [
-        { "id": "sage", "label": "Trailing Ivy", "color": "#94C5A3" },
-        { "id": "fern", "label": "Soft Fern", "color": "#A7CF9D" }
+        { "id": "amber", "label": "Warm Amber", "color": "#F5D08A" },
+        { "id": "blush", "label": "Soft Blush", "color": "#F2BDC2" },
+        { "id": "mint", "label": "Mint Glass", "color": "#B6DEC9" }
       ],
-      "model": "models/decor/hanging-ivy.glb"
+      "model": "models/decor/table-lamp.glb"
+    },
+    {
+      "id": "lamp_floor_arc",
+      "name": "Arc Floor Lamp",
+      "tab": "decor",
+      "tags": ["light", "cozy", "read", "decor"],
+      "footprint": [1, 1],
+      "height": 1.9,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Toggle lamp" },
+      "variants": [
+        { "id": "brass", "label": "Warm Brass", "color": "#F5DDA0", "accentColor": "#D5B886" },
+        { "id": "cream", "label": "Linen & Oak", "color": "#F5EBDC", "accentColor": "#D3B38C" },
+        { "id": "blush", "label": "Soft Blush", "color": "#F0C3C8", "accentColor": "#C4B7AE" }
+      ],
+      "model": "models/decor/lamp-floor-arc.glb"
+    },
+    {
+      "id": "lamp_pendant",
+      "name": "Paper Pendant Lamp",
+      "tab": "decor",
+      "tags": ["light", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.58,
+      "layer": "ceiling",
+      "interaction": { "type": "toggle", "label": "Toggle light" },
+      "variants": [
+        { "id": "rice", "label": "Rice Paper", "color": "#F6EFE2", "accentColor": "#CBB28D" },
+        { "id": "peach", "label": "Warm Peach", "color": "#F5CBB6", "accentColor": "#CBB28D" },
+        { "id": "sage", "label": "Soft Sage", "color": "#C7DFCE", "accentColor": "#CBB28D" }
+      ],
+      "model": "models/decor/lamp-pendant.glb"
+    },
+    {
+      "id": "fairy_lights",
+      "name": "Warm Fairy Lights",
+      "tab": "decor",
+      "tags": ["light", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.42,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.85,
+      "interaction": { "type": "toggle", "label": "Twinkle lights" },
+      "variants": [
+        { "id": "warm", "label": "Golden Twinkle", "color": "#F6DF9C" },
+        { "id": "rose", "label": "Rose Twinkle", "color": "#F2BDC8" }
+      ],
+      "model": "models/decor/fairy-lights.glb"
+    },
+    {
+      "id": "lamp_desk",
+      "name": "Architect Desk Lamp",
+      "tab": "decor",
+      "tags": ["light", "work", "read"],
+      "footprint": [1, 1],
+      "height": 0.44,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Toggle lamp" },
+      "variants": [
+        { "id": "sage", "label": "Sage Green", "color": "#B5CFB9", "accentColor": "#D5B689" },
+        { "id": "butter", "label": "Butter Yellow", "color": "#F0D894", "accentColor": "#EFE7DA" },
+        { "id": "coral", "label": "Soft Coral", "color": "#E6A596", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/decor/lamp-desk.glb"
+    },
+    {
+      "id": "lamp_lava",
+      "name": "Pastel Lava Lamp",
+      "tab": "decor",
+      "tags": ["light", "decor", "nightlife"],
+      "footprint": [1, 1],
+      "height": 0.46,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Toggle glow" },
+      "variants": [
+        { "id": "peach", "label": "Peach Sunset", "color": "#F4B99B", "accentColor": "#D5DBE2" },
+        { "id": "lilac", "label": "Dream Lilac", "color": "#CEB4EA", "accentColor": "#D5DBE2" },
+        { "id": "aqua", "label": "Lagoon Aqua", "color": "#9FE0DC", "accentColor": "#D5DBE2" }
+      ],
+      "model": "models/decor/lamp-lava.glb"
+    },
+    {
+      "id": "bookshelf_tall",
+      "name": "Bookshelf",
+      "tab": "decor",
+      "tags": ["read", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 1.75,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D4B38A" },
+        { "id": "cream", "label": "Soft Cream", "color": "#EDE5D7" },
+        { "id": "sage", "label": "Sage", "color": "#B3C9B5" }
+      ],
+      "model": "models/decor/bookshelf-tall.glb"
+    },
+    {
+      "id": "bookshelf_low",
+      "name": "Low Bookcase",
+      "tab": "decor",
+      "tags": ["read", "storage", "surface", "cozy"],
+      "footprint": [2, 1],
+      "height": 0.85,
+      "surfaceHeight": 0.85,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D8B890", "accentColor": "#B7CEBC" },
+        { "id": "birch", "label": "Pale Birch", "color": "#EADBC4", "accentColor": "#E5B4A8" },
+        { "id": "cream", "label": "Warm Cream", "color": "#EFE6D8", "accentColor": "#A8C3D6" }
+      ],
+      "model": "models/decor/bookshelf-low.glb"
+    },
+    {
+      "id": "bookshelf_wall",
+      "name": "Floating Wall Bookshelf",
+      "tab": "decor",
+      "tags": ["read", "storage", "decor"],
+      "footprint": [1, 1],
+      "height": 0.32,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.5,
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D6B58D", "accentColor": "#E3A79A" },
+        { "id": "cream", "label": "Soft Cream", "color": "#EFE7DA", "accentColor": "#B3CEBC" }
+      ],
+      "model": "models/decor/bookshelf-wall.glb"
+    },
+    {
+      "id": "curtains_linen",
+      "name": "Linen Curtains",
+      "tab": "decor",
+      "tags": ["cozy", "decor", "home"],
+      "footprint": [1, 1],
+      "height": 1.8,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.45,
+      "variants": [
+        { "id": "oat", "label": "Natural Oat", "color": "#EDE3D2", "accentColor": "#CBB08D" },
+        { "id": "blush", "label": "Sheer Blush", "color": "#EED2D5", "accentColor": "#CBB08D" },
+        { "id": "sage", "label": "Soft Sage", "color": "#CCE0D0", "accentColor": "#CBB08D" }
+      ],
+      "model": "models/decor/curtains-linen.glb"
+    },
+    {
+      "id": "mirror_arch",
+      "name": "Arched Floor Mirror",
+      "tab": "decor",
+      "tags": ["decor", "home"],
+      "footprint": [1, 1],
+      "height": 1.75,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "brass", "label": "Brushed Brass", "color": "#D4E4ED", "accentColor": "#D7B887" },
+        { "id": "oak", "label": "Warm Oak", "color": "#D4E4ED", "accentColor": "#D4B28A" },
+        { "id": "cream", "label": "Pebble Cream", "color": "#D4E4ED", "accentColor": "#EDE5D7" }
+      ],
+      "model": "models/decor/mirror-arch.glb"
+    },
+    {
+      "id": "mirror_round",
+      "name": "Round Wall Mirror",
+      "tab": "decor",
+      "tags": ["decor", "home"],
+      "footprint": [1, 1],
+      "height": 0.68,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.55,
+      "variants": [
+        { "id": "oak", "label": "Oak Rim", "color": "#D3E3EC", "accentColor": "#D6B48C" },
+        { "id": "brass", "label": "Brass Rim", "color": "#D3E3EC", "accentColor": "#D8BA88" },
+        { "id": "blush", "label": "Blush Rim", "color": "#D3E3EC", "accentColor": "#E7BCC2" }
+      ],
+      "model": "models/decor/mirror-round.glb"
+    },
+    {
+      "id": "rug_runner",
+      "name": "Hallway Runner Rug",
+      "tab": "decor",
+      "tags": ["cozy", "decor", "home"],
+      "footprint": [1, 3],
+      "height": 0.05,
+      "layer": "floor",
+      "subLayer": "rug",
+      "variants": [
+        { "id": "terracotta", "label": "Terracotta Weave", "color": "#E2A998", "accentColor": "#F3EAE0" },
+        { "id": "sage", "label": "Sage Stripe", "color": "#BCD3C2", "accentColor": "#F3EAE0" },
+        { "id": "oat", "label": "Warm Oat", "color": "#E7DAC6", "accentColor": "#D5C1A6" }
+      ],
+      "model": "models/decor/rug-runner.glb"
+    },
+    {
+      "id": "plushie_bear",
+      "name": "Honey Bear Plushie",
+      "tab": "decor",
+      "tags": ["plushie", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.36,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Squeeze bear" },
+      "variants": [
+        { "id": "honey", "label": "Honey Bear", "color": "#DEB891", "accentColor": "#EFE0C9" },
+        { "id": "cocoa", "label": "Cocoa Bear", "color": "#B38E72", "accentColor": "#E5D3BE" },
+        { "id": "cream", "label": "Polar Cream", "color": "#F3ECE2", "accentColor": "#E8C3C8" }
+      ],
+      "model": "models/decor/plushie-bear.glb"
+    },
+    {
+      "id": "plushie_cat",
+      "name": "Mochi Cat Plushie",
+      "tab": "decor",
+      "tags": ["plushie", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.32,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Squish mochi" },
+      "variants": [
+        { "id": "strawberry", "label": "Strawberry Milk", "color": "#F0C3CB", "accentColor": "#F7EEF0" },
+        { "id": "matcha", "label": "Matcha Cream", "color": "#C2DBC5", "accentColor": "#F5F2E9" },
+        { "id": "taro", "label": "Taro Lavender", "color": "#D4C2E8", "accentColor": "#F5F0F9" }
+      ],
+      "model": "models/decor/plushie-cat.glb"
+    },
+    {
+      "id": "plushie_frog",
+      "name": "Sleepy Frog Plushie",
+      "tab": "decor",
+      "tags": ["plushie", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.32,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Boop frog" },
+      "variants": [
+        { "id": "leaf", "label": "Mossy Green", "color": "#AAD0A5", "accentColor": "#F1E9D6" },
+        { "id": "mint", "label": "Pastel Mint", "color": "#B7DEC9", "accentColor": "#F2C4CB" }
+      ],
+      "model": "models/decor/plushie-frog.glb"
+    },
+    {
+      "id": "plushie_cloud",
+      "name": "Fluffy Cloud Cushion",
+      "tab": "decor",
+      "tags": ["plushie", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.34,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Fluff cloud" },
+      "variants": [
+        { "id": "white", "label": "Cumulus Cream", "color": "#F6F1E9", "accentColor": "#ECC3C8" },
+        { "id": "sky", "label": "Daydream Blue", "color": "#C9DFEE", "accentColor": "#F5F0E6" }
+      ],
+      "model": "models/decor/plushie-cloud.glb"
+    },
+    {
+      "id": "wall_clock",
+      "name": "Minimalist Wall Clock",
+      "tab": "decor",
+      "tags": ["decor", "home"],
+      "footprint": [1, 1],
+      "height": 0.48,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.75,
+      "interaction": { "type": "spin", "label": "Wind clock" },
+      "variants": [
+        { "id": "cream", "label": "Cream & Oak", "color": "#F4EDE2", "accentColor": "#D5B48C" },
+        { "id": "sage", "label": "Soft Sage", "color": "#C7DAC9", "accentColor": "#EFE7DA" },
+        { "id": "mustard", "label": "Retro Mustard", "color": "#EAD08D", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/decor/wall-clock.glb"
+    },
+    {
+      "id": "tapestry_woven",
+      "name": "Woven Wall Tapestry",
+      "tab": "decor",
+      "tags": ["art", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.92,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.5,
+      "variants": [
+        { "id": "sunset", "label": "Desert Sunset", "color": "#E6B39D", "accentColor": "#F0D5A0" },
+        { "id": "meadow", "label": "Soft Meadow", "color": "#BFD6C2", "accentColor": "#EDE4D5" }
+      ],
+      "model": "models/decor/tapestry-woven.glb"
+    },
+    {
+      "id": "scented_candle",
+      "name": "Scented Jar Candle",
+      "tab": "decor",
+      "tags": ["light", "cozy", "decor"],
+      "footprint": [1, 1],
+      "height": 0.22,
+      "layer": "surface",
+      "interaction": { "type": "toggle", "label": "Light candle" },
+      "variants": [
+        { "id": "vanilla", "label": "Vanilla Oat", "color": "#F5DFAA", "accentColor": "#EFE7DA" },
+        { "id": "rose", "label": "Rosewater", "color": "#F1C5CB", "accentColor": "#EFE7DA" },
+        { "id": "cedar", "label": "Cedar Sage", "color": "#C3D8C5", "accentColor": "#D6B58E" }
+      ],
+      "model": "models/decor/scented-candle.glb"
+    },
+    {
+      "id": "glass_terrarium",
+      "name": "Moss Terrarium",
+      "tab": "decor",
+      "tags": ["plants", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.34,
+      "layer": "surface",
+      "variants": [
+        { "id": "moss", "label": "Forest Moss", "color": "#9CC69E", "accentColor": "#CBE3EB" },
+        { "id": "succulent", "label": "Desert Pebble", "color": "#A9CEB8", "accentColor": "#DFC8AC" }
+      ],
+      "model": "models/decor/glass-terrarium.glb"
+    },
+    {
+      "id": "ceramic_vase_tall",
+      "name": "Tall Ceramic Vase",
+      "tab": "decor",
+      "tags": ["art", "decor", "home"],
+      "footprint": [1, 1],
+      "height": 0.72,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "oat", "label": "Speckled Oat", "color": "#EDE3D3", "accentColor": "#D7B68E" },
+        { "id": "terracotta", "label": "Warm Clay", "color": "#DC9E86", "accentColor": "#EFE6D8" },
+        { "id": "sage", "label": "Celadon Sage", "color": "#B8D2C0", "accentColor": "#EFE6D8" }
+      ],
+      "model": "models/decor/ceramic-vase-tall.glb"
     },
     {
       "id": "cat_tree",
@@ -342,6 +2130,151 @@
       "model": "models/pets/cat-tree.glb"
     },
     {
+      "id": "cat_condo_tower",
+      "name": "Cozy Cat Condo",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [1, 1],
+      "height": 1.65,
+      "surfaceHeight": 1.65,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "birch", "label": "Birch & Cream", "color": "#EFE5D6", "accentColor": "#DFC4A0" },
+        { "id": "peach", "label": "Peach Plush", "color": "#F0C5B4", "accentColor": "#E5CFAF" },
+        { "id": "mint", "label": "Mint Plush", "color": "#C2DFCE", "accentColor": "#E5CFAF" }
+      ],
+      "model": "models/pets/cat-condo-tower.glb"
+    },
+    {
+      "id": "scratch_post",
+      "name": "Sisal Scratch Post",
+      "tab": "pets",
+      "tags": ["pet", "cat"],
+      "footprint": [1, 1],
+      "height": 0.78,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Scratch post" },
+      "variants": [
+        { "id": "sisal", "label": "Natural Sisal", "color": "#DFC8A4", "accentColor": "#BBD2BE" },
+        { "id": "cactus", "label": "Cactus Post", "color": "#9CC8A0", "accentColor": "#E5B49A" }
+      ],
+      "model": "models/pets/scratch-post.glb"
+    },
+    {
+      "id": "cat_feather_wand",
+      "name": "Feather Wand Toy",
+      "tab": "pets",
+      "tags": ["pet", "cat"],
+      "footprint": [1, 1],
+      "height": 0.36,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Wiggle wand" },
+      "variants": [
+        { "id": "pastel", "label": "Pastel Feathers", "color": "#F0B9C9", "accentColor": "#DFC29B" },
+        { "id": "mint", "label": "Mint Feathers", "color": "#AFE0CB", "accentColor": "#DFC29B" }
+      ],
+      "model": "models/pets/cat-feather-wand.glb"
+    },
+    {
+      "id": "cat_tunnel",
+      "name": "Crinkle Cat Tunnel",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [2, 1],
+      "height": 0.42,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Rustle tunnel" },
+      "variants": [
+        { "id": "blush", "label": "Blush Felt", "color": "#ECC1C9", "accentColor": "#F5EBE0" },
+        { "id": "sky", "label": "Sky Felt", "color": "#B8D4E6", "accentColor": "#F5EBE0" },
+        { "id": "oat", "label": "Oat Felt", "color": "#E6D8C4", "accentColor": "#D5A88F" }
+      ],
+      "model": "models/pets/cat-tunnel.glb"
+    },
+    {
+      "id": "cat_ball_track",
+      "name": "Spinning Ball Track",
+      "tab": "pets",
+      "tags": ["pet", "cat"],
+      "footprint": [1, 1],
+      "height": 0.22,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "spin", "label": "Bat ball" },
+      "variants": [
+        { "id": "mint", "label": "Pastel Mint", "color": "#B6DEC9", "accentColor": "#F0B9C6" },
+        { "id": "butter", "label": "Butter Cream", "color": "#F0DB9D", "accentColor": "#A5C7DE" }
+      ],
+      "model": "models/pets/cat-ball-track.glb"
+    },
+    {
+      "id": "pet_bed_round",
+      "name": "Plush Pet Bed",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.28,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Knead bed" },
+      "variants": [
+        { "id": "oat", "label": "Warm Oat", "color": "#EAE0D0", "accentColor": "#F6EFE5" },
+        { "id": "peach", "label": "Soft Peach", "color": "#F0C3B0", "accentColor": "#F7F0E6" },
+        { "id": "lavender", "label": "Lilac Cloud", "color": "#D4C4E8", "accentColor": "#F7F0E6" }
+      ],
+      "model": "models/pets/pet-bed-round.glb"
+    },
+    {
+      "id": "pet_bowls",
+      "name": "Food & Water Bowls",
+      "tab": "pets",
+      "tags": ["pet", "cat", "food"],
+      "footprint": [1, 1],
+      "height": 0.16,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "mint", "label": "Mint Ceramic", "color": "#B8DCC9", "accentColor": "#D8B992" },
+        { "id": "blush", "label": "Blush Ceramic", "color": "#EFC2C8", "accentColor": "#D8B992" },
+        { "id": "sky", "label": "Sky Ceramic", "color": "#BCD8E8", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/pets/pet-bowls.glb"
+    },
+    {
+      "id": "pet_auto_feeder",
+      "name": "Automatic Pet Feeder",
+      "tab": "pets",
+      "tags": ["pet", "cat", "food"],
+      "footprint": [1, 1],
+      "height": 0.42,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Dispense kibble" },
+      "variants": [
+        { "id": "cream", "label": "Warm Cream", "color": "#F3ECE0", "accentColor": "#B7D5C4" },
+        { "id": "blush", "label": "Soft Blush", "color": "#F1D0D4", "accentColor": "#EFE7DA" }
+      ],
+      "model": "models/pets/pet-auto-feeder.glb"
+    },
+    {
+      "id": "litter_box",
+      "name": "Hooded Litter Box",
+      "tab": "pets",
+      "tags": ["pet", "cat"],
+      "footprint": [1, 1],
+      "height": 0.46,
+      "layer": "floor",
+      "subLayer": "object",
+      "variants": [
+        { "id": "cream", "label": "Cream & Sage", "color": "#EFE7DA", "accentColor": "#BCD2BF" },
+        { "id": "blush", "label": "Blush & Ivory", "color": "#EFC7CD", "accentColor": "#F5EFE6" }
+      ],
+      "model": "models/pets/litter-box.glb"
+    },
+    {
       "id": "cat_wall_shelf",
       "name": "Cat Wall Shelf",
       "tab": "pets",
@@ -356,6 +2289,36 @@
         { "id": "pink", "label": "Pastel Pink", "color": "#F0BFC8" }
       ],
       "model": "models/pets/cat-wall-shelf.glb"
+    },
+    {
+      "id": "ceiling_catwalk",
+      "name": "Ceiling Catwalk Bridge",
+      "tab": "pets",
+      "tags": ["pet", "cat"],
+      "footprint": [2, 1],
+      "height": 0.55,
+      "layer": "ceiling",
+      "variants": [
+        { "id": "oak", "label": "Warm Oak", "color": "#D9B991", "accentColor": "#E9DFD0" },
+        { "id": "pastel", "label": "Pastel Pine", "color": "#E6D2B5", "accentColor": "#EFC2CA" }
+      ],
+      "model": "models/pets/ceiling-catwalk.glb"
+    },
+    {
+      "id": "window_hammock",
+      "name": "Window Cat Hammock",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.26,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.15,
+      "variants": [
+        { "id": "oat", "label": "Oat Canvas", "color": "#EAE0CE", "accentColor": "#D5B58E" },
+        { "id": "sage", "label": "Sage Canvas", "color": "#C4D8C7", "accentColor": "#D5B58E" }
+      ],
+      "model": "models/pets/window-hammock.glb"
     },
     {
       "id": "cat_calico",
@@ -373,6 +2336,56 @@
         { "id": "ginger", "label": "Ginger", "color": "#EBA572" }
       ],
       "model": "models/pets/cat-calico.glb"
+    },
+    {
+      "id": "cat_sleepy",
+      "name": "Sleepy Curled Cat",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.3,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Hear purr" },
+      "variants": [
+        { "id": "cream", "label": "Cream Tabby", "color": "#EFE0C6", "accentColor": "#DFC39D" },
+        { "id": "gray", "label": "Blue Gray", "color": "#A7B0BC", "accentColor": "#CDD4DD" },
+        { "id": "peach", "label": "Apricot", "color": "#EEBC96", "accentColor": "#F7E2CC" }
+      ],
+      "model": "models/pets/cat-sleepy.glb"
+    },
+    {
+      "id": "cat_kitten",
+      "name": "Playful Kitten",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.34,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "bounce", "label": "Pounce!" },
+      "variants": [
+        { "id": "siamese", "label": "Siamese Cream", "color": "#EFE2CC", "accentColor": "#9C8474" },
+        { "id": "marmalade", "label": "Marmalade", "color": "#EFAE7E", "accentColor": "#F7EBDD" },
+        { "id": "silver", "label": "Silver Tabby", "color": "#C5CCD4", "accentColor": "#8D95A0" }
+      ],
+      "model": "models/pets/cat-kitten.glb"
+    },
+    {
+      "id": "cat_loaf",
+      "name": "Loaf Cat",
+      "tab": "pets",
+      "tags": ["pet", "cat", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.28,
+      "layer": "surface",
+      "interaction": { "type": "bounce", "label": "Boop loaf" },
+      "variants": [
+        { "id": "brioche", "label": "Golden Brioche", "color": "#E6B888", "accentColor": "#F7EAD7" },
+        { "id": "sesame", "label": "Black Sesame", "color": "#7F8490", "accentColor": "#ECE7DE" },
+        { "id": "milk", "label": "Milk Bread", "color": "#F4ECE0", "accentColor": "#E9B7BC" }
+      ],
+      "model": "models/pets/cat-loaf.glb"
     }
   ]
 }

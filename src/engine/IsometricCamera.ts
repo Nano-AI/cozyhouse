@@ -25,6 +25,10 @@ export class IsometricCamera {
 
   private aspect = 1;
   private panLimit = 9;
+  private cinematicMode = false;
+  private cinematicTime = 0;
+  private preCinematicZoom = DEFAULT_ZOOM;
+  private preCinematicTarget = new THREE.Vector3(0, 0.5, 0);
 
   private onStepChange?: (quarter: number) => void;
 
@@ -47,6 +51,29 @@ export class IsometricCamera {
 
   setPanLimit(gridWidth: number, gridDepth: number): void {
     this.panLimit = Math.max(gridWidth, gridDepth) * 0.65;
+  }
+
+  isCinematicMode(): boolean {
+    return this.cinematicMode;
+  }
+
+  setCinematicMode(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.cinematicMode === next) return;
+    this.cinematicMode = next;
+    if (next) {
+      this.preCinematicZoom = this.desiredZoom;
+      this.preCinematicTarget.copy(this.desiredTarget);
+      this.cinematicTime = 0;
+      this.desiredTarget.set(0, 0.7, 0);
+    } else {
+      this.rotationStep = Math.round((this.currentAzimuth - Math.PI / 4) / (Math.PI / 2));
+      this.desiredAzimuth = Math.PI / 4 + this.rotationStep * (Math.PI / 2);
+      const normalized = ((this.rotationStep % 4) + 4) % 4;
+      this.onStepChange?.(normalized);
+      this.desiredZoom = this.preCinematicZoom;
+      this.desiredTarget.set(this.preCinematicTarget.x, 0.5, this.preCinematicTarget.z);
+    }
   }
 
   resize(width: number, height: number): void {
@@ -126,10 +153,23 @@ export class IsometricCamera {
   }
 
   update(dt: number): void {
-    const smooth = 1 - Math.exp(-12 * Math.min(dt, 0.1));
-    this.currentAzimuth = THREE.MathUtils.lerp(this.currentAzimuth, this.desiredAzimuth, smooth);
-    this.currentZoom = THREE.MathUtils.lerp(this.currentZoom, this.desiredZoom, smooth);
-    this.target.lerp(this.desiredTarget, smooth);
+    const clampedDt = Math.min(dt, 0.1);
+    const smooth = 1 - Math.exp(-12 * clampedDt);
+
+    if (this.cinematicMode) {
+      this.cinematicTime += clampedDt;
+      this.currentAzimuth += 0.16 * clampedDt;
+      this.desiredAzimuth = this.currentAzimuth;
+      this.desiredTarget.set(0, 0.7, 0);
+      this.desiredZoom = 1.08 + 0.08 * Math.sin(this.cinematicTime * 0.35);
+      const cinSmooth = 1 - Math.exp(-3.5 * clampedDt);
+      this.currentZoom = THREE.MathUtils.lerp(this.currentZoom, this.desiredZoom, cinSmooth);
+      this.target.lerp(this.desiredTarget, cinSmooth);
+    } else {
+      this.currentAzimuth = THREE.MathUtils.lerp(this.currentAzimuth, this.desiredAzimuth, smooth);
+      this.currentZoom = THREE.MathUtils.lerp(this.currentZoom, this.desiredZoom, smooth);
+      this.target.lerp(this.desiredTarget, smooth);
+    }
 
     if (Math.abs(this.camera.zoom - this.currentZoom) > 0.0002) {
       this.camera.zoom = this.currentZoom;

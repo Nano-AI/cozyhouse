@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import type { FurnitureItemDef, PlacedItem, RotationQuarter } from '../data/schemas';
-import type { HouseStore } from '../state/houseStore';
+import type { EraseFilter, HouseStore } from '../state/houseStore';
 import {
   CEILING_HEIGHT,
   WALL_THICKNESS,
+  canonicalWallEdgeKey,
   getEffectiveFootprint,
   nearestEdgeRotation,
   tileToWorldCenter,
@@ -12,6 +13,14 @@ import {
   worldToTileFloat,
 } from './GridSystem';
 import type { SceneManager } from './SceneManager';
+
+export interface HoverItemInfo {
+  uid: string;
+  itemId: string;
+  name: string;
+  clientX: number;
+  clientY: number;
+}
 
 interface ResolvedPlacementTarget {
   x: number;
@@ -25,16 +34,14 @@ interface ResolvedPlacementTarget {
 
 const VALID_GHOST_COLOR = '#7BC8A4';
 const INVALID_GHOST_COLOR = '#E57F74';
-const DRAG_THRESHOLD_PX = 6;
+const DRAG_THRESHOLD_PX = 9;
+const WALL_OUTER_MARGIN = 0.85;
 
 /**
- * Trackpad-first input & 4-layer placement controller:
- * - Click item: select (or click again to react/toggle)
- * - Click & drag selected item: move smoothly across valid targets
- * - Click & drag empty space: pan camera
- * - Two-finger scroll: pan camera
- * - Trackpad pinch (wheel + ctrlKey) or Alt+wheel: zoom smoothly
- * - No right-click-drag and no keyboard required (optional shortcuts included)
+ * Trackpad-first input & 4-layer placement controller supporting Live Mode vs Build/Edit Mode:
+ * - Live Mode: click interactive items to toggle/spin/bounce, click-drag anywhere to pan
+ * - Edit Mode: hover shows 3D outline + cursor tooltip, click selects, direct drag moves any non-tile item
+ * - Two-finger scroll: pan camera; Trackpad pinch: zoom smoothly
  */
 export class PlacementController {
   private readonly sceneManager: SceneManager;
@@ -42,9 +49,12 @@ export class PlacementController {
   private readonly canvas: HTMLCanvasElement;
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
+  private readonly groundPlaneMath = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly groundIntersectVec = new THREE.Vector3();
 
   private ghostGroup: THREE.Group | null = null;
   private ghostGuideRing: THREE.LineLoop;
+  private wallEdgeGuideBar: THREE.Mesh;
   private lastGhostKey = '';
   private currentTarget: ResolvedPlacementTarget | null = null;
 
@@ -52,33 +62,69 @@ export class PlacementController {
   private isPointerDown = false;
   private pointerDownPos = { x: 0, y: 0 };
   private lastPointerPos = { x: 0, y: 0 };
-  private dragKind: 'none' | 'pan' | 'drag-item' = 'none';
+  private dragKind: 'none' | 'pan' | 'drag-item' | 'paint' | 'marquee' | 'erase' = 'none';
   private pointerDownItemUid: string | null = null;
   private didDrag = false;
+
+  // Batch paint / marquee / erase tracking
+  private paintedKeys = new Set<string>();
+  private marqueeEl: HTMLDivElement | null = null;
+  private marqueeBaseSelection: string[] = [];
+  private erasedAnyInBatch = false;
 
   // Active touch points for pinch-to-zoom on touchpads/screens
   private activePointers = new Map<number, { x: number; y: number }>();
   private lastPinchDist = 0;
 
+  // rAF hover raycasting throttle
+  private pendingHover: { clientX: number; clientY: number; overCanvas: boolean } | null = null;
+  private hoverRafId = 0;
+
   private onHoverHint?: (hint: string | null) => void;
+  private onHoverItem?: (info: HoverItemInfo | null) => void;
 
   constructor(
     sceneManager: SceneManager,
     store: HouseStore,
     onHoverHint?: (hint: string | null) => void,
+    onHoverItem?: (info: HoverItemInfo | null) => void,
   ) {
     this.sceneManager = sceneManager;
     this.store = store;
     this.canvas = sceneManager.renderer.domElement;
     this.onHoverHint = onHoverHint;
+    this.onHoverItem = onHoverItem;
 
     this.ghostGuideRing = this.createCeilingDropRing();
     this.ghostGuideRing.visible = false;
     this.sceneManager.overlayRoot.add(this.ghostGuideRing);
 
-    this.store.on('modeChanged', () => {
+    this.wallEdgeGuideBar = this.createWallEdgeGuideBar();
+    this.wallEdgeGuideBar.visible = false;
+    this.sceneManager.overlayRoot.add(this.wallEdgeGuideBar);
+
+    this.store.on('modeChanged', ({ mode }) => {
+      this.cancelPendingHover();
       this.clearGhost();
+      this.hideMarquee();
+      this.sceneManager.setHoverOutlineUid(null);
+      this.sceneManager.setEraseHoverUid(null);
+      this.sceneManager.setMovingHiddenUid(mode === 'move' ? this.store.getSelectedUid() : null);
       this.onHoverHint?.(null);
+      this.onHoverItem?.(null);
+    });
+
+    this.store.on('editModeChanged', ({ editMode }) => {
+      if (!editMode) {
+        this.cancelPendingHover();
+        this.clearGhost();
+        this.hideMarquee();
+        this.sceneManager.setHoverOutlineUid(null);
+        this.sceneManager.setEraseHoverUid(null);
+        this.sceneManager.setMovingHiddenUid(null);
+        this.onHoverHint?.(null);
+        this.onHoverItem?.(null);
+      }
     });
 
     this.bindEvents();
@@ -96,18 +142,89 @@ export class PlacementController {
     );
   }
 
+  private createWallEdgeGuideBar(): THREE.Mesh {
+    const geo = new THREE.BoxGeometry(1.0, 0.06, 0.14);
+    const mat = new THREE.MeshBasicMaterial({
+      color: VALID_GHOST_COLOR,
+      transparent: true,
+      opacity: 0.9,
+    });
+    return new THREE.Mesh(geo, mat);
+  }
+
   private bindEvents(): void {
     this.canvas.addEventListener('pointerdown', this.handlePointerDown);
+    this.canvas.addEventListener('pointerleave', this.handleCanvasLeave);
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
     window.addEventListener('pointercancel', this.handlePointerUp);
     this.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
+    window.addEventListener('wheel', this.handleWindowWheel, { passive: false });
     this.canvas.addEventListener('contextmenu', this.handleContextMenu);
     window.addEventListener('keydown', this.handleKeyDown);
   }
 
+  private cancelPendingHover(): void {
+    this.pendingHover = null;
+    if (this.hoverRafId !== 0) {
+      cancelAnimationFrame(this.hoverRafId);
+      this.hoverRafId = 0;
+    }
+  }
+
+  /**
+   * Blocks macOS two-finger horizontal trackpad swipes from triggering browser Back/Forward
+   * history navigation across the viewport and at horizontal scroll edges of HUD panels.
+   */
+  private handleWindowWheel = (e: WheelEvent): void => {
+    if (Math.abs(e.deltaX) === 0) return;
+    if (e.target === this.canvas) {
+      e.preventDefault();
+      return;
+    }
+    let el = e.target as HTMLElement | null;
+    while (el && el !== document.body && el !== document.documentElement) {
+      const style = window.getComputedStyle(el);
+      const ox = style.overflowX;
+      if ((ox === 'auto' || ox === 'scroll') && el.scrollWidth > el.clientWidth + 1) {
+        const atLeft = el.scrollLeft <= 0 && e.deltaX < 0;
+        const atRight = el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 && e.deltaX > 0;
+        if (!atLeft && !atRight) {
+          return;
+        }
+        e.preventDefault();
+        return;
+      }
+      el = el.parentElement;
+    }
+    e.preventDefault();
+  };
+
+  private resolveHitUid(hit: THREE.Intersection): string | undefined {
+    const sm = this.sceneManager as SceneManager & {
+      resolveHitUid?: (intersection: THREE.Intersection) => string | undefined;
+    };
+    if (typeof sm.resolveHitUid === 'function') {
+      return sm.resolveHitUid(hit);
+    }
+    const instUids = hit.object.userData.instanceUids as string[] | undefined;
+    if (instUids && hit.instanceId !== undefined) {
+      return instUids[hit.instanceId];
+    }
+    return hit.object.userData.itemUid as string | undefined;
+  }
+
   private handleContextMenu = (e: MouseEvent): void => {
     e.preventDefault();
+  };
+
+  private handleCanvasLeave = (): void => {
+    this.cancelPendingHover();
+    if (!this.isPointerDown) {
+      this.sceneManager.setHoverOutlineUid(null);
+      this.sceneManager.setEraseHoverUid(null);
+      this.onHoverItem?.(null);
+    }
   };
 
   private updatePointerNdc(clientX: number, clientY: number): void {
@@ -116,22 +233,150 @@ export class PlacementController {
     this.pointerNdc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   }
 
+  private isFloorTile(itemId: string): boolean {
+    const def = this.store.data.itemsById.get(itemId);
+    return Boolean(def && def.layer === 'floor' && def.subLayer === 'tile');
+  }
+
   private raycastItemUid(ignoreUid?: string): { uid: string; point: THREE.Vector3 } | null {
     this.raycaster.setFromCamera(this.pointerNdc, this.sceneManager.isoCamera.camera);
     const hits = this.raycaster.intersectObjects(this.sceneManager.getInteractableMeshes(), true);
+
+    const isLiveMode = !this.store.isEditMode();
+    interface CandidateHit {
+      uid: string;
+      point: THREE.Vector3;
+      distance: number;
+      def: FurnitureItemDef;
+      isCutaway: boolean;
+      isTile: boolean;
+    }
+
+    const candidates: CandidateHit[] = [];
+    const seen = new Set<string>();
+
     for (const hit of hits) {
       if (hit.object instanceof THREE.Sprite) continue;
-      const uid = hit.object.userData.itemUid as string | undefined;
-      if (!uid || uid === ignoreUid) continue;
-      return { uid, point: hit.point };
+      const uid = this.resolveHitUid(hit);
+      if (!uid || uid === ignoreUid || seen.has(uid)) continue;
+      const item = this.store.getItem(uid);
+      if (!item) continue;
+      const def = this.store.data.itemsById.get(item.itemId);
+      if (!def) continue;
+      seen.add(uid);
+
+      const obj = this.sceneManager.getItemObject(uid);
+      const isCutaway = Boolean(obj?.userData.isTranslucentCutaway);
+      candidates.push({
+        uid,
+        point: hit.point,
+        distance: hit.distance,
+        def,
+        isCutaway,
+        isTile: def.layer === 'floor' && def.subLayer === 'tile',
+      });
     }
-    return null;
+
+    if (candidates.length === 0) return null;
+
+    if (isLiveMode) {
+      const nonCutaway = candidates.filter((c) => !c.isCutaway);
+      if (nonCutaway.length > 0) {
+        const first = nonCutaway[0];
+        if (first.def.interaction) {
+          return { uid: first.uid, point: first.point };
+        }
+        const firstIsPassive =
+          first.def.layer === 'wall' ||
+          first.def.subLayer === 'tile' ||
+          first.def.subLayer === 'rug' ||
+          first.def.surfaceHeight !== undefined;
+        for (let i = 1; i < nonCutaway.length; i++) {
+          const c = nonCutaway[i];
+          if (c.def.interaction && (c.distance - first.distance <= 1.8 || firstIsPassive)) {
+            return { uid: c.uid, point: c.point };
+          }
+        }
+        // No non-cutaway interactive item behind: allow clicking a door on a cutaway wall
+        const cutawayDoor = candidates.find((c) => c.isCutaway && c.def.tags.includes('door'));
+        if (cutawayDoor) {
+          return { uid: cutawayDoor.uid, point: cutawayDoor.point };
+        }
+        return { uid: first.uid, point: first.point };
+      }
+
+      const cutawayInteractive = candidates.find((c) => c.def.interaction);
+      if (cutawayInteractive) {
+        return { uid: cutawayInteractive.uid, point: cutawayInteractive.point };
+      }
+      return { uid: candidates[0].uid, point: candidates[0].point };
+    }
+
+    // Edit Mode ('select' / 'bulk-select'): prefer non-cutaway interior items over translucent front walls & floor tiles
+    const interiorItem = candidates.find((c) => !c.isCutaway && !c.isTile);
+    if (interiorItem) {
+      return { uid: interiorItem.uid, point: interiorItem.point };
+    }
+
+    // Clicking an unobstructed portion of a translucent front wall selects that wall cleanly
+    const cutawayWall = candidates.find((c) => c.isCutaway && !c.isTile);
+    if (cutawayWall) {
+      return { uid: cutawayWall.uid, point: cutawayWall.point };
+    }
+
+    return { uid: candidates[0].uid, point: candidates[0].point };
   }
 
   private raycastGround(): THREE.Vector3 | null {
     this.raycaster.setFromCamera(this.pointerNdc, this.sceneManager.isoCamera.camera);
     const hits = this.raycaster.intersectObject(this.sceneManager.gridVisual.groundPlane, false);
     return hits.length > 0 ? hits[0].point : null;
+  }
+
+  private raycastGroundPlane(): THREE.Vector3 | null {
+    this.raycaster.setFromCamera(this.pointerNdc, this.sceneManager.isoCamera.camera);
+    const hit = this.raycaster.ray.intersectPlane(this.groundPlaneMath, this.groundIntersectVec);
+    return hit ? hit.clone() : null;
+  }
+
+  private isPaintablePlacement(def: FurnitureItemDef): boolean {
+    return (
+      (def.layer === 'wall' && def.wallKind === 'structure') ||
+      (def.layer === 'floor' && def.subLayer === 'tile')
+    );
+  }
+
+  private getPaintKey(def: FurnitureItemDef, target: ResolvedPlacementTarget): string {
+    if (def.layer === 'wall') {
+      return canonicalWallEdgeKey(target.x, target.z, target.rotation);
+    }
+    return `${target.x}:${target.z}`;
+  }
+
+  private matchesEraseFilter(item: PlacedItem, filter: EraseFilter): boolean {
+    if (filter === 'all') return true;
+    const def = this.store.data.itemsById.get(item.itemId);
+    if (!def) return false;
+    const isFloor = def.layer === 'floor' && (def.subLayer === 'tile' || def.subLayer === 'rug');
+    const isWall = def.layer === 'wall';
+    if (filter === 'floor') return isFloor;
+    if (filter === 'wall') return isWall;
+    return !isFloor && !isWall;
+  }
+
+  private raycastEraseUid(filter: EraseFilter): string | null {
+    this.raycaster.setFromCamera(this.pointerNdc, this.sceneManager.isoCamera.camera);
+    const hits = this.raycaster.intersectObjects(this.sceneManager.getInteractableMeshes(), true);
+    for (const hit of hits) {
+      if (hit.object instanceof THREE.Sprite) continue;
+      const uid = this.resolveHitUid(hit);
+      if (!uid) continue;
+      const item = this.store.getItem(uid);
+      if (item && this.matchesEraseFilter(item, filter)) {
+        return uid;
+      }
+    }
+    return null;
   }
 
   /**
@@ -146,7 +391,8 @@ export class PlacementController {
     const state = this.store.getState();
     const ignoreUids = movingUid ? new Set([movingUid]) : undefined;
 
-    // 1. Surface layer: raycast supporting furniture first, then fallback to tile check
+    // 1. Surface layer: raycast supporting furniture first (skipping movingUid & other surface items),
+    //    then fall back to ground-plane tile lookup for rock-solid tabletop dragging!
     if (def.layer === 'surface') {
       this.raycaster.setFromCamera(this.pointerNdc, this.sceneManager.isoCamera.camera);
       const hits = this.raycaster.intersectObjects(this.sceneManager.getInteractableMeshes(), true);
@@ -156,14 +402,43 @@ export class PlacementController {
 
       for (const hit of hits) {
         if (hit.object instanceof THREE.Sprite) continue;
-        const uid = hit.object.userData.itemUid as string | undefined;
+        const uid = this.resolveHitUid(hit);
         if (!uid || uid === movingUid) continue;
         const candidate = this.store.getItem(uid);
         const cDef = candidate ? this.store.data.itemsById.get(candidate.itemId) : undefined;
-        if (candidate && cDef && cDef.surfaceHeight !== undefined) {
+        if (!candidate || !cDef || cDef.layer === 'surface') continue;
+        if (cDef.surfaceHeight !== undefined) {
           supportItem = candidate;
           hitPoint = hit.point;
           break;
+        }
+      }
+
+      // Ground-plane fallback if cursor briefly misses a thin tabletop mesh
+      if (!supportItem) {
+        const planePt = this.raycastGroundPlane();
+        if (planePt) {
+          const { fx, fz } = worldToTileFloat(planePt.x, planePt.z, state.gridWidth, state.gridDepth);
+          const gx = Math.floor(fx);
+          const gz = Math.floor(fz);
+          let bestHeight = -1;
+          for (const candidate of state.items) {
+            if (candidate.uid === movingUid) continue;
+            const cDef = this.store.data.itemsById.get(candidate.itemId);
+            if (!cDef || cDef.layer === 'surface' || cDef.surfaceHeight === undefined) continue;
+            const cEff = getEffectiveFootprint(cDef, candidate.rotation);
+            if (
+              gx >= candidate.x &&
+              gx < candidate.x + cEff.w &&
+              gz >= candidate.z &&
+              gz < candidate.z + cEff.d &&
+              cDef.surfaceHeight > bestHeight
+            ) {
+              bestHeight = cDef.surfaceHeight;
+              supportItem = candidate;
+              hitPoint = planePt;
+            }
+          }
         }
       }
 
@@ -200,7 +475,6 @@ export class PlacementController {
         };
       }
 
-      // Not hovering a surface: show red ghost on floor tile with helpful message
       const groundPt = this.raycastGround();
       if (!groundPt) return null;
       const { fx, fz } = worldToTileFloat(groundPt.x, groundPt.z, state.gridWidth, state.gridDepth);
@@ -223,7 +497,7 @@ export class PlacementController {
 
       for (const hit of hits) {
         if (hit.object instanceof THREE.Sprite) continue;
-        const uid = hit.object.userData.itemUid as string | undefined;
+        const uid = this.resolveHitUid(hit);
         if (!uid || uid === movingUid) continue;
         const wall = this.store.getItem(uid);
         const wDef = wall ? this.store.data.itemsById.get(wall.itemId) : undefined;
@@ -271,15 +545,49 @@ export class PlacementController {
       };
     }
 
-    // 3. Structural wall / door / window: auto-snap to nearest tile edge
+    // 3. Structural wall / door / window: snap to nearest tile edge including outer lot borders
     if (def.layer === 'wall' && def.wallKind === 'structure') {
-      const groundPt = this.raycastGround();
+      const groundPt = this.raycastGroundPlane();
       if (!groundPt) return null;
       const { fx, fz } = worldToTileFloat(groundPt.x, groundPt.z, state.gridWidth, state.gridDepth);
-      if (fx < 0 || fz < 0 || fx >= state.gridWidth || fz >= state.gridDepth) {
+      if (
+        fx < -WALL_OUTER_MARGIN ||
+        fz < -WALL_OUTER_MARGIN ||
+        fx >= state.gridWidth + WALL_OUTER_MARGIN ||
+        fz >= state.gridDepth + WALL_OUTER_MARGIN
+      ) {
         return null;
       }
-      const edge = nearestEdgeRotation(fx, fz);
+
+      let edge: { x: number; z: number; rotation: RotationQuarter };
+      if (fx < 0) {
+        edge = {
+          x: 0,
+          z: THREE.MathUtils.clamp(Math.floor(fz), 0, state.gridDepth - 1),
+          rotation: 3,
+        };
+      } else if (fx >= state.gridWidth) {
+        edge = {
+          x: state.gridWidth - 1,
+          z: THREE.MathUtils.clamp(Math.floor(fz), 0, state.gridDepth - 1),
+          rotation: 1,
+        };
+      } else if (fz < 0) {
+        edge = {
+          x: THREE.MathUtils.clamp(Math.floor(fx), 0, state.gridWidth - 1),
+          z: 0,
+          rotation: 0,
+        };
+      } else if (fz >= state.gridDepth) {
+        edge = {
+          x: THREE.MathUtils.clamp(Math.floor(fx), 0, state.gridWidth - 1),
+          z: state.gridDepth - 1,
+          rotation: 2,
+        };
+      } else {
+        edge = nearestEdgeRotation(fx, fz);
+      }
+
       const check = validatePlacement(
         state,
         this.store.data,
@@ -355,7 +663,17 @@ export class PlacementController {
       this.ghostGroup.position.set(t.wx, target.y, t.wz);
       this.ghostGroup.rotation.set(0, t.rotY, 0);
       this.ghostGuideRing.visible = false;
+
+      if (def.wallKind === 'structure') {
+        this.wallEdgeGuideBar.visible = true;
+        this.wallEdgeGuideBar.position.set(t.wx, 0.04, t.wz);
+        this.wallEdgeGuideBar.rotation.set(0, t.rotY, 0);
+        (this.wallEdgeGuideBar.material as THREE.MeshBasicMaterial).color.set(ghostColor);
+      } else {
+        this.wallEdgeGuideBar.visible = false;
+      }
     } else {
+      this.wallEdgeGuideBar.visible = false;
       const eff = getEffectiveFootprint(def, target.rotation);
       const c = tileToWorldCenter(target.x, target.z, eff.w, eff.d, state.gridWidth, state.gridDepth);
       this.ghostGroup.position.set(c.wx, target.y, c.wz);
@@ -376,18 +694,131 @@ export class PlacementController {
   private clearGhost(): void {
     if (this.ghostGroup) {
       this.sceneManager.overlayRoot.remove(this.ghostGroup);
+      const geos = new Set<THREE.BufferGeometry>();
+      const mats = new Set<THREE.Material>();
       this.ghostGroup.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
-          obj.geometry.dispose();
-          if (Array.isArray(obj.material)) obj.material.forEach((m) => m.dispose());
-          else obj.material.dispose();
+          geos.add(obj.geometry);
+          if (Array.isArray(obj.material)) obj.material.forEach((m) => mats.add(m));
+          else mats.add(obj.material);
         }
       });
+      geos.forEach((g) => g.dispose());
+      mats.forEach((m) => m.dispose());
       this.ghostGroup = null;
     }
     this.ghostGuideRing.visible = false;
+    this.wallEdgeGuideBar.visible = false;
     this.lastGhostKey = '';
     this.currentTarget = null;
+  }
+
+  private updateMarqueeBox(curX: number, curY: number): void {
+    if (!this.marqueeEl) {
+      this.marqueeEl = document.createElement('div');
+      this.marqueeEl.className = 'selection-marquee';
+      document.body.appendChild(this.marqueeEl);
+    }
+    const minX = Math.min(this.pointerDownPos.x, curX);
+    const minY = Math.min(this.pointerDownPos.y, curY);
+    const width = Math.abs(curX - this.pointerDownPos.x);
+    const height = Math.abs(curY - this.pointerDownPos.y);
+
+    this.marqueeEl.style.left = `${minX}px`;
+    this.marqueeEl.style.top = `${minY}px`;
+    this.marqueeEl.style.width = `${width}px`;
+    this.marqueeEl.style.height = `${height}px`;
+
+    const rect = this.canvas.getBoundingClientRect();
+    const state = this.store.getState();
+    const camera = this.sceneManager.isoCamera.camera;
+    const proj = new THREE.Vector3();
+    const matched: string[] = [];
+
+    for (const item of state.items) {
+      const def = this.store.data.itemsById.get(item.itemId);
+      if (!def) continue;
+      if (def.layer === 'wall') {
+        const mountOffset = def.wallKind === 'mounted' ? WALL_THICKNESS / 2 + 0.01 : 0;
+        const t = wallEdgeToWorldTransform(
+          item.x,
+          item.z,
+          item.rotation,
+          state.gridWidth,
+          state.gridDepth,
+          mountOffset,
+        );
+        proj.set(t.wx, item.y + def.height * 0.45, t.wz);
+      } else {
+        const eff = getEffectiveFootprint(def, item.rotation);
+        const c = tileToWorldCenter(item.x, item.z, eff.w, eff.d, state.gridWidth, state.gridDepth);
+        const midY = def.layer === 'ceiling' ? item.y - def.height * 0.5 : item.y + def.height * 0.45;
+        proj.set(c.wx, midY, c.wz);
+      }
+      proj.project(camera);
+      const sx = rect.left + (proj.x * 0.5 + 0.5) * rect.width;
+      const sy = rect.top + (-proj.y * 0.5 + 0.5) * rect.height;
+      if (sx >= minX && sx <= minX + width && sy >= minY && sy <= minY + height) {
+        matched.push(item.uid);
+      }
+    }
+
+    this.store.setSelectedUids(
+      this.marqueeBaseSelection.length > 0
+        ? [...this.marqueeBaseSelection, ...matched]
+        : matched,
+    );
+  }
+
+  private hideMarquee(): void {
+    if (this.marqueeEl) {
+      this.marqueeEl.remove();
+      this.marqueeEl = null;
+    }
+    this.marqueeBaseSelection = [];
+  }
+
+  /**
+   * Computes a child's new grid coordinates after rotating its parent clockwise by `quarterSteps`.
+   */
+  private rotateChildOnParent(
+    parent: PlacedItem,
+    parentDef: FurnitureItemDef,
+    nextParentX: number,
+    nextParentZ: number,
+    nextParentRot: RotationQuarter,
+    child: PlacedItem,
+    childDef: FurnitureItemDef,
+  ): { x: number; z: number; rotation: RotationQuarter } {
+    const steps = (((nextParentRot - parent.rotation) % 4) + 4) % 4;
+    let lx = child.x - parent.x;
+    let lz = child.z - parent.z;
+    let curParentEff = getEffectiveFootprint(parentDef, parent.rotation);
+    let curChildRot = child.rotation;
+    let curChildEff = getEffectiveFootprint(childDef, curChildRot);
+
+    for (let s = 0; s < steps; s++) {
+      const nextLx = curParentEff.d - curChildEff.d - lz;
+      const nextLz = lx;
+      lx = nextLx;
+      lz = nextLz;
+      curParentEff = { w: curParentEff.d, d: curParentEff.w };
+      curChildRot = (((curChildRot + 1) % 4) as RotationQuarter);
+      curChildEff = getEffectiveFootprint(childDef, curChildRot);
+    }
+
+    const nextParentEff = getEffectiveFootprint(parentDef, nextParentRot);
+    const finalX = THREE.MathUtils.clamp(
+      nextParentX + lx,
+      nextParentX,
+      nextParentX + Math.max(0, nextParentEff.w - curChildEff.w),
+    );
+    const finalZ = THREE.MathUtils.clamp(
+      nextParentZ + lz,
+      nextParentZ,
+      nextParentZ + Math.max(0, nextParentEff.d - curChildEff.d),
+    );
+    return { x: finalX, z: finalZ, rotation: curChildRot };
   }
 
   /** Rotates the currently selected item in-place (90° clockwise) if valid. */
@@ -403,7 +834,8 @@ export class PlacementController {
     }
 
     const nextRot = (((selected.rotation + 1) % 4) as RotationQuarter);
-    const ignore = new Set([selected.uid, ...this.store.getChildren(selected.uid).map((c) => c.uid)]);
+    const children = this.store.getChildren(selected.uid);
+    const ignore = new Set([selected.uid, ...children.map((c) => c.uid)]);
     const check = validatePlacement(
       this.store.getState(),
       this.store.data,
@@ -423,12 +855,70 @@ export class PlacementController {
       return false;
     }
 
-    return this.store.moveItem(selected.uid, {
+    const surfaceChildren = children.filter(
+      (c) => this.store.data.itemsById.get(c.itemId)?.layer === 'surface',
+    );
+    if (surfaceChildren.length === 0) {
+      return this.store.moveItem(selected.uid, {
+        x: selected.x,
+        y: selected.y,
+        z: selected.z,
+        rotation: nextRot,
+        parentUid: selected.parentUid,
+      });
+    }
+
+    // Rotate parent + surface children cleanly in ONE atomic undoable batch
+    const childTargets = surfaceChildren.map((child) => {
+      const cDef = this.store.data.itemsById.get(child.itemId)!;
+      const rotPos = this.rotateChildOnParent(
+        selected,
+        def,
+        selected.x,
+        selected.z,
+        nextRot,
+        child,
+        cDef,
+      );
+      return { child, ...rotPos };
+    });
+
+    this.store.beginBatch();
+    const moved = this.store.moveItem(selected.uid, {
       x: selected.x,
       y: selected.y,
       z: selected.z,
       rotation: nextRot,
       parentUid: selected.parentUid,
+    });
+    if (moved) {
+      for (const ct of childTargets) {
+        this.store.moveItem(ct.child.uid, {
+          x: ct.x,
+          y: ct.child.y,
+          z: ct.z,
+          rotation: ct.rotation,
+          parentUid: selected.uid,
+        });
+      }
+    }
+    this.store.endBatch(moved ? 'move' : undefined);
+    return moved;
+  }
+
+  private placeFromTarget(
+    def: FurnitureItemDef,
+    variantId: string,
+    target: ResolvedPlacementTarget,
+  ): void {
+    this.store.placeItem({
+      itemId: def.id,
+      x: target.x,
+      y: target.y,
+      z: target.z,
+      rotation: target.rotation,
+      variantId,
+      parentUid: target.parentUid,
     });
   }
 
@@ -444,26 +934,80 @@ export class PlacementController {
       return;
     }
 
+    this.cancelPendingHover();
     this.isPointerDown = true;
     this.didDrag = false;
     this.pointerDownPos = { x: e.clientX, y: e.clientY };
     this.lastPointerPos = { x: e.clientX, y: e.clientY };
     this.updatePointerNdc(e.clientX, e.clientY);
 
-    const { mode } = this.store.getModeState();
-    if (mode === 'select') {
+    // Live Mode: drag always pans smoothly; clean click interacts only with interactive items
+    if (!this.store.isEditMode()) {
       const hit = this.raycastItemUid();
       this.pointerDownItemUid = hit?.uid ?? null;
-      // Clicking & dragging an already-selected item drags it directly; dragging empty space pans
-      if (hit && hit.uid === this.store.getSelectedUid()) {
+      this.dragKind = 'pan';
+      return;
+    }
+
+    const modeState = this.store.getModeState();
+    if (modeState.mode === 'select') {
+      const hit = this.raycastItemUid();
+      this.pointerDownItemUid = hit?.uid ?? null;
+      const hitItem = hit ? this.store.getItem(hit.uid) : undefined;
+      // Direct smooth drag-to-move for ANY non-floor-tile item in Edit Mode!
+      if (!e.shiftKey && hit && hitItem && !this.isFloorTile(hitItem.itemId)) {
         this.dragKind = 'drag-item';
       } else {
         this.dragKind = 'pan';
       }
-    } else {
-      this.dragKind = 'none';
-      this.pointerDownItemUid = null;
+      return;
     }
+
+    if (modeState.mode === 'bulk-select') {
+      const hit = this.raycastItemUid();
+      this.pointerDownItemUid = hit?.uid ?? null;
+      this.marqueeBaseSelection = e.shiftKey ? this.store.getSelectedUids() : [];
+      this.dragKind = 'marquee';
+      return;
+    }
+
+    if (modeState.mode === 'erase') {
+      this.pointerDownItemUid = null;
+      this.dragKind = 'erase';
+      this.erasedAnyInBatch = false;
+      this.store.beginBatch();
+      this.sceneManager.setEraseHoverUid(null);
+      const hitUid = this.raycastEraseUid(modeState.eraseFilter);
+      if (hitUid) {
+        this.store.deleteItems([hitUid]);
+        this.erasedAnyInBatch = true;
+      }
+      return;
+    }
+
+    if (modeState.mode === 'place' && modeState.placementItemId) {
+      const def = this.store.data.itemsById.get(modeState.placementItemId);
+      if (def && this.isPaintablePlacement(def)) {
+        this.pointerDownItemUid = null;
+        this.dragKind = 'paint';
+        this.paintedKeys.clear();
+        this.store.beginBatch();
+        const target = this.resolvePlacementTarget(def, modeState.placementRotation);
+        this.currentTarget = target;
+        if (target) {
+          this.renderGhost(def, modeState.placementVariantId ?? def.variants[0].id, target);
+          if (target.valid) {
+            const key = this.getPaintKey(def, target);
+            this.paintedKeys.add(key);
+            this.placeFromTarget(def, modeState.placementVariantId ?? def.variants[0].id, target);
+          }
+        }
+        return;
+      }
+    }
+
+    this.dragKind = 'none';
+    this.pointerDownItemUid = null;
   };
 
   private handlePointerMove = (e: PointerEvent): void => {
@@ -498,33 +1042,140 @@ export class PlacementController {
         const dy = e.clientY - this.lastPointerPos.y;
         this.sceneManager.isoCamera.panByPixels(dx, dy, this.canvas.clientHeight);
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
+        this.sceneManager.setHoverOutlineUid(null);
+        this.onHoverItem?.(null);
+        return;
+      }
+
+      if (this.didDrag && this.dragKind === 'marquee') {
+        this.sceneManager.setHoverOutlineUid(null);
+        this.onHoverItem?.(null);
+        this.updateMarqueeBox(e.clientX, e.clientY);
+        this.lastPointerPos = { x: e.clientX, y: e.clientY };
+        return;
+      }
+
+      if (this.dragKind === 'erase') {
+        const filter = this.store.getEraseFilter();
+        const hitUid = this.raycastEraseUid(filter);
+        if (hitUid) {
+          this.store.deleteItems([hitUid]);
+          this.erasedAnyInBatch = true;
+        }
+        this.lastPointerPos = { x: e.clientX, y: e.clientY };
         return;
       }
 
       if (this.didDrag && this.dragKind === 'drag-item' && this.pointerDownItemUid) {
         if (this.store.getModeState().mode !== 'move') {
+          this.store.selectItem(this.pointerDownItemUid);
           this.store.startMovingSelected();
+          this.sceneManager.setMovingHiddenUid(this.pointerDownItemUid);
         }
       }
     }
 
     this.lastPointerPos = { x: e.clientX, y: e.clientY };
 
-    // Update ghost preview when in place or move mode
+    // Live Mode: no hover outlines, no tooltips
+    if (!this.store.isEditMode()) {
+      this.cancelPendingHover();
+      this.sceneManager.setHoverOutlineUid(null);
+      this.sceneManager.setEraseHoverUid(null);
+      this.onHoverItem?.(null);
+      return;
+    }
+
+    const overCanvas = e.target === this.canvas;
+
+    // Throttle non-dragging Edit Mode hover raycasting to at most once per animation frame
+    if (!this.isPointerDown) {
+      this.pendingHover = { clientX: e.clientX, clientY: e.clientY, overCanvas };
+      if (this.hoverRafId === 0) {
+        this.hoverRafId = requestAnimationFrame(this.flushHoverUpdate);
+      }
+      return;
+    }
+
+    // Active drag in place/move mode updates ghost preview immediately
+    this.processEditHoverOrGhost(e.clientX, e.clientY, overCanvas);
+  };
+
+  private flushHoverUpdate = (): void => {
+    this.hoverRafId = 0;
+    const pending = this.pendingHover;
+    this.pendingHover = null;
+    if (!pending || this.isPointerDown || !this.store.isEditMode()) return;
+    this.updatePointerNdc(pending.clientX, pending.clientY);
+    this.processEditHoverOrGhost(pending.clientX, pending.clientY, pending.overCanvas);
+  };
+
+  private processEditHoverOrGhost(clientX: number, clientY: number, overCanvas: boolean): void {
     const modeState = this.store.getModeState();
+
+    // Hover outline + tooltip in Edit Mode ('select' or 'bulk-select')
+    if ((modeState.mode === 'select' || modeState.mode === 'bulk-select') && !this.isPointerDown) {
+      this.sceneManager.setEraseHoverUid(null);
+      if (!overCanvas) {
+        this.sceneManager.setHoverOutlineUid(null);
+        this.onHoverItem?.(null);
+        return;
+      }
+      const hit = this.raycastItemUid();
+      if (hit) {
+        const item = this.store.getItem(hit.uid);
+        const def = item ? this.store.data.itemsById.get(item.itemId) : undefined;
+        if (item && def) {
+          this.sceneManager.setHoverOutlineUid(hit.uid);
+          this.onHoverItem?.({
+            uid: hit.uid,
+            itemId: item.itemId,
+            name: def.name,
+            clientX,
+            clientY,
+          });
+          return;
+        }
+      }
+      this.sceneManager.setHoverOutlineUid(null);
+      this.onHoverItem?.(null);
+      return;
+    }
+
+    // Update erase hover outline when hovering in erase mode
+    if (modeState.mode === 'erase' && !this.isPointerDown) {
+      this.sceneManager.setHoverOutlineUid(null);
+      this.onHoverItem?.(null);
+      this.sceneManager.setEraseHoverUid(
+        overCanvas ? this.raycastEraseUid(modeState.eraseFilter) : null,
+      );
+      return;
+    }
+
+    // Update ghost preview (and paint drag) when in place or move mode
     if ((modeState.mode === 'place' || modeState.mode === 'move') && modeState.placementItemId) {
+      this.sceneManager.setHoverOutlineUid(null);
+      this.onHoverItem?.(null);
       const def = this.store.data.itemsById.get(modeState.placementItemId);
       if (!def) return;
       const movingUid = modeState.mode === 'move' ? (this.store.getSelectedUid() ?? undefined) : undefined;
       const target = this.resolvePlacementTarget(def, modeState.placementRotation, movingUid);
       this.currentTarget = target;
+      const variantId = modeState.placementVariantId ?? def.variants[0].id;
       if (target) {
-        this.renderGhost(def, modeState.placementVariantId ?? def.variants[0].id, target);
+        this.renderGhost(def, variantId, target);
+        if (this.isPointerDown && this.dragKind === 'paint' && target.valid) {
+          const key = this.getPaintKey(def, target);
+          if (!this.paintedKeys.has(key)) {
+            this.paintedKeys.add(key);
+            this.placeFromTarget(def, variantId, target);
+          }
+        }
       } else {
         this.clearGhost();
       }
     }
-  };
+  }
 
   private handlePointerUp = (e: PointerEvent): void => {
     this.activePointers.delete(e.pointerId);
@@ -535,7 +1186,50 @@ export class PlacementController {
     if (!this.isPointerDown) return;
     this.isPointerDown = false;
 
+    // Live Mode: click interacts ONLY with interactive items; never selects or bounces static furniture
+    if (!this.store.isEditMode()) {
+      const wasDrag = this.didDrag;
+      const clickedUid = this.pointerDownItemUid;
+      this.dragKind = 'none';
+      this.pointerDownItemUid = null;
+      if (!wasDrag && clickedUid) {
+        const item = this.store.getItem(clickedUid);
+        const def = item ? this.store.data.itemsById.get(item.itemId) : undefined;
+        if (item && def?.interaction) {
+          this.store.triggerInteraction(clickedUid);
+        }
+      }
+      return;
+    }
+
     const modeState = this.store.getModeState();
+
+    if (this.dragKind === 'paint') {
+      const hadPaints = this.paintedKeys.size > 0;
+      this.store.endBatch(hadPaints ? 'place' : undefined);
+      if (!this.didDrag && !hadPaints && this.currentTarget?.reason) {
+        this.store.notify(this.currentTarget.reason, 'error');
+      }
+      this.paintedKeys.clear();
+      this.dragKind = 'none';
+      return;
+    }
+
+    if (this.dragKind === 'erase') {
+      this.store.endBatch(this.erasedAnyInBatch ? 'delete' : undefined);
+      this.erasedAnyInBatch = false;
+      this.dragKind = 'none';
+      return;
+    }
+
+    if (this.dragKind === 'marquee') {
+      this.hideMarquee();
+      this.dragKind = 'none';
+      if (!this.didDrag && this.pointerDownItemUid) {
+        this.store.toggleSelectItem(this.pointerDownItemUid);
+      }
+      return;
+    }
 
     // Commit drag-move on pointer release
     if (this.dragKind === 'drag-item' && this.didDrag && modeState.mode === 'move') {
@@ -547,22 +1241,14 @@ export class PlacementController {
     this.dragKind = 'none';
     if (this.didDrag) return;
 
-    // Click in Place mode -> place item
+    // Click in Place mode (non-paintable furniture/surface/ceiling/decor)
     if (modeState.mode === 'place' && modeState.placementItemId) {
       this.updatePointerNdc(e.clientX, e.clientY);
       const def = this.store.data.itemsById.get(modeState.placementItemId);
       if (!def) return;
       const target = this.resolvePlacementTarget(def, modeState.placementRotation);
       if (target && target.valid) {
-        this.store.placeItem({
-          itemId: def.id,
-          x: target.x,
-          y: target.y,
-          z: target.z,
-          rotation: target.rotation,
-          variantId: modeState.placementVariantId ?? def.variants[0].id,
-          parentUid: target.parentUid,
-        });
+        this.placeFromTarget(def, modeState.placementVariantId ?? def.variants[0].id, target);
       } else if (target?.reason) {
         this.store.notify(target.reason, 'error');
       }
@@ -587,36 +1273,76 @@ export class PlacementController {
       return;
     }
 
-    // Click in Select mode -> select item, or click already-selected item to interact!
+    // Click in Select mode (Edit Mode): select cleanly (Shift+click toggles multi-select)
     if (modeState.mode === 'select') {
       if (this.pointerDownItemUid) {
-        if (this.store.getSelectedUid() === this.pointerDownItemUid) {
-          const interacted = this.store.triggerInteraction(this.pointerDownItemUid);
-          if (interacted) {
-            const def = this.store.data.itemsById.get(interacted.itemId);
-            if (def?.interaction) {
-              this.store.notify(`${def.name}: ${def.interaction.label}`, 'info');
-            }
-          }
+        if (e.shiftKey) {
+          this.store.toggleSelectItem(this.pointerDownItemUid);
         } else {
           this.store.selectItem(this.pointerDownItemUid);
         }
-      } else {
+      } else if (!e.shiftKey) {
         this.store.selectItem(null);
       }
     }
   };
 
   private commitMove(): void {
-    const selectedUid = this.store.getSelectedUid();
-    if (selectedUid && this.currentTarget && this.currentTarget.valid) {
-      this.store.moveItem(selectedUid, {
-        x: this.currentTarget.x,
-        y: this.currentTarget.y,
-        z: this.currentTarget.z,
-        rotation: this.currentTarget.rotation,
-        parentUid: this.currentTarget.parentUid,
-      });
+    const selected = this.store.getSelectedItem();
+    const selectedUid = selected?.uid ?? null;
+    this.sceneManager.setMovingHiddenUid(null);
+    if (selected && selectedUid && this.currentTarget && this.currentTarget.valid) {
+      const def = this.store.data.itemsById.get(selected.itemId);
+      const surfaceChildren =
+        def && selected.rotation !== this.currentTarget.rotation
+          ? this.store
+              .getChildren(selectedUid)
+              .filter((c) => this.store.data.itemsById.get(c.itemId)?.layer === 'surface')
+          : [];
+
+      if (def && surfaceChildren.length > 0) {
+        const childTargets = surfaceChildren.map((child) => {
+          const cDef = this.store.data.itemsById.get(child.itemId)!;
+          const rotPos = this.rotateChildOnParent(
+            selected,
+            def,
+            this.currentTarget!.x,
+            this.currentTarget!.z,
+            this.currentTarget!.rotation,
+            child,
+            cDef,
+          );
+          return { child, ...rotPos };
+        });
+        this.store.beginBatch();
+        const moved = this.store.moveItem(selectedUid, {
+          x: this.currentTarget.x,
+          y: this.currentTarget.y,
+          z: this.currentTarget.z,
+          rotation: this.currentTarget.rotation,
+          parentUid: this.currentTarget.parentUid,
+        });
+        if (moved) {
+          for (const ct of childTargets) {
+            this.store.moveItem(ct.child.uid, {
+              x: ct.x,
+              y: ct.child.y,
+              z: ct.z,
+              rotation: ct.rotation,
+              parentUid: selectedUid,
+            });
+          }
+        }
+        this.store.endBatch(moved ? 'move' : undefined);
+      } else {
+        this.store.moveItem(selectedUid, {
+          x: this.currentTarget.x,
+          y: this.currentTarget.y,
+          z: this.currentTarget.z,
+          rotation: this.currentTarget.rotation,
+          parentUid: this.currentTarget.parentUid,
+        });
+      }
     } else if (this.currentTarget && !this.currentTarget.valid && this.currentTarget.reason) {
       this.store.notify(this.currentTarget.reason, 'error');
     }
@@ -640,7 +1366,13 @@ export class PlacementController {
 
   private handleKeyDown = (e: KeyboardEvent): void => {
     // Ignore shortcuts while typing in inputs
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+    if (
+      e.target instanceof HTMLInputElement ||
+      e.target instanceof HTMLTextAreaElement ||
+      e.target instanceof HTMLSelectElement
+    ) {
+      return;
+    }
 
     const meta = e.metaKey || e.ctrlKey;
     if (meta && e.key.toLowerCase() === 'z') {
@@ -657,7 +1389,7 @@ export class PlacementController {
       if (this.store.getModeState().mode !== 'select') {
         this.store.setSelectMode();
       } else {
-        this.store.selectItem(null);
+        this.store.clearSelection();
       }
       return;
     }
@@ -667,19 +1399,19 @@ export class PlacementController {
       this.sceneManager.isoCamera.rotateStep(-1);
     } else if (lower === 'e') {
       this.sceneManager.isoCamera.rotateStep(1);
-    } else if (lower === 'r') {
+    } else if (lower === 'r' && this.store.isEditMode()) {
       const mode = this.store.getModeState().mode;
       if (mode === 'place' || mode === 'move') {
         this.store.rotatePlacement(1);
       } else {
         this.rotateSelectedInPlace();
       }
-    } else if (e.key === 'Backspace' || e.key === 'Delete') {
-      const selectedUid = this.store.getSelectedUid();
-      if (selectedUid) {
+    } else if ((e.key === 'Backspace' || e.key === 'Delete') && this.store.isEditMode()) {
+      const selectedUids = this.store.getSelectedUids();
+      if (selectedUids.length > 0) {
         e.preventDefault();
-        this.store.deleteItem(selectedUid);
-        this.store.notify('Item deleted', 'info');
+        const removed = this.store.deleteItems(selectedUids);
+        this.store.notify(removed > 1 ? `Deleted ${removed} items` : 'Item deleted', 'info');
       }
     } else if (e.key === '=' || e.key === '+') {
       this.sceneManager.isoCamera.zoomByFactor(1.18);
@@ -689,13 +1421,22 @@ export class PlacementController {
   };
 
   dispose(): void {
+    this.cancelPendingHover();
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
+    this.canvas.removeEventListener('pointerleave', this.handleCanvasLeave);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
     window.removeEventListener('pointercancel', this.handlePointerUp);
     this.canvas.removeEventListener('wheel', this.handleWheel);
+    window.removeEventListener('wheel', this.handleWindowWheel);
     this.canvas.removeEventListener('contextmenu', this.handleContextMenu);
     window.removeEventListener('keydown', this.handleKeyDown);
+    this.sceneManager.setMovingHiddenUid(null);
     this.clearGhost();
+    this.hideMarquee();
+    this.ghostGuideRing.geometry.dispose();
+    (this.ghostGuideRing.material as THREE.Material).dispose();
+    this.wallEdgeGuideBar.geometry.dispose();
+    (this.wallEdgeGuideBar.material as THREE.Material).dispose();
   }
 }

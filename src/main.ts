@@ -3,6 +3,7 @@ import { AudioModule } from './audio/AudioModule';
 import { loadGameData } from './data/loader';
 import { PlacementController } from './engine/PlacementController';
 import { SceneManager } from './engine/SceneManager';
+import { decodeHouseFromShareLink, extractShareCodeFromHash } from './save/shareLink';
 import { loadHouseFromStorage, saveHouseToStorage } from './save/storage';
 import { SceneryModule } from './scenery/SceneryModule';
 import { createStarterHouse } from './state/defaultHouse';
@@ -18,8 +19,21 @@ async function bootstrap(): Promise<void> {
   }
 
   const data = await loadGameData('./data');
-  const savedState = loadHouseFromStorage(data);
-  const initialHouse = savedState ?? createStarterHouse(data);
+
+  let sharedHouse = null;
+  let sharedLoadError: string | null = null;
+  const hashCode = extractShareCodeFromHash(window.location.hash);
+  if (hashCode) {
+    try {
+      const decoded = await decodeHouseFromShareLink(window.location.hash, data);
+      sharedHouse = decoded.state;
+    } catch (err) {
+      sharedLoadError = err instanceof Error ? err.message : 'Invalid shared house link.';
+    }
+  }
+
+  const savedState = sharedHouse ? null : loadHouseFromStorage(data);
+  const initialHouse = sharedHouse ?? savedState ?? createStarterHouse(data);
 
   const store = new HouseStore(data, initialHouse);
   const sceneManager = new SceneManager(viewportEl, store);
@@ -27,14 +41,31 @@ async function bootstrap(): Promise<void> {
   const visitorModule = new VisitorModule(store, sceneManager);
   const audioModule = new AudioModule();
 
+  audioModule.attachStore(store);
+  visitorModule.setAudioModule(audioModule);
+  sceneryModule.setOnLightningFlash(() => audioModule.playThunder());
+
   let hud: HudController | null = null;
-  const placement = new PlacementController(sceneManager, store, (hint) => {
-    hud?.setHoverHint(hint);
+  const placement = new PlacementController(
+    sceneManager,
+    store,
+    (hint) => hud?.setHoverHint(hint),
+    (info) => hud?.setHoverItem(info),
+  );
+
+  hud = new HudController(hudEl, store, sceneManager, placement, {
+    visitorModule,
+    audioModule,
+    sceneryModule,
   });
 
-  hud = new HudController(hudEl, store, sceneManager, placement);
+  if (sharedHouse) {
+    store.notify('Loaded shared house!', 'success');
+  } else if (sharedLoadError) {
+    store.notify(sharedLoadError, 'error');
+  }
 
-  // Hook Phase 2 module tick loops into SceneManager's animation frame
+  // Hook module tick loops into SceneManager's animation frame
   sceneManager.addTickHook((dt) => {
     sceneryModule.update(dt);
     visitorModule.update(dt);
@@ -59,20 +90,21 @@ async function bootstrap(): Promise<void> {
     saveTimer = window.setTimeout(flushSave, 220);
   });
 
-  // Ensure initial house is persisted cleanly if first visit
-  if (!savedState) {
+  // Ensure initial house is persisted cleanly if first visit (unless viewing a shared link)
+  if (!savedState && !sharedHouse) {
     saveHouseToStorage(store.getState());
   }
 
   window.addEventListener('pagehide', flushSave);
 
-  // Expose minimal debug handle for local inspection & Phase 2 testing
+  // Expose debug handle for local inspection & testing
   (window as unknown as Record<string, unknown>).__cozyhouse = {
     store,
     sceneManager,
     sceneryModule,
     visitorModule,
     audioModule,
+    hud,
   };
 }
 
