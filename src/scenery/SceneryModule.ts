@@ -9,8 +9,19 @@ import {
   buildYardLife,
   computeYardLayoutSignature,
 } from './BackdropBuilder';
-import { resolveTimeHour } from './SkyDome';
+import {
+  type CloudTransitionPhase,
+  type CloudTransitionSwarmHandle,
+  createCloudTransitionSwarm,
+  resolveTimeHour,
+} from './SkyDome';
 import { WeatherSystem } from './WeatherSystem';
+
+type CloudTransitionHookHost = {
+  setCloudTransitionHook?: (
+    hook: (phase: CloudTransitionPhase, t: number) => void,
+  ) => void;
+};
 
 const COL_MIDNIGHT_FOG = new THREE.Color('#182240');
 const COL_DAWN_FOG = new THREE.Color('#F2CFB9');
@@ -42,6 +53,9 @@ export class SceneryModule {
 
   private backdrop: BackdropHandle | null = null;
   private yardLife: YardLifeHandle | null = null;
+  private cloudTransition: CloudTransitionSwarmHandle;
+  private transitionPhase: CloudTransitionPhase = 'idle';
+  private transitionT = 0;
   private currentViewId: string | null = null;
   private currentWeatherId: string | null = null;
   private currentTimeOfDay: TimeOfDay | null = null;
@@ -59,6 +73,25 @@ export class SceneryModule {
 
     this.scratchFlashedView = { ...this.data.scenery.views[0] };
     this.scratchFlashedWeather = { ...this.data.scenery.weathers[0] };
+
+    this.cloudTransition = createCloudTransitionSwarm(
+      this.getActiveWeather(),
+      this.getActiveTimeOfDay(),
+      this.getActiveTimeHour(),
+    );
+    this.sceneManager.scene.add(this.cloudTransition.group);
+    (this.sceneManager as unknown as CloudTransitionHookHost).setCloudTransitionHook?.(
+      (phase, t) => {
+        this.transitionPhase = phase;
+        this.transitionT = t;
+        this.cloudTransition.updateTransition(
+          phase,
+          t,
+          this.sceneManager.isoCamera.camera,
+          this.elapsed,
+        );
+      },
+    );
 
     this.sceneManager.scene.add(this.weatherSystem.root);
     this.weatherSystem.setOnFlashVisualUpdate((intensity) => {
@@ -148,6 +181,7 @@ export class SceneryModule {
     }
 
     this.backdrop.setLightning(0);
+    this.cloudTransition.applyThemeTint(weather, timeOfDay, timeHour);
     const effectiveFogHex = this.applyAtmosphereAndFog(view, weather, timeOfDay, timeHour);
 
     if (viewChanged || weatherChanged || sizeChanged) {
@@ -297,19 +331,30 @@ export class SceneryModule {
   update(dt: number): void {
     this.elapsed += dt;
     const weather = this.getActiveWeather();
+    const cam = this.sceneManager.isoCamera.camera;
     if (this.backdrop) {
-      const cam = this.sceneManager.isoCamera.camera;
       cam.getWorldDirection(this.cameraForward);
       this.backdrop.update(this.elapsed, dt, weather, cam.position, this.cameraForward);
     }
     if (this.yardLife) {
       this.yardLife.update(this.elapsed, dt, weather, this.getActiveTimeHour());
     }
+    if (this.transitionPhase !== 'idle') {
+      this.cloudTransition.updateTransition(
+        this.transitionPhase,
+        this.transitionT,
+        cam,
+        this.elapsed,
+      );
+    }
     this.weatherSystem.update(dt);
   }
 
   dispose(): void {
     this.unsubscribe?.();
+    (this.sceneManager as unknown as CloudTransitionHookHost).setCloudTransitionHook?.(() => {});
+    this.sceneManager.scene.remove(this.cloudTransition.group);
+    this.cloudTransition.dispose();
     this.weatherSystem.dispose();
     this.sceneManager.scene.remove(this.weatherSystem.root);
     if (this.yardLife) {

@@ -26,6 +26,7 @@ export class IsometricCamera {
 
   private currentZoom = DEFAULT_ZOOM;
   private desiredZoom = DEFAULT_ZOOM;
+  private transitionZoomScale = 1;
 
   private aspect = 1;
   private panLimit = 9;
@@ -113,6 +114,25 @@ export class IsometricCamera {
   }
 
   /**
+   * Temporary multiplicative zoom scale used during cinematic cloud transitions
+   * so zooming out & back in never overwrites or clobbers the user's `desiredZoom`.
+   */
+  setTransitionZoomScale(scale: number): void {
+    const clamped = THREE.MathUtils.clamp(scale, 0.35, 1.5);
+    if (Math.abs(clamped - this.transitionZoomScale) < 1e-5) return;
+    this.transitionZoomScale = clamped;
+    const effectiveZoom = this.currentZoom * this.transitionZoomScale;
+    if (Math.abs(this.camera.zoom - effectiveZoom) > 0.0001) {
+      this.camera.zoom = effectiveZoom;
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  getTransitionZoomScale(): number {
+    return this.transitionZoomScale;
+  }
+
+  /**
    * Pans camera in screen-space pixel delta (trackpad two-finger scroll or click-drag).
    */
   panByPixels(dxPixels: number, dyPixels: number, viewportHeight: number): void {
@@ -175,8 +195,9 @@ export class IsometricCamera {
       this.target.lerp(this.desiredTarget, smooth);
     }
 
-    if (Math.abs(this.camera.zoom - this.currentZoom) > 0.0002) {
-      this.camera.zoom = this.currentZoom;
+    const effectiveZoom = this.currentZoom * this.transitionZoomScale;
+    if (Math.abs(this.camera.zoom - effectiveZoom) > 0.0002) {
+      this.camera.zoom = effectiveZoom;
       this.camera.updateProjectionMatrix();
     }
 

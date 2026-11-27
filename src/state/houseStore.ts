@@ -452,6 +452,10 @@ export class HouseStore {
     this.emitSelectionChanged();
   }
 
+  toggleSelectionUid(uid: string): void {
+    this.toggleSelectItem(uid);
+  }
+
   clearSelection(): void {
     if (this.selectedUids.length === 0) return;
     this.selectedUids = [];
@@ -692,6 +696,132 @@ export class HouseStore {
     }
 
     this.emitMutation('replace');
+    return changedCount;
+  }
+
+  private isStructuralWallSurfaceDef(def: FurnitureItemDef | undefined): boolean {
+    return Boolean(
+      def &&
+        def.layer === 'wall' &&
+        def.wallKind === 'structure' &&
+        def.id.startsWith('wall_'),
+    );
+  }
+
+  private isStructuralWindowDef(def: FurnitureItemDef | undefined): boolean {
+    return Boolean(
+      def &&
+        def.layer === 'wall' &&
+        def.wallKind === 'structure' &&
+        (def.tags.includes('window') || def.id.startsWith('window_')),
+    );
+  }
+
+  applyStyleToAllWalls(itemId: string, variantId: string): number {
+    const targetDef = this.data.itemsById.get(itemId);
+    if (!this.isStructuralWallSurfaceDef(targetDef)) {
+      return 0;
+    }
+    const chosenVariant = targetDef!.variants.some((v) => v.id === variantId)
+      ? variantId
+      : targetDef!.variants[0].id;
+
+    let changedCount = 0;
+    const nextItems = this.state.items.map((it) => {
+      const curDef = this.data.itemsById.get(it.itemId);
+      if (!this.isStructuralWallSurfaceDef(curDef)) return it;
+      if (it.itemId === itemId && it.variantId === chosenVariant) return it;
+      changedCount += 1;
+      return { ...it, itemId, variantId: chosenVariant };
+    });
+
+    if (changedCount === 0) return 0;
+    this.pushHistory();
+    this.state = { ...this.state, items: nextItems };
+    this.emitMutation('styleAll');
+    return changedCount;
+  }
+
+  applyStyleToAllFloors(itemId: string, variantId: string): number {
+    const targetDef = this.data.itemsById.get(itemId);
+    if (!targetDef || targetDef.layer !== 'floor' || targetDef.subLayer !== 'tile') {
+      return 0;
+    }
+    const chosenVariant = targetDef.variants.some((v) => v.id === variantId)
+      ? variantId
+      : targetDef.variants[0].id;
+    const supportsActive =
+      targetDef.interaction?.type === 'toggle' || targetDef.interaction?.type === 'spin';
+
+    let changedCount = 0;
+    const nextItems = this.state.items.map((it) => {
+      const curDef = this.data.itemsById.get(it.itemId);
+      if (!curDef || curDef.layer !== 'floor' || curDef.subLayer !== 'tile') return it;
+      if (it.itemId === itemId && it.variantId === chosenVariant) return it;
+      changedCount += 1;
+      return {
+        ...it,
+        itemId,
+        variantId: chosenVariant,
+        active: supportsActive ? it.active : undefined,
+      };
+    });
+
+    if (changedCount === 0) return 0;
+    this.pushHistory();
+    this.state = { ...this.state, items: nextItems };
+    this.emitMutation('styleAll');
+    return changedCount;
+  }
+
+  applyStyleToSelection(itemId: string, variantId: string): number {
+    if (this.selectedUids.length === 0) return 0;
+    const targetDef = this.data.itemsById.get(itemId);
+    if (!targetDef) return 0;
+    const chosenVariant = targetDef.variants.some((v) => v.id === variantId)
+      ? variantId
+      : targetDef.variants[0].id;
+
+    const selectedSet = new Set(this.selectedUids);
+    const isTargetWall = this.isStructuralWallSurfaceDef(targetDef);
+    const isTargetTile = targetDef.layer === 'floor' && targetDef.subLayer === 'tile';
+    const isTargetDoor = this.isStructuralDoorDef(targetDef);
+    const isTargetWindow = this.isStructuralWindowDef(targetDef);
+    const supportsActive =
+      targetDef.interaction?.type === 'toggle' || targetDef.interaction?.type === 'spin';
+
+    let changedCount = 0;
+    const nextItems = this.state.items.map((it) => {
+      if (!selectedSet.has(it.uid)) return it;
+      const curDef = this.data.itemsById.get(it.itemId);
+      if (!curDef) return it;
+
+      const matchesCategory = isTargetWall
+        ? this.isStructuralWallSurfaceDef(curDef)
+        : isTargetTile
+          ? curDef.layer === 'floor' && curDef.subLayer === 'tile'
+          : isTargetDoor
+            ? this.isStructuralDoorDef(curDef)
+            : isTargetWindow
+              ? this.isStructuralWindowDef(curDef)
+              : it.itemId === itemId;
+
+      if (!matchesCategory) return it;
+      if (it.itemId === itemId && it.variantId === chosenVariant) return it;
+
+      changedCount += 1;
+      return {
+        ...it,
+        itemId,
+        variantId: chosenVariant,
+        active: supportsActive ? it.active : undefined,
+      };
+    });
+
+    if (changedCount === 0) return 0;
+    this.pushHistory();
+    this.state = { ...this.state, items: nextItems };
+    this.emitMutation('styleSelected');
     return changedCount;
   }
 
@@ -1006,6 +1136,16 @@ export class HouseStore {
     this.setSelectMode();
     this.emitSelectionChanged();
     this.emit('houseChanged', { state: this.state, reason: options?.reason ?? 'load' });
+  }
+
+  loadPreset(nextState: HouseState, presetName?: string): void {
+    if (this.timeCycleRunning) {
+      this.setTimeCycleRunning(false);
+    }
+    this.loadHouse(nextState, { recordHistory: true, reason: 'preset' });
+    if (presetName) {
+      this.notify(`Loaded ${presetName}`, 'success');
+    }
   }
 
   undo(): boolean {

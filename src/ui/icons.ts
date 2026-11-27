@@ -61,10 +61,19 @@ export type StorybookIconName =
   | 'loc_forest'
   | 'loc_mountains'
   | 'loc_countryside'
-  // Lights (2)
+  // Lights & Music (4)
   | 'bulb_on'
   | 'bulb_off'
-  // Room Types (15)
+  | 'music_on'
+  | 'music_off'
+  // Visual Shaders (6)
+  | 'shader_default'
+  | 'shader_retro_dither'
+  | 'shader_pocket'
+  | 'shader_storybook_ink'
+  | 'shader_golden_film'
+  | 'shader_crt_lofi'
+  // Room Types & Presets (18)
   | 'room_cafe'
   | 'room_live_in_cafe'
   | 'room_cat_cafe'
@@ -79,6 +88,8 @@ export type StorybookIconName =
   | 'room_music_lounge'
   | 'room_reading_nook'
   | 'room_home_kitchen'
+  | 'room_beach'
+  | 'room_cabin'
   | 'room_home'
   | 'room_custom';
 
@@ -245,7 +256,7 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <circle cx="18.2" cy="7.4" r="2.2" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
   `,
 
-  // ── Lights Switch (2) ──
+  // ── Lights & Music Switches (4) ──
   bulb_on: `
     <path d="M9.4 17.2h5.2M10.2 20h3.6" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
     <path d="M12 5.4a5.2 5.2 0 0 0-3.1 9.4c.7.6 1 1.3 1 2.3h4.2c0-1 .3-1.7 1-2.3A5.2 5.2 0 0 0 12 5.4z" fill="#FFD966" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
@@ -254,6 +265,61 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
   bulb_off: `
     <path d="M9.4 17.2h5.2M10.2 20h3.6" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
     <path d="M12 5.4a5.2 5.2 0 0 0-3.1 9.4c.7.6 1 1.3 1 2.3h4.2c0-1 .3-1.7 1-2.3A5.2 5.2 0 0 0 12 5.4z" fill="#EFE7D8" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+  `,
+  music_on: `
+    <path d="M10 16.8V6.2l9-1.7v10.2" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M10 9.6l9-1.7" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+    <ellipse cx="7.6" cy="17.2" rx="2.8" ry="2.2" fill="#F4B29D" stroke="${INK}" stroke-width="1.7"/>
+    <ellipse cx="16.6" cy="15.2" rx="2.8" ry="2.2" fill="#FFD966" stroke="${INK}" stroke-width="1.7"/>
+    <circle cx="5.2" cy="6.2" r="1.1" fill="#FFD966" stroke="${INK}" stroke-width="1.1"/>
+  `,
+  music_off: `
+    <path d="M10 16.8V6.2l8.5-1.6v9.8" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+    <ellipse cx="7.6" cy="17.2" rx="2.6" ry="2" fill="#EFE7D8" stroke="${INK}" stroke-width="1.7"/>
+    <ellipse cx="16.2" cy="15.2" rx="2.6" ry="2" fill="#EFE7D8" stroke="${INK}" stroke-width="1.7"/>
+    <path d="M4.2 4.6 19.8 19.4" stroke="#A82D24" stroke-width="1.9" stroke-linecap="round"/>
+  `,
+
+  // ── Visual Shaders (6) ──
+  shader_default: `
+    <circle cx="12" cy="12" r="7.4" fill="#FCF3E3" stroke="${INK}" stroke-width="1.8"/>
+    <circle cx="9.6" cy="10" r="2.6" fill="#FFD966" stroke="${INK}" stroke-width="1.4"/>
+    <circle cx="14.8" cy="14" r="2.2" fill="#F4B29D" stroke="${INK}" stroke-width="1.4"/>
+    <circle cx="15" cy="9" r="1.4" fill="#A7D3AD" stroke="${INK}" stroke-width="1.2"/>
+  `,
+  shader_retro_dither: `
+    <rect x="4" y="4" width="16" height="16" rx="3" fill="#E8D8F5" stroke="${INK}" stroke-width="1.8"/>
+    <rect x="6.5" y="6.5" width="3.5" height="3.5" fill="#9E87C9" stroke="${INK}" stroke-width="1.1"/>
+    <rect x="14" y="6.5" width="3.5" height="3.5" fill="#F4B29D" stroke="${INK}" stroke-width="1.1"/>
+    <rect x="10.25" y="10.25" width="3.5" height="3.5" fill="#FFD966" stroke="${INK}" stroke-width="1.1"/>
+    <rect x="6.5" y="14" width="3.5" height="3.5" fill="#A7D3AD" stroke="${INK}" stroke-width="1.1"/>
+    <rect x="14" y="14" width="3.5" height="3.5" fill="#9E87C9" stroke="${INK}" stroke-width="1.1"/>
+  `,
+  shader_pocket: `
+    <rect x="5.5" y="3.2" width="13" height="17.6" rx="2.4" fill="#C9DCB4" stroke="${INK}" stroke-width="1.8"/>
+    <rect x="7.8" y="5.5" width="8.4" height="6.2" rx="1" fill="#7D9E6C" stroke="${INK}" stroke-width="1.5"/>
+    <path d="M9.5 14.5v3M8 16h3" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="15" cy="15.2" r="1.1" fill="#D97A6C" stroke="${INK}" stroke-width="1.1"/>
+    <circle cx="13.5" cy="17.4" r="1.1" fill="#D97A6C" stroke="${INK}" stroke-width="1.1"/>
+  `,
+  shader_storybook_ink: `
+    <path d="M18.6 4.4 19.6 5.4 9.8 15.2 5.4 16.6 6.8 12.2z" fill="#FCE59B" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M15.4 7.6 16.4 8.6" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M4.2 19.4c2.4-1.3 4.4-.2 6.8-.2 2.4 0 4.6-1.2 8.4-.4" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  shader_golden_film: `
+    <rect x="3.5" y="5" width="17" height="14" rx="2.2" fill="#F6D58E" stroke="${INK}" stroke-width="1.8"/>
+    <rect x="7.6" y="7.5" width="8.8" height="9" rx="1" fill="#FFF4D1" stroke="${INK}" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="2.2" fill="#F0A57D" stroke="${INK}" stroke-width="1.4"/>
+    <path d="M5.5 8v1.4M5.5 11.3v1.4M5.5 14.6V16M18.5 8v1.4M18.5 11.3v1.4M18.5 14.6V16" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+  `,
+  shader_crt_lofi: `
+    <rect x="3.5" y="5.2" width="17" height="13.2" rx="3" fill="#B8C8DF" stroke="${INK}" stroke-width="1.8"/>
+    <rect x="5.8" y="7.4" width="10.2" height="8.8" rx="1.6" fill="#DCECF8" stroke="${INK}" stroke-width="1.5"/>
+    <path d="M7.2 10h7.4M7.2 12.5h7.4M7.2 14.8h5.2" stroke="#6E90B8" stroke-width="1.3" stroke-linecap="round"/>
+    <circle cx="18.2" cy="9.4" r="0.9" fill="#F4A896" stroke="${INK}" stroke-width="1"/>
+    <circle cx="18.2" cy="12.4" r="0.9" fill="#FFD966" stroke="${INK}" stroke-width="1"/>
+    <path d="M7.5 18.4 6.5 20.4M16.5 18.4l1 2" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
   `,
 
   // ── Room Types (Illustrated Pastel + Ink) ──
@@ -322,6 +388,17 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <rect x="5" y="10.2" width="14" height="8.2" rx="2.5" fill="#F5DC93" stroke="${INK}" stroke-width="1.8"/>
     <path d="M3.5 11.8h1.5M19 11.8h1.5M9.5 6.4v2M14.5 6.4v2" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
   `,
+  room_beach: `
+    <path d="M4.2 11.6a8 8 0 0 1 15.6 0z" fill="#F4A896" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M9.4 11.6c.4-3.6 1.5-5.8 2.6-6.2 1.1.4 2.2 2.6 2.6 6.2z" fill="#FFFDF8" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M12 11.6v6.4" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M3 19c2.2-1.1 4.2-1.1 6.2 0s4 1.1 6 0 3.8-1.1 5.8 0" fill="none" stroke="#4D9AC4" stroke-width="2" stroke-linecap="round"/>
+  `,
+  room_cabin: `
+    <polygon points="3.5,19 12,5 20.5,19" fill="#D5A680" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <polygon points="12,5 8.8,10.2 12,9 15.2,10.2" fill="#FFFDF8" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <rect x="9.6" y="13.5" width="4.8" height="5.5" rx="0.8" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
+  `,
   room_home: `
     <rect x="5.4" y="10.6" width="13.2" height="9" rx="1.2" fill="#FCF0DE" stroke="${INK}" stroke-width="1.8"/>
     <polygon points="3.5,11.2 12,4.4 20.5,11.2" fill="#EBAA93" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
@@ -335,41 +412,87 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
 export function getRoomStorybookIconName(roomId: string): StorybookIconName {
   switch (roomId) {
     case 'live_in_cafe':
+    case 'room_live_in_cafe':
       return 'room_live_in_cafe';
     case 'cat_cafe':
+    case 'room_cat_cafe':
       return 'room_cat_cafe';
     case 'live_in_bar':
     case 'bar':
+    case 'room_bar':
       return 'room_bar';
     case 'book_cafe':
+    case 'room_book_cafe':
       return 'room_book_cafe';
     case 'party_pad':
+    case 'club':
+    case 'room_club':
+    case 'room_party_pad':
       return 'room_party_pad';
     case 'smoothie_bar':
+    case 'room_smoothie_bar':
       return 'room_smoothie_bar';
     case 'diner':
     case 'neighborhood_diner':
+    case 'room_diner':
       return 'room_diner';
     case 'cafe':
+    case 'room_cafe':
       return 'room_cafe';
     case 'cat_sanctuary':
+    case 'cat_lounge':
+    case 'room_cats':
+    case 'room_cat_sanctuary':
       return 'room_cat_sanctuary';
     case 'night_lounge':
+    case 'room_night_lounge':
       return 'room_night_lounge';
     case 'plant_haven':
+    case 'room_plant_haven':
       return 'room_plant_haven';
     case 'music_lounge':
+    case 'room_music_lounge':
       return 'room_music_lounge';
     case 'reading_nook':
+    case 'room_reading_nook':
       return 'room_reading_nook';
     case 'home_kitchen':
+    case 'farmhouse':
+    case 'room_kitchen':
+    case 'room_home_kitchen':
       return 'room_home_kitchen';
+    case 'beach_loft':
+    case 'beach_retreat':
+    case 'room_beach':
+      return 'room_beach';
+    case 'mountain_cabin':
+    case 'cabin':
+    case 'room_cabin':
+      return 'room_cabin';
     case 'home':
+    case 'room_home':
     case 'cozy_room':
     case 'cozy_lounge':
       return 'room_home';
     default:
       return 'room_custom';
+  }
+}
+
+export function getShaderStorybookIconName(shaderId: string): StorybookIconName {
+  switch (shaderId) {
+    case 'retro_dither':
+      return 'shader_retro_dither';
+    case 'pocket':
+      return 'shader_pocket';
+    case 'storybook_ink':
+      return 'shader_storybook_ink';
+    case 'golden_film':
+      return 'shader_golden_film';
+    case 'crt_lofi':
+      return 'shader_crt_lofi';
+    default:
+      return 'shader_default';
   }
 }
 

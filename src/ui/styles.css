@@ -120,7 +120,7 @@ body,
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
-  transition: opacity 220ms var(--ease-out);
+  transition: opacity 280ms var(--ease-out);
 }
 
 .hud-island {
@@ -551,8 +551,9 @@ button.btn.icon-close:hover {
   border-color: var(--border-ink);
 }
 
-/* ── Location Illustrated Icons Row (Zero Text!) ── */
-.sb-location-row {
+/* ── Location & Visual Shader Illustrated Icons Rows (Zero Text!) ── */
+.sb-location-row,
+.sb-shader-row {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 5px;
@@ -563,12 +564,13 @@ button.btn.icon-close:hover {
   box-shadow: 0 2px 0 rgba(45, 38, 32, 0.1);
 }
 
-.sb-loc-btn {
+.sb-loc-btn,
+.sb-shader-btn {
   appearance: none;
   border: 1.5px solid transparent;
   background: transparent;
   border-radius: 9px;
-  height: 40px;
+  height: 38px;
   padding: 0;
   cursor: pointer;
   display: inline-flex;
@@ -577,18 +579,96 @@ button.btn.icon-close:hover {
   transition: background 150ms var(--ease-out), border-color 150ms ease, transform 120ms var(--ease-out);
 }
 
-.sb-loc-btn:hover {
+.sb-loc-btn:hover,
+.sb-shader-btn:hover {
   background: var(--surface-chip);
 }
 
-.sb-loc-btn:active {
+.sb-loc-btn:active,
+.sb-shader-btn:active {
   transform: scale(0.95);
 }
 
-.sb-loc-btn.active {
+.sb-loc-btn.active,
+.sb-shader-btn.active {
   background: #fff4cc;
   border-color: var(--border-ink);
   box-shadow: 0 1.5px 0 rgba(45, 38, 32, 0.14);
+}
+
+/* ── Separated Audio Mix Card (Music + Weather + Master ink-rail sliders) ── */
+.sb-audio-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--surface-elev);
+  border: 1.6px solid var(--border-ink);
+  border-radius: 12px;
+  padding: 7px 10px;
+  box-shadow: 0 2px 0 rgba(45, 38, 32, 0.1);
+}
+
+.sb-audio-channel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.sb-audio-icon-btn {
+  appearance: none;
+  border: 1.4px solid transparent;
+  background: transparent;
+  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 140ms var(--ease-out), transform 110ms var(--ease-out), opacity 140ms ease;
+}
+
+.sb-audio-icon-btn:hover {
+  background: var(--surface-chip);
+}
+
+.sb-audio-icon-btn:active {
+  transform: scale(0.92);
+}
+
+.sb-audio-icon-btn.muted {
+  opacity: 0.58;
+}
+
+.sb-audio-icon-static {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--ink-primary);
+}
+
+.sb-music-vibe {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  color: var(--ink-primary);
+  background: var(--surface-chip);
+  border: 1.2px solid var(--hairline-strong);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sb-music-vibe.muted {
+  color: var(--ink-secondary);
+  opacity: 0.72;
 }
 
 /* ── Lightbulb Switch Row ── */
@@ -1261,7 +1341,7 @@ button.btn.icon-close:hover {
   box-shadow: var(--shadow-popover);
   max-width: calc(100vw - 28px);
   z-index: 19;
-  transition: left 200ms var(--ease-out);
+  transition: left 200ms var(--ease-out), opacity 280ms var(--ease-out);
 }
 
 #hud.build-open .context-bar {
@@ -1762,6 +1842,58 @@ button.btn.icon-close:hover {
   padding: 6px 10px;
 }
 
+.inline-basics-apply-btn {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.popover-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ── House Presets 2×3 Grid ── */
+.preset-house-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.preset-house-card {
+  appearance: none;
+  border: 1.6px solid var(--border-ink);
+  background: var(--surface-elev);
+  color: var(--ink-primary);
+  border-radius: 10px;
+  padding: 7px 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  text-align: left;
+  box-shadow: 0 1.5px 0 rgba(45, 38, 32, 0.12);
+  transition: background 150ms var(--ease-out), transform 110ms var(--ease-out);
+}
+
+.preset-house-card:hover {
+  background: #fff4cc;
+}
+
+.preset-house-card:active {
+  transform: scale(0.96);
+}
+
+.preset-house-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .menu-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1878,40 +2010,40 @@ button.btn.icon-close:hover {
 .invite-visitors-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .active-visitor-card {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 4px;
   background: var(--surface-elev);
   border: 1.5px solid var(--hairline-strong);
-  border-radius: 12px;
-  padding: 9px 10px;
+  border-radius: 11px;
+  padding: 7px 9px;
 }
 
 .active-visitor-head {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
 }
 
 .invite-visitor-card {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   background: var(--surface-elev);
   border: 1.5px solid var(--hairline-strong);
-  border-radius: var(--radius-md);
-  padding: 8px 10px;
+  border-radius: 11px;
+  padding: 6px 9px;
 }
 
 .visitor-portrait {
   position: relative;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   border: 1.6px solid var(--border-ink);
   display: inline-flex;
   align-items: center;
@@ -1920,8 +2052,8 @@ button.btn.icon-close:hover {
 }
 
 .visitor-portrait-fallback {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 1.5px solid rgba(45, 38, 32, 0.22);
 }
@@ -1930,7 +2062,7 @@ button.btn.icon-close:hover {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  border-radius: 10px;
+  border-radius: 8px;
   display: block;
 }
 
@@ -1938,29 +2070,17 @@ button.btn.icon-close:hover {
   position: absolute;
   bottom: -4px;
   right: -4px;
-  width: 20px;
-  height: 20px;
+  width: 17px;
+  height: 17px;
   border-radius: 999px;
   background: var(--surface-solid);
-  border: 1.5px solid var(--border-ink);
-  box-shadow: 0 1.5px 0 rgba(45, 38, 32, 0.16);
+  border: 1.4px solid var(--border-ink);
+  box-shadow: 0 1px 0 rgba(45, 38, 32, 0.14);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 9.5px;
   line-height: 1;
-}
-
-.visitor-emotion-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 13px;
-  line-height: 1;
-  background: var(--surface-studio);
-  border: 1.3px solid var(--hairline-strong);
-  border-radius: 999px;
-  padding: 2px 6px;
 }
 
 .active-visitor-info,
@@ -1969,11 +2089,11 @@ button.btn.icon-close:hover {
   min-width: 0;
 }
 
-.active-visitor-top {
+.active-visitor-compact {
   display: flex;
-  align-items: baseline;
-  gap: 5px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .active-visitor-name,
@@ -1981,29 +2101,69 @@ button.btn.icon-close:hover {
   font-size: 12.5px;
   font-weight: 800;
   color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.visitor-pronouns {
+.visitor-mood-emoji {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.invite-visitor-sub {
   font-size: 11px;
   font-weight: 600;
   color: var(--ink-secondary);
-}
-
-.visitor-mood-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
 }
 
 .mood-bar-track {
   flex: 1 1 auto;
-  height: 6px;
+  height: 5px;
   background: var(--surface-chip);
   border: 1px solid var(--hairline);
   border-radius: 999px;
   overflow: hidden;
-  min-width: 48px;
+  min-width: 44px;
+}
+
+.visitor-react-line {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-left: 44px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  line-height: 1.25;
+  min-width: 0;
+}
+
+.visitor-react-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.visitor-react-dot {
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.visitor-react-dot.like {
+  color: #2e6f52;
+}
+
+.visitor-react-dot.dislike {
+  color: #a82d24;
 }
 
 .mood-bar-fill {
@@ -2160,9 +2320,19 @@ button.btn.icon-close:hover {
 #hud.cinematic-active .toast-stack,
 #hud.cinematic-active .floating-hint,
 #hud.cinematic-active .hover-item-tooltip,
-#hud.cinematic-active .hud-popover {
+#hud.cinematic-active .hud-popover,
+#hud.is-cloud-transitioning .hud-bar,
+#hud.is-cloud-transitioning .build-sidebar,
+#hud.is-cloud-transitioning .context-bar,
+#hud.is-cloud-transitioning .live-cta-wrap,
+#hud.is-cloud-transitioning .toast-stack,
+#hud.is-cloud-transitioning .floating-hint,
+#hud.is-cloud-transitioning .hover-item-tooltip,
+#hud.is-cloud-transitioning .hud-popover,
+#hud.is-cloud-transitioning .celebration-host {
   opacity: 0 !important;
   pointer-events: none !important;
+  transition: opacity 280ms var(--ease-out);
 }
 
 #hud.cinematic-active .cinematic-exit-btn {

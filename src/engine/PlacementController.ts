@@ -1531,7 +1531,7 @@ export class PlacementController {
       this.hideMarquee();
       this.dragKind = 'none';
       if (!this.didDrag && this.pointerDownItemUid) {
-        this.store.toggleSelectItem(this.pointerDownItemUid);
+        this.store.toggleSelectionUid(this.pointerDownItemUid);
       }
       return;
     }
@@ -1582,7 +1582,7 @@ export class PlacementController {
     if (modeState.mode === 'select') {
       if (this.pointerDownItemUid) {
         if (e.shiftKey) {
-          this.store.toggleSelectItem(this.pointerDownItemUid);
+          this.store.toggleSelectionUid(this.pointerDownItemUid);
         } else {
           this.store.selectItem(this.pointerDownItemUid);
         }

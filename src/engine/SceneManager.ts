@@ -23,6 +23,23 @@ import {
 } from './GridSystem';
 import { IsometricCamera } from './IsometricCamera';
 import { ModelPreviewRenderer } from './ModelPreviewRenderer';
+import {
+  ShaderPipeline,
+  type VisualShaderId,
+  isVisualShaderId,
+} from './ShaderPipeline';
+
+export type { VisualShaderId } from './ShaderPipeline';
+export type CloudTransitionPhase = 'idle' | 'in' | 'hold' | 'out';
+
+interface ActiveCloudTransition {
+  phase: Exclude<CloudTransitionPhase, 'idle'>;
+  elapsed: number;
+  startZoomScale: number;
+  midpointFired: boolean;
+  onMidpoint: () => void;
+  onComplete?: () => void;
+}
 
 interface RenderedItemEntry {
   uid: string;
@@ -139,6 +156,11 @@ const EW_WALL_Y_OFFSET = -0.0015;
 const EW_WALL_SCALE_Z = 0.992;
 const TIME_CYCLE_HOURS_PER_SEC = 0.22;
 const TIME_CYCLE_SYNC_INTERVAL = 0.05; // ~20 Hz store updates (~0.011h per step, avoids 0.01 rounding stall)
+const SHADER_STORAGE_KEY = 'cozyhouse:shader';
+const CLOUD_TRANSITION_IN_DURATION = 0.52;
+const CLOUD_TRANSITION_HOLD_DURATION = 0.16;
+const CLOUD_TRANSITION_OUT_DURATION = 0.62;
+const CLOUD_TRANSITION_ZOOM_MIN = 0.56;
 
 const MERGEABLE_BED_IDS = new Set(['bed_cozy', 'bed_daybed', 'bed_canopy']);
 
@@ -205,6 +227,10 @@ function shortestAngleDelta(from: number, to: number): number {
 function easeOutCubic(t: number): number {
   const inv = 1 - t;
   return 1 - inv * inv * inv;
+}
+
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 function easeOutBackSoft(t: number, overshoot = 0.55): number {
@@ -450,8 +476,19 @@ export class SceneManager {
   private tickHooks = new Set<(dt: number) => void>();
   private resizeObserver: ResizeObserver;
 
+  // Modular post-processing shader pipeline + cinematic 3D cloud transition state
+  private readonly shaderPipeline = new ShaderPipeline();
+  private shaderPreset: VisualShaderId = 'default';
+  private shaderListeners = new Set<(id: VisualShaderId) => void>();
+  private cloudTransitionHook: ((phase: CloudTransitionPhase, t: number) => void) | null = null;
+  private cloudTransition: ActiveCloudTransition | null = null;
+
   get gridVisual(): GridVisual {
     return this._gridVisual;
+  }
+
+  get camera(): THREE.OrthographicCamera {
+    return this.isoCamera.camera;
   }
 
   /**
@@ -500,6 +537,12 @@ export class SceneManager {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.04;
     container.appendChild(this.renderer.domElement);
+
+    // Restore persisted visual shader preset (defaults cleanly to zero-overhead 'default')
+    this.shaderPreset = this.loadPersistedShaderPreset();
+    this.shaderPipeline.setPreset(this.shaderPreset);
+    const pr = typeof this.renderer.getPixelRatio === 'function' ? this.renderer.getPixelRatio() : 1;
+    this.shaderPipeline.resize(width, height, pr);
 
     this.isoCamera = new IsometricCamera(width, height, onCameraQuarterChange);
     const initialState = store.getState();
@@ -651,6 +694,170 @@ export class SceneManager {
   /** Marks the directional shadow map dirty so it re-renders on the next frame. */
   markShadowsDirty(): void {
     this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  private loadPersistedShaderPreset(): VisualShaderId {
+    try {
+      if (typeof localStorage === 'undefined') return 'default';
+      const saved = localStorage.getItem(SHADER_STORAGE_KEY);
+      return isVisualShaderId(saved) ? saved : 'default';
+    } catch {
+      return 'default';
+    }
+  }
+
+  getShaderPreset(): VisualShaderId {
+    return this.shaderPreset;
+  }
+
+  setShaderPreset(id: VisualShaderId): void {
+    const next: VisualShaderId = isVisualShaderId(id) ? id : 'default';
+    if (this.shaderPreset === next) return;
+    this.shaderPreset = next;
+    this.shaderPipeline.setPreset(next);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SHADER_STORAGE_KEY, next);
+      }
+    } catch {
+      // Ignore storage quota / privacy mode errors
+    }
+    for (const listener of this.shaderListeners) {
+      listener(next);
+    }
+  }
+
+  onShaderChange(cb: (id: VisualShaderId) => void): () => void {
+    this.shaderListeners.add(cb);
+    return () => this.shaderListeners.delete(cb);
+  }
+
+  /**
+   * Registers the 3D cloud-cluster swarm visual hook (owned by `SceneryModule`).
+   * Invoked every frame while a cloud transition is active and reset to `('idle', 0)` on finish.
+   */
+  setCloudTransitionHook(hook: ((phase: CloudTransitionPhase, t: number) => void) | null): void {
+    this.cloudTransitionHook = hook;
+    if (!hook) return;
+    if (!this.cloudTransition) {
+      hook('idle', 0);
+      return;
+    }
+    const dur =
+      this.cloudTransition.phase === 'in'
+        ? CLOUD_TRANSITION_IN_DURATION
+        : this.cloudTransition.phase === 'hold'
+          ? CLOUD_TRANSITION_HOLD_DURATION
+          : CLOUD_TRANSITION_OUT_DURATION;
+    hook(this.cloudTransition.phase, Math.min(1, this.cloudTransition.elapsed / dur));
+  }
+
+  /**
+   * Orchestrates a cinematic 3D cloud-cluster transition:
+   * - `in` (0.52s): hides HUD (`onStart`), zooms out (`1.0 -> 0.56`), and rushes clouds inward.
+   * - `hold` (0.16s): screen is 100% blanketed by clouds — invokes `onMidpoint()` cleanly behind cover.
+   * - `out` (0.62s): parts clouds past viewport edges while zooming back in (`0.56 -> 1.0`), then calls `onComplete`.
+   * Re-entrant: if another transition is mid-flight, finishes its midpoint/complete lifecycle without dropping callbacks.
+   */
+  playCloudTransition(
+    onMidpoint: () => void,
+    opts?: { onStart?: () => void; onComplete?: () => void },
+  ): void {
+    if (this.cloudTransition) {
+      const prev = this.cloudTransition;
+      this.cloudTransition = null;
+      if (!prev.midpointFired) {
+        prev.midpointFired = true;
+        try {
+          prev.onMidpoint();
+        } catch (err) {
+          console.error('[SceneManager] Cloud transition midpoint error:', err);
+        }
+      }
+      try {
+        prev.onComplete?.();
+      } catch (err) {
+        console.error('[SceneManager] Cloud transition complete error:', err);
+      }
+    }
+
+    const startZoomScale = this.isoCamera.getTransitionZoomScale();
+    this.cloudTransition = {
+      phase: 'in',
+      elapsed: 0,
+      startZoomScale,
+      midpointFired: false,
+      onMidpoint,
+      onComplete: opts?.onComplete,
+    };
+
+    try {
+      opts?.onStart?.();
+    } catch (err) {
+      console.error('[SceneManager] Cloud transition start error:', err);
+    }
+    this.cloudTransitionHook?.('in', 0);
+  }
+
+  private updateCloudTransition(dt: number): void {
+    const tr = this.cloudTransition;
+    if (!tr) return;
+
+    tr.elapsed += dt;
+
+    if (tr.phase === 'in') {
+      const t = Math.min(1, tr.elapsed / CLOUD_TRANSITION_IN_DURATION);
+      const eased = easeInOutCubic(t);
+      const zoomScale = THREE.MathUtils.lerp(tr.startZoomScale, CLOUD_TRANSITION_ZOOM_MIN, eased);
+      this.isoCamera.setTransitionZoomScale(zoomScale);
+      this.cloudTransitionHook?.('in', t);
+
+      if (t >= 1) {
+        tr.phase = 'hold';
+        tr.elapsed = 0;
+        this.isoCamera.setTransitionZoomScale(CLOUD_TRANSITION_ZOOM_MIN);
+        this.cloudTransitionHook?.('hold', 0);
+        if (!tr.midpointFired) {
+          tr.midpointFired = true;
+          try {
+            tr.onMidpoint();
+          } catch (err) {
+            console.error('[SceneManager] Cloud transition midpoint error:', err);
+          }
+        }
+      }
+      return;
+    }
+
+    if (tr.phase === 'hold') {
+      const t = Math.min(1, tr.elapsed / CLOUD_TRANSITION_HOLD_DURATION);
+      this.isoCamera.setTransitionZoomScale(CLOUD_TRANSITION_ZOOM_MIN);
+      this.cloudTransitionHook?.('hold', t);
+      if (t >= 1) {
+        tr.phase = 'out';
+        tr.elapsed = 0;
+        this.cloudTransitionHook?.('out', 0);
+      }
+      return;
+    }
+
+    // phase === 'out'
+    const t = Math.min(1, tr.elapsed / CLOUD_TRANSITION_OUT_DURATION);
+    const eased = easeInOutCubic(t);
+    const zoomScale = THREE.MathUtils.lerp(CLOUD_TRANSITION_ZOOM_MIN, 1.0, eased);
+    this.isoCamera.setTransitionZoomScale(zoomScale);
+    this.cloudTransitionHook?.('out', t);
+
+    if (t >= 1) {
+      this.cloudTransition = null;
+      this.isoCamera.setTransitionZoomScale(1.0);
+      this.cloudTransitionHook?.('idle', 0);
+      try {
+        tr.onComplete?.();
+      } catch (err) {
+        console.error('[SceneManager] Cloud transition complete error:', err);
+      }
+    }
   }
 
   /**
@@ -1615,6 +1822,8 @@ export class SceneManager {
     const allowMotionAnim =
       this.hasInitializedScene &&
       reason !== 'load' &&
+      reason !== 'preset' &&
+      reason !== 'styleAll' &&
       reason !== 'resize' &&
       reason !== 'undo' &&
       reason !== 'redo';
@@ -2515,6 +2724,8 @@ export class SceneManager {
     const height = this.container.clientHeight || window.innerHeight;
     this.isoCamera.resize(width, height);
     this.renderer.setSize(width, height);
+    const pr = typeof this.renderer.getPixelRatio === 'function' ? this.renderer.getPixelRatio() : 1;
+    this.shaderPipeline.resize(width, height, pr);
   }
 
   /**
@@ -2735,6 +2946,7 @@ export class SceneManager {
       this.elapsedTime += dt;
 
       this.updateRunningTimeCycle(dt);
+      this.updateCloudTransition(dt);
       this.isoCamera.update(dt);
       this.updateWallTranslucency(dt, false);
       this.updateItemAnimations(dt);
@@ -2826,7 +3038,7 @@ export class SceneManager {
       }
 
       this.updateDynamicShadowSchedule(dt);
-      this.renderer.render(this.scene, this.isoCamera.camera);
+      this.shaderPipeline.render(this.renderer, this.scene, this.isoCamera.camera, this.elapsedTime);
     };
     this.rafId = requestAnimationFrame(tick);
   }
@@ -2868,6 +3080,10 @@ export class SceneManager {
     this.eraseHoverOutline.geometry.dispose();
     (this.eraseHoverOutline.material as THREE.Material).dispose();
     this._gridVisual.dispose();
+    this.cloudTransition = null;
+    this.cloudTransitionHook = null;
+    this.shaderListeners.clear();
+    this.shaderPipeline.dispose();
     this.previewRenderer?.dispose();
     this.previewRenderer = null;
     this.assetLoader.dispose();

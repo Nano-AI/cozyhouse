@@ -510,9 +510,12 @@ export function createSkyDome(
 }
 
 interface LinearCloud {
-  x: number;
-  z: number;
-  baseY: number;
+  /** Horizontal cross-sky position along camera-right axis in [-CLOUD_WRAP_HALF, +CLOUD_WRAP_HALF]. */
+  u: number;
+  /** Upper-sky vertical offset along camera-up axis so clouds float above the house without blocking it. */
+  v: number;
+  /** World-space altitude above ground (11.5..16.8), kept strictly above house/trees and in front of ground. */
+  altitude: number;
   rotY: number;
   speedMul: number;
   bobPhase: number;
@@ -533,11 +536,20 @@ export interface LinearCloudFieldHandle {
   dispose(): void;
 }
 
-const CLOUD_SPAN = 90; // 180 x 180 drifting field
+/** Wide off-screen wrap distance so clouds enter and exit 100% outside any viewport (even ultrawide zoomed out). */
+const CLOUD_WRAP_HALF = 68;
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+
+function shortestAngleDiff(from: number, to: number): number {
+  let d = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
 
 /**
- * Natural linear wind-drifting cumulus cloud layer rendered as a SINGLE InstancedMesh
- * draw call, continuously tinted across all 24 hours with zero per-frame allocations.
+ * Natural horizontal cross-sky cumulus cloud layer rendered as a SINGLE InstancedMesh
+ * draw call. Clouds glide strictly left-to-right across the upper sky at 100% constant
+ * scale (`c.baseScale` — zero shrinking!) and recycle only once completely off-screen.
  */
 export function createLinearCloudField(
   weather: WeatherDef,
@@ -561,17 +573,17 @@ export function createLinearCloudField(
   });
 
   const clouds: LinearCloud[] = [];
-  const count = 20;
+  const count = 18;
   let totalPuffs = 0;
 
   for (let i = 0; i < count; i++) {
-    const baseScale = 1.45 + seededHash(i * 3 + 1) * 1.35;
+    const baseScale = 1.25 + seededHash(i * 3 + 1) * 1.15;
     const puffCount = 4 + (i % 3);
     const puffOffsets: LinearCloud['puffOffsets'] = [];
 
     for (let p = 0; p < puffCount; p++) {
       const spreadX = (p - (puffCount - 1) * 0.5) * 0.88;
-      const spreadZ = (seededHash(i * 11 + p * 7) - 0.5) * 0.75;
+      const spreadZ = (seededHash(i * 11 + p * 7) - 0.5) * 0.72;
       const spreadY = p === Math.floor(puffCount / 2) ? 0.28 : (seededHash(i * 5 + p) - 0.45) * 0.22;
       const r = p === Math.floor(puffCount / 2) ? 0.95 : 0.58 + seededHash(i * 13 + p) * 0.28;
       puffOffsets.push({
@@ -585,18 +597,22 @@ export function createLinearCloudField(
       totalPuffs++;
     }
 
-    const col = i % 5;
-    const row = Math.floor(i / 5);
-    const x = -CLOUD_SPAN + ((col + 0.5) / 5) * (CLOUD_SPAN * 2) + (seededHash(i * 17) - 0.5) * 26;
-    const z = -CLOUD_SPAN + ((row + 0.5) / 4) * (CLOUD_SPAN * 2) + (seededHash(i * 23) - 0.5) * 26;
-    const baseY = 18.5 + seededHash(i * 29) * 9.0;
+    // Evenly stratified horizontally across the full [-68..+68] sky corridor
+    const u =
+      -CLOUD_WRAP_HALF +
+      ((i + 0.5) / count) * (CLOUD_WRAP_HALF * 2) +
+      (seededHash(i * 17 + 2) - 0.5) * 5.2;
+    // Upper sky backdrop band (+3.8..+13.8): frames the scene cleanly above the house
+    const bandRow = i % 3;
+    const v = 3.8 + bandRow * 3.1 + seededHash(i * 23 + 5) * 3.4;
+    const altitude = 11.8 + seededHash(i * 29 + 9) * 4.8;
 
     clouds.push({
-      x,
-      z,
-      baseY,
-      rotY: (seededHash(i * 31) - 0.5) * 0.5 + 0.35,
-      speedMul: 0.75 + seededHash(i * 37) * 0.55,
+      u,
+      v,
+      altitude,
+      rotY: (seededHash(i * 31) - 0.5) * 0.35,
+      speedMul: 0.78 + seededHash(i * 37) * 0.48,
       bobPhase: seededHash(i * 41) * Math.PI * 2,
       baseScale,
       puffOffsets,
@@ -613,6 +629,11 @@ export function createLinearCloudField(
 
   const baseColor = new THREE.Color();
   const keyTint = new THREE.Color();
+  const camRight = new THREE.Vector3();
+  const camUp = new THREE.Vector3();
+  const prevCamPos = new THREE.Vector3();
+  let prevAzimuth = 0;
+  let camInitialized = false;
 
   const applyThemeTint = (w: WeatherDef, tod: TimeOfDay = 'day', hourParam?: number) => {
     const h = resolveTimeHour(tod, hourParam);
@@ -654,42 +675,76 @@ export function createLinearCloudField(
     group,
     applyThemeTint,
     update(elapsed, dt, activeWeather, cameraPos, cameraForward) {
-      const baseSpeed = 1.05 + activeWeather.windStrength * 3.8;
-      const windDirX = 0.86;
-      const windDirZ = 0.51;
+      // True horizontal cross-sky breeze vector strictly perpendicular to camera look direction
+      camRight.crossVectors(cameraForward, WORLD_UP);
+      if (camRight.lengthSq() < 1e-6) {
+        camRight.set(1, 0, 0);
+      } else {
+        camRight.normalize();
+      }
+      camUp.crossVectors(camRight, cameraForward).normalize();
+
+      // Smooth 3D sky parallax when camera rotates 90° or pans horizontally
+      const curAzimuth = Math.atan2(cameraForward.x, cameraForward.z);
+      let parallaxShiftU = 0;
+      if (camInitialized) {
+        const dAz = shortestAngleDiff(prevAzimuth, curAzimuth);
+        const dxCam = cameraPos.x - prevCamPos.x;
+        const dzCam = cameraPos.z - prevCamPos.z;
+        const panRight = dxCam * camRight.x + dzCam * camRight.z;
+        parallaxShiftU = dAz * 26.0 - panRight * 0.35;
+      } else {
+        camInitialized = true;
+      }
+      prevAzimuth = curAzimuth;
+      prevCamPos.copy(cameraPos);
+
+      // Horizontal basis aligned with camera-right so flat-bottomed clouds face cleanly across the sky
+      const rx = camRight.x;
+      const rz = camRight.z;
+      const bx = -rz;
+      const bz = rx;
+
+      const baseSpeed = 1.15 + activeWeather.windStrength * 3.4;
+      const forwardDown = Math.max(0.25, -cameraForward.y);
       const arr = instancedClouds.instanceMatrix.array as Float32Array;
       let idx = 0;
 
       for (let i = 0; i < clouds.length; i++) {
         const c = clouds[i];
-        c.x += windDirX * baseSpeed * c.speedMul * dt;
-        c.z += windDirZ * baseSpeed * c.speedMul * dt;
+        c.u += baseSpeed * c.speedMul * dt + parallaxShiftU;
 
-        if (c.x > CLOUD_SPAN) c.x -= CLOUD_SPAN * 2;
-        if (c.x < -CLOUD_SPAN) c.x += CLOUD_SPAN * 2;
-        if (c.z > CLOUD_SPAN) c.z -= CLOUD_SPAN * 2;
-        if (c.z < -CLOUD_SPAN) c.z += CLOUD_SPAN * 2;
-
-        const cy = c.baseY + Math.sin(elapsed * 0.45 + c.bobPhase) * 0.25;
-        const camDepth =
-          (c.x - cameraPos.x) * cameraForward.x +
-          (cy - cameraPos.y) * cameraForward.y +
-          (c.z - cameraPos.z) * cameraForward.z;
-
-        let cloudScale = 0;
-        if (camDepth >= 7.5 && camDepth <= 132) {
-          const nearFade = THREE.MathUtils.smoothstep(camDepth, 7.5, 16.5);
-          const farFade = 1 - THREE.MathUtils.smoothstep(camDepth, 114, 132);
-          cloudScale = c.baseScale * nearFade * farFade;
+        // Recycle strictly once completely past the off-screen viewport edge (zero shrinking!)
+        if (c.u > CLOUD_WRAP_HALF) {
+          c.u -= CLOUD_WRAP_HALF * 2;
+        } else if (c.u < -CLOUD_WRAP_HALF) {
+          c.u += CLOUD_WRAP_HALF * 2;
         }
 
-        const cosY = Math.cos(c.rotY);
-        const sinY = Math.sin(c.rotY);
-        const puffs = c.puffOffsets;
+        const bob = Math.sin(elapsed * 0.42 + c.bobPhase) * 0.16;
+        const cy = c.altitude + bob;
+        // Exact ray depth keeping P.y === cy while preserving exact screen-vertical band c.v
+        const camDepth = (cameraPos.y - cy + camUp.y * c.v) / forwardDown;
 
+        // Constant full scale — NEVER shrinks! Only culls cleanly if behind camera plane.
+        const visible = camDepth >= 2.0 && camDepth <= 136.0;
+        const cloudScale = c.baseScale;
+
+        const cx = cameraPos.x + camRight.x * c.u + camUp.x * c.v + cameraForward.x * camDepth;
+        const cz = cameraPos.z + camRight.z * c.u + camUp.z * c.v + cameraForward.z * camDepth;
+
+        const cosR = Math.cos(c.rotY);
+        const sinR = Math.sin(c.rotY);
+        // Combined horizontal cloud X-axis and Z-axis in world XZ plane
+        const ux = rx * cosR - bx * sinR;
+        const uz = rz * cosR - bz * sinR;
+        const vx = rx * sinR + bx * cosR;
+        const vz = rz * sinR + bz * cosR;
+
+        const puffs = c.puffOffsets;
         for (let p = 0; p < puffs.length; p++) {
           const o = idx * 16;
-          if (cloudScale <= 0.002) {
+          if (!visible) {
             arr[o] = 0; arr[o + 1] = 0; arr[o + 2] = 0; arr[o + 3] = 0;
             arr[o + 4] = 0; arr[o + 5] = 0; arr[o + 6] = 0; arr[o + 7] = 0;
             arr[o + 8] = 0; arr[o + 9] = 0; arr[o + 10] = 0; arr[o + 11] = 0;
@@ -699,21 +754,21 @@ export function createLinearCloudField(
             const sx = pf.sx * cloudScale;
             const sy = pf.sy * cloudScale;
             const sz = pf.sz * cloudScale;
-            const px = c.x + (pf.ox * cosY + pf.oz * sinY) * cloudScale;
+            const px = cx + (pf.ox * ux + pf.oz * vx) * cloudScale;
             const py = cy + pf.oy * cloudScale;
-            const pz = c.z + (-pf.ox * sinY + pf.oz * cosY) * cloudScale;
+            const pz = cz + (pf.ox * uz + pf.oz * vz) * cloudScale;
 
-            arr[o] = cosY * sx;
+            arr[o] = ux * sx;
             arr[o + 1] = 0;
-            arr[o + 2] = -sinY * sx;
+            arr[o + 2] = uz * sx;
             arr[o + 3] = 0;
             arr[o + 4] = 0;
             arr[o + 5] = sy;
             arr[o + 6] = 0;
             arr[o + 7] = 0;
-            arr[o + 8] = sinY * sz;
+            arr[o + 8] = vx * sz;
             arr[o + 9] = 0;
-            arr[o + 10] = cosY * sz;
+            arr[o + 10] = vz * sz;
             arr[o + 11] = 0;
             arr[o + 12] = px;
             arr[o + 13] = py;
@@ -725,6 +780,356 @@ export function createLinearCloudField(
       }
 
       instancedClouds.instanceMatrix.needsUpdate = true;
+    },
+    dispose() {
+      puffGeo.dispose();
+      cloudMat.dispose();
+    },
+  };
+}
+
+export type CloudTransitionPhase = 'idle' | 'in' | 'hold' | 'out';
+
+export interface CloudTransitionSwarmHandle {
+  group: THREE.Group;
+  applyThemeTint(weather: WeatherDef, timeOfDay?: TimeOfDay, timeHour?: number): void;
+  updateTransition(
+    phase: CloudTransitionPhase,
+    t: number,
+    camera: THREE.OrthographicCamera,
+    elapsed: number,
+  ): void;
+  dispose(): void;
+}
+
+interface TransitionCloudCluster {
+  startU: number;
+  startV: number;
+  targetU: number;
+  targetV: number;
+  zLayer: number;
+  enterDelay: number;
+  exitDelay: number;
+  billowPhase: number;
+  baseScale: number;
+  puffs: Array<{
+    ox: number;
+    oy: number;
+    oz: number;
+    rx: number;
+    ry: number;
+    rz: number;
+    shade: number;
+  }>;
+}
+
+function easeOutCubicCloud(t: number): number {
+  const inv = 1 - t;
+  return 1 - inv * inv * inv;
+}
+
+function easeInOutCubicCloud(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+/**
+ * Cinematic 3D cloud-cluster transition swarm aligned directly in front of the active
+ * OrthographicCamera (`renderOrder = 950`, `depthTest = false`, `depthWrite = false`).
+ * Hidden (`visible = false`, 0 draw calls) during normal play; sweeps in from all 360°
+ * viewport edges to blanket 100% of the frustum at `'hold'`, then parts outward smoothly.
+ */
+export function createCloudTransitionSwarm(
+  weather: WeatherDef,
+  timeOfDay: TimeOfDay = 'day',
+  timeHour?: number,
+): CloudTransitionSwarmHandle {
+  const group = new THREE.Group();
+  group.name = 'CloudTransitionGroup';
+  group.visible = false;
+
+  const puffGeo = new THREE.IcosahedronGeometry(1, 1);
+  const cloudMat = new THREE.MeshStandardMaterial({
+    color: '#FAFBFD',
+    emissive: '#EAEFF6',
+    emissiveIntensity: 0.24,
+    roughness: 0.92,
+    metalness: 0.0,
+    flatShading: true,
+    depthTest: false,
+    depthWrite: false,
+    fog: false,
+  });
+
+  const clusters: TransitionCloudCluster[] = [];
+  let totalPuffs = 0;
+
+  const makePuffs = (seed: number, isHero: boolean): TransitionCloudCluster['puffs'] => {
+    const puffs: TransitionCloudCluster['puffs'] = [
+      // Core generous puff guaranteeing wide solid coverage
+      { ox: 0, oy: 0.03, oz: 0, rx: 0.46, ry: 0.48, rz: 0.34, shade: isHero ? 1.0 : 0.94 },
+      // Left-lower shoulder billow
+      {
+        ox: -0.26,
+        oy: -0.08 + (seededHash(seed + 1) - 0.5) * 0.06,
+        oz: -0.04,
+        rx: 0.36,
+        ry: 0.38,
+        rz: 0.28,
+        shade: isHero ? 0.96 : 0.90,
+      },
+      // Right-lower shoulder billow
+      {
+        ox: 0.26,
+        oy: -0.06 + (seededHash(seed + 2) - 0.5) * 0.06,
+        oz: -0.02,
+        rx: 0.36,
+        ry: 0.38,
+        rz: 0.28,
+        shade: isHero ? 0.97 : 0.91,
+      },
+      // Top sculpted dome crest
+      {
+        ox: (seededHash(seed + 3) - 0.5) * 0.14,
+        oy: 0.20,
+        oz: 0.05,
+        rx: 0.34,
+        ry: 0.36,
+        rz: 0.26,
+        shade: isHero ? 1.0 : 0.96,
+      },
+    ];
+    totalPuffs += puffs.length;
+    return puffs;
+  };
+
+  // Layer 1 (Back Blanket, 20 clusters in a stratified 5x4 layout guaranteeing 100% coverage)
+  const cols = 5;
+  const rows = 4;
+  let idxSeed = 10;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = r * cols + c;
+      const baseU = -1.0 + (c / (cols - 1)) * 2.0;
+      const baseV = -0.96 + (r / (rows - 1)) * 1.92;
+      const targetU = baseU + (seededHash(idxSeed + 1) - 0.5) * 0.14;
+      const targetV = baseV + (seededHash(idxSeed + 2) - 0.5) * 0.14;
+
+      const dist = Math.hypot(targetU, targetV);
+      const angle = dist > 0.08 ? Math.atan2(targetV, targetU) : (i * 2.39996) % (Math.PI * 2);
+      const dirX = Math.cos(angle);
+      const dirY = Math.sin(angle);
+      // Push strictly outside viewport edge + puff radius so zero clouds appear at t = 0
+      const rimScale = 2.05 + seededHash(idxSeed + 3) * 0.45;
+      const normMax = Math.max(Math.abs(dirX), Math.abs(dirY), 0.35);
+      const startU = (dirX / normMax) * rimScale;
+      const startV = (dirY / normMax) * rimScale;
+
+      clusters.push({
+        startU,
+        startV,
+        targetU,
+        targetV,
+        zLayer: -1.6 + (i / (cols * rows)) * 1.4,
+        enterDelay: Math.min(0.16, (1 - Math.min(1, dist / 1.4)) * 0.14),
+        exitDelay: Math.min(0.16, Math.min(1, dist / 1.4) * 0.15),
+        billowPhase: seededHash(idxSeed + 4) * Math.PI * 2,
+        baseScale: 1.06 + seededHash(idxSeed + 5) * 0.16,
+        puffs: makePuffs(idxSeed + 6, false),
+      });
+      idxSeed += 13;
+    }
+  }
+
+  // Layer 2 (Foreground Hero Clusters, 12 volumetric billowing puffs rendered in front)
+  const heroCount = 12;
+  for (let i = 0; i < heroCount; i++) {
+    const isCenter = i < 4;
+    const angle = isCenter
+      ? (i / 4) * Math.PI * 2 + 0.4
+      : ((i - 4) / (heroCount - 4)) * Math.PI * 2 + 0.22;
+    const radU = isCenter ? 0.24 + seededHash(idxSeed + 1) * 0.18 : 0.62 + seededHash(idxSeed + 1) * 0.32;
+    const radV = isCenter ? 0.22 + seededHash(idxSeed + 2) * 0.16 : 0.56 + seededHash(idxSeed + 2) * 0.30;
+    const targetU = Math.cos(angle) * radU;
+    const targetV = Math.sin(angle) * radV;
+
+    const dirX = Math.cos(angle);
+    const dirY = Math.sin(angle);
+    const normMax = Math.max(Math.abs(dirX), Math.abs(dirY), 0.35);
+    const rimScale = 2.15 + seededHash(idxSeed + 3) * 0.45;
+    const startU = (dirX / normMax) * rimScale;
+    const startV = (dirY / normMax) * rimScale;
+
+    clusters.push({
+      startU,
+      startV,
+      targetU,
+      targetV,
+      zLayer: 0.3 + (i / heroCount) * 1.6,
+      enterDelay: isCenter ? 0.14 : 0.05 + seededHash(idxSeed + 4) * 0.08,
+      exitDelay: isCenter ? 0.0 : 0.08 + seededHash(idxSeed + 5) * 0.09,
+      billowPhase: seededHash(idxSeed + 6) * Math.PI * 2,
+      baseScale: (isCenter ? 1.16 : 1.04) + seededHash(idxSeed + 7) * 0.14,
+      puffs: makePuffs(idxSeed + 8, true),
+    });
+    idxSeed += 17;
+  }
+
+  // Sort strictly back-to-front so painter's order renders foreground puffs cleanly over back blanket
+  clusters.sort((a, b) => a.zLayer - b.zLayer);
+
+  const instanced = new THREE.InstancedMesh(puffGeo, cloudMat, totalPuffs);
+  instanced.name = 'CloudTransitionInstances';
+  instanced.renderOrder = 950;
+  instanced.frustumCulled = false;
+  instanced.matrixAutoUpdate = false;
+  instanced.updateMatrix();
+
+  // Assign subtle sculpted per-puff shading so overlapping clusters read as volumetric clouds
+  const shadeColor = new THREE.Color();
+  let colorIdx = 0;
+  for (let c = 0; c < clusters.length; c++) {
+    const puffs = clusters[c].puffs;
+    for (let p = 0; p < puffs.length; p++) {
+      const s = puffs[p].shade;
+      // Soft warm cream-white highlight on tops, delicate cool-sky underside shading on rear puffs
+      shadeColor.setRGB(s * 0.99, s * 0.995, Math.min(1, s * 1.015));
+      instanced.setColorAt(colorIdx++, shadeColor);
+    }
+  }
+  if (instanced.instanceColor) {
+    instanced.instanceColor.needsUpdate = true;
+  }
+  group.add(instanced);
+
+  const camForwardScratch = new THREE.Vector3();
+  const tintBase = new THREE.Color();
+  const tintKey = new THREE.Color();
+  const tintWhite = new THREE.Color('#FAFBFD');
+
+  const applyThemeTint = (w: WeatherDef, tod: TimeOfDay = 'day', hourParam?: number) => {
+    const h = resolveTimeHour(tod, hourParam);
+    const { a, b, t } = findKeyframeSegment(h);
+    const nightWeight = computeStarNightFactor(h);
+
+    if (w.lightning) {
+      tintBase.set('#B4C0D2');
+    } else if (w.id === 'rain') {
+      tintBase.set('#D2DCE8');
+    } else if (w.id === 'fog') {
+      tintBase.set('#EEF2F4');
+    } else if (w.id === 'snow') {
+      tintBase.set('#F4F8FD');
+    } else {
+      tintBase.set('#FAFBFD');
+    }
+
+    tintKey.copy(a.cloudTint).lerp(b.cloudTint, t);
+    const blend = (a.cloudBlend + (b.cloudBlend - a.cloudBlend) * t) * 0.42;
+    tintBase.lerp(tintKey, blend);
+    // Keep clouds soft, cozy, and pastel even at deep night
+    tintBase.lerp(tintWhite, 0.25);
+
+    cloudMat.color.copy(tintBase);
+    cloudMat.emissive.copy(tintBase);
+    cloudMat.emissiveIntensity = 0.22 + nightWeight * 0.24;
+  };
+
+  applyThemeTint(weather, timeOfDay, timeHour);
+
+  return {
+    group,
+    applyThemeTint,
+    updateTransition(phase, t, camera, elapsed) {
+      if (phase === 'idle') {
+        group.visible = false;
+        return;
+      }
+
+      const clampedT = Math.max(0, Math.min(1, t));
+      if (phase === 'out' && clampedT >= 0.999) {
+        group.visible = false;
+        return;
+      }
+
+      group.visible = true;
+      camera.getWorldDirection(camForwardScratch);
+      group.position.copy(camera.position).addScaledVector(camForwardScratch, 12);
+      group.quaternion.copy(camera.quaternion);
+      group.updateMatrixWorld(true);
+
+      const zoom = Math.max(0.05, camera.zoom);
+      const halfW = Math.max(0.5, (camera.right - camera.left) / (2 * zoom));
+      const halfH = Math.max(0.5, (camera.top - camera.bottom) / (2 * zoom));
+
+      const arr = instanced.instanceMatrix.array as Float32Array;
+      let idx = 0;
+
+      for (let i = 0; i < clusters.length; i++) {
+        const cl = clusters[i];
+        let u = cl.targetU;
+        let v = cl.targetV;
+        let scaleMul = 1.02;
+
+        if (phase === 'in') {
+          const p = Math.max(0, Math.min(1, (clampedT - cl.enterDelay) / Math.max(0.05, 1 - cl.enterDelay)));
+          const e = easeOutCubicCloud(p);
+          u = cl.startU + (cl.targetU - cl.startU) * e;
+          v = cl.startV + (cl.targetV - cl.startV) * e;
+          scaleMul = 0.86 + 0.18 * e;
+        } else if (phase === 'hold') {
+          const driftU = Math.sin(elapsed * 2.4 + cl.billowPhase) * 0.022;
+          const driftV = Math.cos(elapsed * 2.1 + cl.billowPhase * 1.3) * 0.018;
+          u = cl.targetU + driftU;
+          v = cl.targetV + driftV;
+          scaleMul = 1.04 + Math.sin(elapsed * 3.1 + cl.billowPhase) * 0.025;
+        } else {
+          // 'out': center clouds part first like curtains, sweeping smoothly past all viewport edges
+          const p = Math.max(0, Math.min(1, (clampedT - cl.exitDelay) / Math.max(0.05, 1 - cl.exitDelay)));
+          const e = easeInOutCubicCloud(p);
+          const exitU = cl.startU * 1.12;
+          const exitV = cl.startV * 1.12;
+          u = cl.targetU + (exitU - cl.targetU) * e;
+          v = cl.targetV + (exitV - cl.targetV) * e;
+          scaleMul = 1.04 - 0.16 * e;
+        }
+
+        const cx = u * halfW;
+        const cy = v * halfH;
+        const cz = cl.zLayer;
+        const cScale = cl.baseScale * scaleMul;
+        const puffs = cl.puffs;
+
+        for (let p = 0; p < puffs.length; p++) {
+          const pf = puffs[p];
+          const sx = pf.rx * cScale * halfW;
+          const sy = pf.ry * cScale * halfH;
+          const sz = pf.rz * cScale * Math.min(halfW, halfH) * 0.55;
+          const px = cx + pf.ox * cScale * halfW;
+          const py = cy + pf.oy * cScale * halfH;
+          const pz = cz + pf.oz;
+
+          const o = idx * 16;
+          arr[o] = sx;
+          arr[o + 1] = 0;
+          arr[o + 2] = 0;
+          arr[o + 3] = 0;
+          arr[o + 4] = 0;
+          arr[o + 5] = sy;
+          arr[o + 6] = 0;
+          arr[o + 7] = 0;
+          arr[o + 8] = 0;
+          arr[o + 9] = 0;
+          arr[o + 10] = sz;
+          arr[o + 11] = 0;
+          arr[o + 12] = px;
+          arr[o + 13] = py;
+          arr[o + 14] = pz;
+          arr[o + 15] = 1;
+          idx++;
+        }
+      }
+
+      instanced.instanceMatrix.needsUpdate = true;
     },
     dispose() {
       puffGeo.dispose();

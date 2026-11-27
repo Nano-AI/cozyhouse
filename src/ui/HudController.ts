@@ -1,12 +1,13 @@
-import type { AudioModule } from '../audio/AudioModule';
+import { MUSIC_THEME_LABELS, type AudioModule } from '../audio/AudioModule';
 import type { CatalogTabId, FurnitureItemDef, VisitorDef } from '../data/schemas';
 import type { HoverItemInfo, PlacementController } from '../engine/PlacementController';
-import type { SceneManager } from '../engine/SceneManager';
+import type { SceneManager, VisualShaderId } from '../engine/SceneManager';
 import { evaluateRoomType } from '../rooms/RoomEvaluator';
 import { exportHouseToFile, importHouseFromFile } from '../save/fileIO';
 import { decodeHouseFromShareLink, encodeHouseToShareUrl } from '../save/shareLink';
 import type { SceneryModule } from '../scenery/SceneryModule';
 import { createEmptyHouse, createStarterHouse } from '../state/defaultHouse';
+import { HOUSE_PRESETS, createPresetHouse } from '../state/housePresets';
 import type { EraseFilter, ExpandSide, HouseStore, WallViewMode } from '../state/houseStore';
 import type { VisitorModule } from '../visitors/VisitorModule';
 import { CelebrationBanner } from './CelebrationBanner';
@@ -17,6 +18,7 @@ import {
   createStorybookIconEl,
   getLocationStorybookIconName,
   getRoomStorybookIconName,
+  getShaderStorybookIconName,
   getWeatherStorybookIconName,
 } from './icons';
 
@@ -74,6 +76,19 @@ const WEATHER_SLIDER_ORDER: Array<{
   { id: 'fog', label: 'Fog', icon: 'weather_fog' },
   { id: 'thunderstorm', label: 'Thunderstorm', icon: 'weather_thunderstorm' },
   { id: 'snow', label: 'Snow', icon: 'weather_snow' },
+];
+
+const SHADER_STYLES: Array<{
+  id: VisualShaderId;
+  label: string;
+  icon: StorybookIconName;
+}> = [
+  { id: 'default', label: 'Cozy', icon: 'shader_default' },
+  { id: 'retro_dither', label: 'Retro Dither', icon: 'shader_retro_dither' },
+  { id: 'pocket', label: 'Pocket', icon: 'shader_pocket' },
+  { id: 'storybook_ink', label: 'Storybook Ink', icon: 'shader_storybook_ink' },
+  { id: 'golden_film', label: 'Golden Film', icon: 'shader_golden_film' },
+  { id: 'crt_lofi', label: 'CRT Lo-Fi', icon: 'shader_crt_lofi' },
 ];
 
 const WALL_VIEW_OPTIONS: Array<{ id: WallViewMode; label: string; fullLabel: string }> = [
@@ -453,7 +468,7 @@ export class HudController {
   private lotPopoverEl!: HTMLDivElement;
   private fileInputEl!: HTMLInputElement;
 
-  // Live storybook slider refs so dragging stays silky smooth without rebuilding DOM
+  // Live storybook slider & control refs so dragging/updates stay silky smooth without rebuilding DOM
   private timeThumbEl: HTMLDivElement | null = null;
   private timeTrackEl: HTMLDivElement | null = null;
   private timeStatusEl: HTMLSpanElement | null = null;
@@ -461,6 +476,22 @@ export class HudController {
   private weatherThumbEl: HTMLDivElement | null = null;
   private weatherTrackEl: HTMLDivElement | null = null;
   private weatherStopBtns: HTMLButtonElement[] = [];
+  private shaderStyleBtns: Map<VisualShaderId, HTMLButtonElement> = new Map();
+  private musicRowRefs: Array<{
+    row: HTMLDivElement;
+    iconSlot: HTMLButtonElement;
+    vibeEl: HTMLSpanElement;
+    trackEl: HTMLDivElement;
+    orbEl: HTMLDivElement;
+    pctEl: HTMLSpanElement;
+  }> = [];
+  private weatherAudioRefs: Array<{
+    row: HTMLDivElement;
+    iconSlot: HTMLButtonElement;
+    trackEl: HTMLDivElement;
+    orbEl: HTMLDivElement;
+    pctEl: HTMLSpanElement;
+  }> = [];
   private volumeThumbEls: HTMLDivElement[] = [];
   private volumeValueEls: HTMLSpanElement[] = [];
 
@@ -606,6 +637,14 @@ export class HudController {
       this.unsubscribes.push(
         this.audioModule.onMuteChange(() => this.syncSoundButton()),
         this.audioModule.onVolumeChange(() => this.syncVolumeSlidersLive()),
+        this.audioModule.onMusicChange(() => this.syncMusicControlsLive()),
+        this.audioModule.onMusicVolumeChange(() => this.syncMusicControlsLive()),
+        this.audioModule.onWeatherVolumeChange(() => this.syncWeatherVolumeControlsLive()),
+      );
+    }
+    if (this.sceneManager.onShaderChange) {
+      this.unsubscribes.push(
+        this.sceneManager.onShaderChange(() => this.syncShaderButtonsLive()),
       );
     }
 
@@ -706,29 +745,43 @@ export class HudController {
     }
   }
 
-  private switchLocationWithTransition(viewId: string): void {
-    if (this.store.getState().sceneryViewId === viewId) return;
-    const viewDef = this.store.data.viewsById.get(viewId);
-    if (!viewDef) return;
+  private runCloudTransition(
+    onMidpoint: () => void,
+    fallbackTitle?: string,
+    fallbackIcon?: StorybookIconName,
+  ): void {
+    if (typeof this.sceneManager.playCloudTransition === 'function') {
+      this.sceneManager.playCloudTransition(onMidpoint, {
+        onStart: () => {
+          this.setActivePopover(null);
+          this.setHoverItem(null);
+          this.root.classList.add('is-cloud-transitioning');
+        },
+        onComplete: () => {
+          this.root.classList.remove('is-cloud-transitioning');
+        },
+      });
+      return;
+    }
 
+    // Graceful storybook curtain fallback if 3D cloud transition is unavailable
     this.clearLocationTimers();
+    this.setActivePopover(null);
     this.locationCurtainIconEl.innerHTML = '';
-    this.locationCurtainIconEl.appendChild(
-      createStorybookIconEl(getLocationStorybookIconName(viewId), 64),
-    );
-    this.locationCurtainTitleEl.textContent = viewDef.name;
+    if (fallbackIcon) {
+      this.locationCurtainIconEl.appendChild(createStorybookIconEl(fallbackIcon, 64));
+    }
+    this.locationCurtainTitleEl.textContent = fallbackTitle ?? '';
 
     this.locationCurtainEl.classList.remove('hidden', 'leaving');
     void this.locationCurtainEl.offsetWidth;
     this.locationCurtainEl.classList.add('visible');
 
-    // Swap scenery cleanly at peak opacity (~220ms)
     this.locSwapTimer = window.setTimeout(() => {
-      this.store.setSceneryView(viewId);
+      onMidpoint();
       this.locSwapTimer = null;
     }, 220);
 
-    // Fade curtain out (~360ms -> ~560ms total)
     this.locFadeTimer = window.setTimeout(() => {
       this.locationCurtainEl.classList.remove('visible');
       this.locationCurtainEl.classList.add('leaving');
@@ -739,6 +792,30 @@ export class HudController {
         this.locHideTimer = null;
       }, 210);
     }, 360);
+  }
+
+  private switchLocationWithTransition(viewId: string): void {
+    if (this.store.getState().sceneryViewId === viewId) return;
+    const viewDef = this.store.data.viewsById.get(viewId);
+    if (!viewDef) return;
+    this.runCloudTransition(
+      () => this.store.setSceneryView(viewId),
+      viewDef.name,
+      getLocationStorybookIconName(viewId),
+    );
+  }
+
+  private switchPresetWithTransition(presetId: string): void {
+    const preset = HOUSE_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    this.runCloudTransition(
+      () => {
+        const nextState = createPresetHouse(preset.id, this.store.data);
+        this.store.loadPreset(nextState, preset.name);
+      },
+      preset.name,
+      getRoomStorybookIconName(preset.icon),
+    );
   }
 
   private ensureValidGroupDefaults(): void {
@@ -1802,20 +1879,19 @@ export class HudController {
         this.store.setPlacementVariant(vid);
       }),
     );
+    panel.appendChild(swatchRow);
 
     if (groupId === 'floors' || groupId === 'walls') {
-      const applyBtn = this.makeBtn(
-        groupId === 'floors' ? 'Apply All' : 'Apply All',
-        () => {
-          this.audioModule?.playUiClick();
-          this.applySurfaceStyleToAll(groupId, activeDef.id, activeVariantId);
-        },
-      );
-      applyBtn.className = 'btn btn-xs';
-      applyBtn.title = groupId === 'floors' ? 'Apply style to all floors' : 'Apply style to all walls';
-      swatchRow.appendChild(applyBtn);
+      const applyAllLabel =
+        groupId === 'walls' ? 'Apply to All Walls' : 'Apply to All Floors';
+      const applyBtn = this.makeBtn(applyAllLabel, () => {
+        this.audioModule?.playUiClick();
+        this.applySurfaceStyleToAll(groupId, activeDef.id, activeVariantId);
+      });
+      applyBtn.className = 'btn btn-xs inline-basics-apply-btn';
+      applyBtn.title = `Restyle every placed ${groupId === 'walls' ? 'wall' : 'floor tile'} to ${activeDef.name}`;
+      panel.appendChild(applyBtn);
     }
-    panel.appendChild(swatchRow);
 
     const stylesGrid = document.createElement('div');
     stylesGrid.className = 'inline-styles-grid';
@@ -1864,26 +1940,30 @@ export class HudController {
     variantId: string,
   ): void {
     const def = this.store.data.itemsById.get(itemId);
-    const uids = this.store
-      .getState()
-      .items.filter((it) => {
-        const d = this.store.data.itemsById.get(it.itemId);
-        return kind === 'floors' ? this.isFloorTileDef(d) : this.isStructuralWallDef(d);
-      })
-      .map((it) => it.uid);
+    const updated =
+      kind === 'walls'
+        ? this.store.applyStyleToAllWalls(itemId, variantId)
+        : this.store.applyStyleToAllFloors(itemId, variantId);
 
-    if (uids.length === 0) {
+    const noun = kind === 'floors' ? 'floor' : 'wall';
+    if (updated === 0) {
+      const hasAny = this.store
+        .getState()
+        .items.some((it) => {
+          const d = this.store.data.itemsById.get(it.itemId);
+          return kind === 'floors' ? this.isFloorTileDef(d) : this.isStructuralWallDef(d);
+        });
       this.store.notify(
-        kind === 'floors' ? 'No floor tiles placed yet' : 'No walls placed yet',
+        hasAny
+          ? `All ${noun}s already use ${def?.name ?? itemId}`
+          : `No ${noun}s placed yet`,
         'info',
       );
       return;
     }
 
-    const updated = this.store.replaceItemsType(uids, itemId, variantId);
-    const noun = kind === 'floors' ? 'floor tile' : 'wall';
     this.store.notify(
-      `Updated ${updated} ${noun}${updated === 1 ? '' : 's'} to ${def?.name ?? itemId}`,
+      `Updated ${updated} ${noun}${updated === 1 ? '' : 's'}`,
       'success',
     );
   }
@@ -2080,25 +2160,54 @@ export class HudController {
         if (wallDefs.length > 1) {
           this.contextBarEl.appendChild(
             this.buildStyleSelect(wallDefs, def.id, (nextItemId) => {
-              this.store.replaceItemsType([selected.uid], nextItemId);
+              const nextDef = this.store.data.itemsById.get(nextItemId);
+              const nextVariant =
+                nextDef?.variants.find((v) => v.id === selected.variantId)?.id ??
+                nextDef?.variants[0]?.id ??
+                selected.variantId;
+              this.store.applyStyleToSelection(nextItemId, nextVariant);
             }),
           );
         }
+        const applyAllWallsBtn = this.makeBtn('Apply All', () => {
+          this.audioModule?.playUiClick();
+          this.applySurfaceStyleToAll('walls', selected.itemId, selected.variantId);
+        });
+        applyAllWallsBtn.className = 'btn btn-xs';
+        applyAllWallsBtn.title = 'Apply this wall type & color to all walls';
+        this.contextBarEl.appendChild(applyAllWallsBtn);
       } else if (this.isFloorTileDef(def)) {
         const floorDefs = this.getBasicsGroupItems('floors');
         if (floorDefs.length > 1) {
           this.contextBarEl.appendChild(
             this.buildStyleSelect(floorDefs, def.id, (nextItemId) => {
-              this.store.replaceItemsType([selected.uid], nextItemId);
+              const nextDef = this.store.data.itemsById.get(nextItemId);
+              const nextVariant =
+                nextDef?.variants.find((v) => v.id === selected.variantId)?.id ??
+                nextDef?.variants[0]?.id ??
+                selected.variantId;
+              this.store.applyStyleToSelection(nextItemId, nextVariant);
             }),
           );
         }
+        const applyAllFloorsBtn = this.makeBtn('Apply All', () => {
+          this.audioModule?.playUiClick();
+          this.applySurfaceStyleToAll('floors', selected.itemId, selected.variantId);
+        });
+        applyAllFloorsBtn.className = 'btn btn-xs';
+        applyAllFloorsBtn.title = 'Apply this floor type & color to all floors';
+        this.contextBarEl.appendChild(applyAllFloorsBtn);
       } else if (this.isDoorDef(def)) {
         const doorDefs = this.getBasicsGroupItems('doors');
         if (doorDefs.length > 1) {
           this.contextBarEl.appendChild(
             this.buildStyleSelect(doorDefs, def.id, (nextItemId) => {
-              this.store.replaceItemsType([selected.uid], nextItemId);
+              const nextDef = this.store.data.itemsById.get(nextItemId);
+              const nextVariant =
+                nextDef?.variants.find((v) => v.id === selected.variantId)?.id ??
+                nextDef?.variants[0]?.id ??
+                selected.variantId;
+              this.store.applyStyleToSelection(nextItemId, nextVariant);
             }),
           );
         }
@@ -2107,7 +2216,12 @@ export class HudController {
         if (winDefs.length > 1) {
           this.contextBarEl.appendChild(
             this.buildStyleSelect(winDefs, def.id, (nextItemId) => {
-              this.store.replaceItemsType([selected.uid], nextItemId);
+              const nextDef = this.store.data.itemsById.get(nextItemId);
+              const nextVariant =
+                nextDef?.variants.find((v) => v.id === selected.variantId)?.id ??
+                nextDef?.variants[0]?.id ??
+                selected.variantId;
+              this.store.applyStyleToSelection(nextItemId, nextVariant);
             }),
           );
         }
@@ -2205,54 +2319,106 @@ export class HudController {
 
     if (selectedItems.length > 0) {
       const itemIds = new Set(selectedItems.map((i) => i.itemId));
-      const allWalls = selectedItems.every((i) =>
+      const selectedWalls = selectedItems.filter((i) =>
         this.isStructuralWallDef(this.store.data.itemsById.get(i.itemId)),
       );
-      const allFloors = selectedItems.every((i) =>
+      const selectedFloors = selectedItems.filter((i) =>
         this.isFloorTileDef(this.store.data.itemsById.get(i.itemId)),
       );
+      const allWalls = selectedWalls.length === selectedItems.length;
+      const allFloors = selectedFloors.length === selectedItems.length;
 
       if (allWalls) {
         const commonId = itemIds.size === 1 ? selectedItems[0].itemId : null;
+        const repItem = selectedItems[0];
+        const repDef = this.store.data.itemsById.get(repItem.itemId);
+        const variants = new Set(selectedItems.map((i) => i.variantId));
+        const activeVariant =
+          itemIds.size === 1 && variants.size === 1 ? repItem.variantId : '';
+
         this.contextBarEl.appendChild(
           this.buildStyleSelect(
             this.getBasicsGroupItems('walls'),
             commonId,
             (nextId) => {
-              const changed = this.store.replaceItemsType(uids, nextId);
+              const nextDef = this.store.data.itemsById.get(nextId);
+              const nextVar =
+                nextDef?.variants.find((v) => v.id === repItem.variantId)?.id ??
+                nextDef?.variants[0]?.id ??
+                repItem.variantId;
+              const changed = this.store.applyStyleToSelection(nextId, nextVar);
               if (changed > 0) {
-                const nextDef = this.store.data.itemsById.get(nextId);
                 this.store.notify(
-                  `Updated ${changed} walls to ${nextDef?.name ?? nextId}`,
+                  `Updated ${changed} wall${changed === 1 ? '' : 's'}`,
                   'success',
                 );
               }
             },
-            'Swap wall…',
+            'Wall type…',
           ),
         );
+
+        if (repDef) {
+          this.contextBarEl.appendChild(
+            this.buildVariantSwatches(repDef, activeVariant, (variantId) => {
+              this.audioModule?.playUiClick();
+              this.store.applyStyleToSelection(repDef.id, variantId);
+            }),
+          );
+          const applyAllBtn = this.makeBtn('Apply All', () => {
+            this.audioModule?.playUiClick();
+            this.applySurfaceStyleToAll('walls', repDef.id, repItem.variantId);
+          });
+          applyAllBtn.className = 'btn btn-xs';
+          applyAllBtn.title = 'Apply this style to every wall in the house';
+          this.contextBarEl.appendChild(applyAllBtn);
+        }
       } else if (allFloors) {
         const commonId = itemIds.size === 1 ? selectedItems[0].itemId : null;
+        const repItem = selectedItems[0];
+        const repDef = this.store.data.itemsById.get(repItem.itemId);
+        const variants = new Set(selectedItems.map((i) => i.variantId));
+        const activeVariant =
+          itemIds.size === 1 && variants.size === 1 ? repItem.variantId : '';
+
         this.contextBarEl.appendChild(
           this.buildStyleSelect(
             this.getBasicsGroupItems('floors'),
             commonId,
             (nextId) => {
-              const changed = this.store.replaceItemsType(uids, nextId);
+              const nextDef = this.store.data.itemsById.get(nextId);
+              const nextVar =
+                nextDef?.variants.find((v) => v.id === repItem.variantId)?.id ??
+                nextDef?.variants[0]?.id ??
+                repItem.variantId;
+              const changed = this.store.applyStyleToSelection(nextId, nextVar);
               if (changed > 0) {
-                const nextDef = this.store.data.itemsById.get(nextId);
                 this.store.notify(
-                  `Updated ${changed} floors to ${nextDef?.name ?? nextId}`,
+                  `Updated ${changed} floor${changed === 1 ? '' : 's'}`,
                   'success',
                 );
               }
             },
-            'Swap floor…',
+            'Floor type…',
           ),
         );
-      }
 
-      if (itemIds.size === 1) {
+        if (repDef) {
+          this.contextBarEl.appendChild(
+            this.buildVariantSwatches(repDef, activeVariant, (variantId) => {
+              this.audioModule?.playUiClick();
+              this.store.applyStyleToSelection(repDef.id, variantId);
+            }),
+          );
+          const applyAllBtn = this.makeBtn('Apply All', () => {
+            this.audioModule?.playUiClick();
+            this.applySurfaceStyleToAll('floors', repDef.id, repItem.variantId);
+          });
+          applyAllBtn.className = 'btn btn-xs';
+          applyAllBtn.title = 'Apply this style to every floor in the house';
+          this.contextBarEl.appendChild(applyAllBtn);
+        }
+      } else if (itemIds.size === 1) {
         const sharedDef = this.store.data.itemsById.get(selectedItems[0].itemId);
         if (sharedDef) {
           const variants = new Set(selectedItems.map((i) => i.variantId));
@@ -2260,7 +2426,7 @@ export class HudController {
           this.contextBarEl.appendChild(
             this.buildVariantSwatches(sharedDef, activeVariant, (variantId) => {
               this.audioModule?.playUiClick();
-              this.store.setItemsVariant(uids, variantId);
+              this.store.applyStyleToSelection(sharedDef.id, variantId);
             }),
           );
         }
@@ -2307,9 +2473,20 @@ export class HudController {
     header.className = 'popover-header';
     const h4 = document.createElement('h4');
     h4.textContent = 'Space';
+
+    const headerActions = document.createElement('div');
+    headerActions.className = 'popover-header-actions';
+    const presetsBtn = this.makeBtn('Presets', () => {
+      this.audioModule?.playUiClick();
+      this.setActivePopover('menu');
+    });
+    presetsBtn.className = 'btn btn-xs';
+    presetsBtn.title = 'Browse handcrafted house presets';
     const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
     closeBtn.className = 'btn icon-close';
-    header.append(h4, closeBtn);
+    headerActions.append(presetsBtn, closeBtn);
+
+    header.append(h4, headerActions);
     this.roomPopoverEl.appendChild(header);
 
     const autoBtn = document.createElement('button');
@@ -2742,7 +2919,33 @@ export class HudController {
     }
     this.atmospherePopoverEl.appendChild(locRow);
 
-    // 4. Lightbulb Switch + Walls & Ceiling compact row
+    // 4. Visual Shader Style Switcher (6 illustrated icon-only buttons)
+    const activeShader = this.sceneManager.getShaderPreset?.() ?? 'default';
+    const shaderRow = document.createElement('div');
+    shaderRow.className = 'sb-shader-row';
+    shaderRow.setAttribute('role', 'group');
+    shaderRow.setAttribute('aria-label', 'Visual shader style');
+    this.shaderStyleBtns.clear();
+    for (const style of SHADER_STYLES) {
+      const isSelected = style.id === activeShader;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = isSelected ? 'sb-shader-btn active' : 'sb-shader-btn';
+      btn.title = style.label;
+      btn.setAttribute('aria-label', style.label);
+      btn.setAttribute('aria-pressed', String(isSelected));
+      btn.appendChild(createStorybookIconEl(getShaderStorybookIconName(style.id), 24));
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.sceneManager.setShaderPreset?.(style.id);
+        this.syncShaderButtonsLive();
+      });
+      this.shaderStyleBtns.set(style.id, btn);
+      shaderRow.appendChild(btn);
+    }
+    this.atmospherePopoverEl.appendChild(shaderRow);
+
+    // 5. Lightbulb Switch + Ceiling toggle
     const anyOn = this.store.areAnyLightsActive();
     const lightRow = document.createElement('div');
     lightRow.className = 'sb-light-switch-row';
@@ -2799,50 +3002,57 @@ export class HudController {
     lightRow.append(leftPair, ceilingBtn);
     this.atmospherePopoverEl.appendChild(lightRow);
 
-    // 5. Storybook Volume Rail
+    // 6. Separated Audio Mix Controls (Music + Weather independent ink-rail sliders)
     if (this.audioModule) {
-      this.atmospherePopoverEl.appendChild(this.buildVolumeControl());
+      this.atmospherePopoverEl.appendChild(this.buildAudioMixPanel(false));
     }
   }
 
-  private buildVolumeControl(): HTMLDivElement {
-    const wrap = document.createElement('div');
-    wrap.className = 'volume-control-row';
+  private syncShaderButtonsLive(): void {
+    const activeShader = this.sceneManager.getShaderPreset?.() ?? 'default';
+    for (const [id, btn] of this.shaderStyleBtns) {
+      if (!btn.isConnected) continue;
+      const on = id === activeShader;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', String(on));
+    }
+  }
 
-    const icon = createIconEl('volume', 15);
-    const vol = this.audioModule?.getVolume() ?? 0.85;
-
+  private createInkRailSlider(opts: {
+    ariaLabel: string;
+    initial: number;
+    getValue: () => number;
+    onChange: (next: number) => void;
+  }): { track: HTMLDivElement; orb: HTMLDivElement; pct: HTMLSpanElement } {
     const track = document.createElement('div');
     track.className = 'sb-vol-track';
     track.setAttribute('role', 'slider');
     track.setAttribute('tabindex', '0');
-    track.setAttribute('aria-label', 'Master volume');
+    track.setAttribute('aria-label', opts.ariaLabel);
     track.setAttribute('aria-valuemin', '0');
     track.setAttribute('aria-valuemax', '100');
+    track.setAttribute('aria-valuenow', String(Math.round(opts.initial * 100)));
 
     const rail = document.createElement('div');
     rail.className = 'sb-vol-rail';
     const orb = document.createElement('div');
     orb.className = 'sb-slider-orb small';
-    orb.style.left = `${Math.round(vol * 100)}%`;
+    orb.style.left = `${Math.round(opts.initial * 100)}%`;
     track.append(rail, orb);
 
     const pct = document.createElement('span');
     pct.className = 'volume-pct tabular-num';
-    pct.textContent = `${Math.round(vol * 100)}%`;
+    pct.textContent = `${Math.round(opts.initial * 100)}%`;
 
     const applyClientX = (clientX: number) => {
       const rect = rail.getBoundingClientRect();
       if (rect.width <= 0) return;
       const next = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      orb.style.left = `${Math.round(next * 100)}%`;
-      pct.textContent = `${Math.round(next * 100)}%`;
-      if (this.audioModule) {
-        if (next > 0 && this.audioModule.isMuted()) {
-          this.audioModule.setMuted(false);
-        }
-        this.audioModule.setVolume(next);
-      }
+      const p = Math.round(next * 100);
+      orb.style.left = `${p}%`;
+      pct.textContent = `${p}%`;
+      track.setAttribute('aria-valuenow', String(p));
+      opts.onChange(next);
     };
 
     let dragging = false;
@@ -2869,23 +3079,220 @@ export class HudController {
     track.addEventListener('pointercancel', endDrag);
 
     track.addEventListener('keydown', (e) => {
-      const cur = this.audioModule?.getVolume() ?? 0.85;
+      const cur = opts.getValue();
       if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
         e.preventDefault();
-        this.audioModule?.setVolume(Math.min(1, cur + 0.05));
+        opts.onChange(Math.min(1, cur + 0.05));
       } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
         e.preventDefault();
-        this.audioModule?.setVolume(Math.max(0, cur - 0.05));
+        opts.onChange(Math.max(0, cur - 0.05));
       }
     });
 
-    this.volumeThumbEls = this.volumeThumbEls.filter((el) => el.isConnected);
-    this.volumeValueEls = this.volumeValueEls.filter((el) => el.isConnected);
-    this.volumeThumbEls.push(orb);
-    this.volumeValueEls.push(pct);
+    return { track, orb, pct };
+  }
 
-    wrap.append(icon, track, pct);
-    return wrap;
+  private buildAudioMixPanel(includeMaster: boolean): HTMLDivElement {
+    const card = document.createElement('div');
+    card.className = 'sb-audio-card';
+
+    // 1. Music channel: Music icon toggle + vibe pill + independent ink-rail slider
+    const musicEnabled = this.audioModule?.isMusicEnabled() ?? true;
+    const musicVol = this.audioModule?.getMusicVolume() ?? 0.65;
+    const musicEff = musicEnabled ? musicVol : 0;
+    const theme = this.audioModule?.getMusicTheme() ?? 'cafe';
+    const vibeLabel = MUSIC_THEME_LABELS[theme] ?? 'Café';
+
+    const musicRow = document.createElement('div');
+    musicRow.className = 'sb-audio-channel-row';
+
+    const musicIconBtn = document.createElement('button');
+    musicIconBtn.type = 'button';
+    musicIconBtn.className = 'sb-audio-icon-btn';
+    musicIconBtn.title = musicEff > 0.01 ? `Music On (${vibeLabel}) — click to mute` : 'Music Off — click to play';
+    musicIconBtn.setAttribute('aria-label', musicEff > 0.01 ? 'Mute music' : 'Unmute music');
+    musicIconBtn.appendChild(createStorybookIconEl(musicEff > 0.01 ? 'music_on' : 'music_off', 22));
+
+    const vibeEl = document.createElement('span');
+    vibeEl.className = musicEff > 0.01 ? 'sb-music-vibe' : 'sb-music-vibe muted';
+    vibeEl.textContent = vibeLabel;
+
+    const musicSlider = this.createInkRailSlider({
+      ariaLabel: 'Music volume',
+      initial: musicEff,
+      getValue: () => (this.audioModule?.isMusicEnabled() ? (this.audioModule?.getMusicVolume() ?? 0.65) : 0),
+      onChange: (next) => {
+        if (!this.audioModule) return;
+        if (next > 0 && this.audioModule.isMuted()) {
+          this.audioModule.setMuted(false);
+        }
+        if (next <= 0.005) {
+          this.audioModule.setMusicVolume(0);
+          this.audioModule.setMusicEnabled(false);
+        } else {
+          this.audioModule.setMusicVolume(next);
+          if (!this.audioModule.isMusicEnabled()) {
+            this.audioModule.setMusicEnabled(true);
+          }
+        }
+      },
+    });
+
+    musicIconBtn.addEventListener('click', () => {
+      if (!this.audioModule) return;
+      this.audioModule.playUiClick();
+      const on = this.audioModule.isMusicEnabled() && this.audioModule.getMusicVolume() > 0.01;
+      if (on) {
+        this.audioModule.setMusicEnabled(false);
+      } else {
+        if (this.audioModule.getMusicVolume() <= 0.01) {
+          this.audioModule.setMusicVolume(0.65);
+        }
+        this.audioModule.setMusicEnabled(true);
+      }
+      this.syncMusicControlsLive();
+    });
+
+    this.musicRowRefs = this.musicRowRefs.filter((r) => r.row.isConnected);
+    this.musicRowRefs.push({
+      row: musicRow,
+      iconSlot: musicIconBtn,
+      vibeEl,
+      trackEl: musicSlider.track,
+      orbEl: musicSlider.orb,
+      pctEl: musicSlider.pct,
+    });
+
+    musicRow.append(musicIconBtn, vibeEl, musicSlider.track, musicSlider.pct);
+    card.appendChild(musicRow);
+
+    // 2. Weather channel: Cloud/Rain icon toggle (0 ↔ 0.75) + independent ink-rail slider
+    const weatherVol = this.audioModule?.getWeatherVolume() ?? 0.75;
+    const weatherRow = document.createElement('div');
+    weatherRow.className = 'sb-audio-channel-row';
+
+    const weatherIconBtn = document.createElement('button');
+    weatherIconBtn.type = 'button';
+    weatherIconBtn.className = weatherVol > 0.01 ? 'sb-audio-icon-btn' : 'sb-audio-icon-btn muted';
+    weatherIconBtn.title = weatherVol > 0.01 ? 'Weather sound on — click to mute' : 'Weather sound off — click to restore';
+    weatherIconBtn.setAttribute('aria-label', weatherVol > 0.01 ? 'Mute weather ambience' : 'Enable weather ambience');
+    weatherIconBtn.appendChild(createStorybookIconEl(weatherVol > 0.01 ? 'weather_rain' : 'weather_fog', 22));
+
+    const weatherSlider = this.createInkRailSlider({
+      ariaLabel: 'Weather ambience volume',
+      initial: weatherVol,
+      getValue: () => this.audioModule?.getWeatherVolume() ?? 0.75,
+      onChange: (next) => {
+        if (!this.audioModule) return;
+        if (next > 0 && this.audioModule.isMuted()) {
+          this.audioModule.setMuted(false);
+        }
+        this.audioModule.setWeatherVolume(next);
+      },
+    });
+
+    weatherIconBtn.addEventListener('click', () => {
+      if (!this.audioModule) return;
+      this.audioModule.playUiClick();
+      const cur = this.audioModule.getWeatherVolume();
+      this.audioModule.setWeatherVolume(cur > 0.01 ? 0 : 0.75);
+      this.syncWeatherVolumeControlsLive();
+    });
+
+    this.weatherAudioRefs = this.weatherAudioRefs.filter((r) => r.row.isConnected);
+    this.weatherAudioRefs.push({
+      row: weatherRow,
+      iconSlot: weatherIconBtn,
+      trackEl: weatherSlider.track,
+      orbEl: weatherSlider.orb,
+      pctEl: weatherSlider.pct,
+    });
+
+    weatherRow.append(weatherIconBtn, weatherSlider.track, weatherSlider.pct);
+    card.appendChild(weatherRow);
+
+    // 3. Optional Master volume row (in Menu popover)
+    if (includeMaster) {
+      const masterVol = this.audioModule?.getVolume() ?? 0.85;
+      const masterRow = document.createElement('div');
+      masterRow.className = 'sb-audio-channel-row';
+
+      const masterIcon = document.createElement('span');
+      masterIcon.className = 'sb-audio-icon-static';
+      masterIcon.title = 'Master volume';
+      masterIcon.appendChild(createIconEl('volume', 16));
+
+      const masterSlider = this.createInkRailSlider({
+        ariaLabel: 'Master volume',
+        initial: masterVol,
+        getValue: () => this.audioModule?.getVolume() ?? 0.85,
+        onChange: (next) => {
+          if (!this.audioModule) return;
+          if (next > 0 && this.audioModule.isMuted()) {
+            this.audioModule.setMuted(false);
+          }
+          this.audioModule.setVolume(next);
+        },
+      });
+
+      this.volumeThumbEls = this.volumeThumbEls.filter((el) => el.isConnected);
+      this.volumeValueEls = this.volumeValueEls.filter((el) => el.isConnected);
+      this.volumeThumbEls.push(masterSlider.orb);
+      this.volumeValueEls.push(masterSlider.pct);
+
+      masterRow.append(masterIcon, masterSlider.track, masterSlider.pct);
+      card.appendChild(masterRow);
+    }
+
+    return card;
+  }
+
+  private syncMusicControlsLive(): void {
+    const enabled = this.audioModule?.isMusicEnabled() ?? true;
+    const vol = this.audioModule?.getMusicVolume() ?? 0.65;
+    const eff = enabled ? vol : 0;
+    const pct = Math.round(eff * 100);
+    const active = eff > 0.01;
+    const theme = this.audioModule?.getMusicTheme() ?? 'cafe';
+    const vibeLabel = MUSIC_THEME_LABELS[theme] ?? 'Café';
+
+    this.musicRowRefs = this.musicRowRefs.filter((r) => r.row.isConnected);
+    for (const ref of this.musicRowRefs) {
+      ref.iconSlot.innerHTML = '';
+      ref.iconSlot.appendChild(createStorybookIconEl(active ? 'music_on' : 'music_off', 22));
+      ref.iconSlot.title = active
+        ? `Music On (${vibeLabel}) — click to mute`
+        : 'Music Off — click to play';
+      ref.iconSlot.setAttribute('aria-label', active ? 'Mute music' : 'Unmute music');
+      ref.vibeEl.textContent = vibeLabel;
+      ref.vibeEl.classList.toggle('muted', !active);
+      ref.orbEl.style.left = `${pct}%`;
+      ref.pctEl.textContent = `${pct}%`;
+      ref.trackEl.setAttribute('aria-valuenow', String(pct));
+    }
+  }
+
+  private syncWeatherVolumeControlsLive(): void {
+    const vol = this.audioModule?.getWeatherVolume() ?? 0.75;
+    const pct = Math.round(vol * 100);
+    const active = vol > 0.01;
+
+    this.weatherAudioRefs = this.weatherAudioRefs.filter((r) => r.row.isConnected);
+    for (const ref of this.weatherAudioRefs) {
+      ref.iconSlot.innerHTML = '';
+      ref.iconSlot.appendChild(createStorybookIconEl(active ? 'weather_rain' : 'weather_fog', 22));
+      ref.iconSlot.classList.toggle('muted', !active);
+      ref.iconSlot.title = active
+        ? 'Weather sound on — click to mute'
+        : 'Weather sound off — click to restore';
+      ref.iconSlot.setAttribute(
+        'aria-label',
+        active ? 'Mute weather ambience' : 'Enable weather ambience',
+      );
+      ref.orbEl.style.left = `${pct}%`;
+      ref.pctEl.textContent = `${pct}%`;
+      ref.trackEl.setAttribute('aria-valuenow', String(pct));
+    }
   }
 
   private syncVolumeSlidersLive(): void {
@@ -3236,8 +3643,34 @@ export class HudController {
     statusLine.innerHTML = `<span>${this.saveStatusText}</span><span>${state.items.length} items · ${state.gridWidth}×${state.gridDepth}</span>`;
     this.menuPopoverEl.appendChild(statusLine);
 
+    // 2×3 Handcrafted House Presets Grid
+    const presetsLabel = document.createElement('div');
+    presetsLabel.className = 'popover-section-label';
+    presetsLabel.textContent = 'House Presets';
+    this.menuPopoverEl.appendChild(presetsLabel);
+
+    const presetsGrid = document.createElement('div');
+    presetsGrid.className = 'preset-house-grid';
+    for (const preset of HOUSE_PRESETS) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'preset-house-card';
+      card.title = `Load ${preset.name}`;
+      card.appendChild(createStorybookIconEl(getRoomStorybookIconName(preset.icon), 21));
+      const nameEl = document.createElement('span');
+      nameEl.className = 'preset-house-name';
+      nameEl.textContent = preset.name;
+      card.appendChild(nameEl);
+      card.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.switchPresetWithTransition(preset.id);
+      });
+      presetsGrid.appendChild(card);
+    }
+    this.menuPopoverEl.appendChild(presetsGrid);
+
     if (this.audioModule) {
-      this.menuPopoverEl.appendChild(this.buildVolumeControl());
+      this.menuPopoverEl.appendChild(this.buildAudioMixPanel(true));
     }
 
     const shareLabel = document.createElement('div');
@@ -3507,46 +3940,32 @@ export class HudController {
         const headerRow = document.createElement('div');
         headerRow.className = 'active-visitor-head';
 
+        const personalName = snap.name ?? def?.name ?? snap.visitorId;
+        const archetypeLabel = snap.archetypeName ?? def?.name ?? snap.visitorId;
         const portrait = this.createVisitorPortrait(
           def,
           variantIdx,
           snap.color ?? '#E8BFA8',
           snap.visitorId,
         );
+        portrait.title = snap.personality
+          ? `${archetypeLabel} — ${snap.personality}`
+          : archetypeLabel;
 
         const identity = document.createElement('div');
         identity.className = 'active-visitor-info';
 
-        const nameRow = document.createElement('div');
-        nameRow.className = 'active-visitor-top';
+        const compactRow = document.createElement('div');
+        compactRow.className = 'active-visitor-compact';
 
-        const personalName = snap.name ?? def?.name ?? snap.visitorId;
-        const archetypeLabel = snap.archetypeName ?? def?.name;
         const nameEl = document.createElement('span');
         nameEl.className = 'active-visitor-name';
-        nameEl.textContent =
-          archetypeLabel && archetypeLabel !== personalName
-            ? `${personalName} · ${archetypeLabel}`
-            : personalName;
-        nameRow.appendChild(nameEl);
+        nameEl.textContent = personalName;
 
-        if (snap.pronouns) {
-          const pron = document.createElement('span');
-          pron.className = 'visitor-pronouns';
-          pron.textContent = `(${snap.pronouns})`;
-          nameRow.appendChild(pron);
-        }
-
-        const moodRow = document.createElement('div');
-        moodRow.className = 'visitor-mood-row';
-
-        const emotionBadge = document.createElement('span');
-        emotionBadge.className = 'visitor-emotion-badge';
-        emotionBadge.textContent = this.resolveVisitorEmoji(snap.lastEmote, snap.mood);
-
-        const moodEl = document.createElement('span');
-        moodEl.className = `mood-pill mood-${snap.mood}`;
-        moodEl.textContent = snap.mood;
+        const emojiEl = document.createElement('span');
+        emojiEl.className = 'visitor-mood-emoji';
+        emojiEl.textContent = this.resolveVisitorEmoji(snap.lastEmote, snap.mood);
+        emojiEl.title = snap.mood;
 
         const score = Math.max(
           0,
@@ -3573,8 +3992,8 @@ export class HudController {
         barFill.style.width = `${Math.round(score)}%`;
         barTrack.appendChild(barFill);
 
-        moodRow.append(emotionBadge, moodEl, barTrack);
-        identity.append(nameRow, moodRow);
+        compactRow.append(nameEl, emojiEl, barTrack);
+        identity.appendChild(compactRow);
 
         const sendHomeBtn = this.makeBtn('×', () => {
           this.audioModule?.playUiClick();
@@ -3587,52 +4006,28 @@ export class HudController {
         headerRow.append(portrait, identity, sendHomeBtn);
         card.appendChild(headerRow);
 
-        // Likes + Dislikes chips
-        const likes = snap.interests ?? def?.likedTags ?? [];
-        const matchedLikes = new Set(snap.matchedInterests ?? []);
-        const dislikes = snap.dislikes ?? def?.dislikedTags ?? [];
-        const matchedDislikes = new Set(snap.matchedDislikes ?? []);
+        // Single crisp 1-line reaction with subtle ♥ / ✕ tone dot
+        const reactionText = (snap.thought || snap.activity || 'Looking around').trim();
+        const isNegative =
+          (snap.matchedDislikes?.length ?? 0) > 0 ||
+          snap.mood === 'bored' ||
+          snap.mood === 'leaving';
 
-        if (likes.length > 0 || dislikes.length > 0) {
-          const chips = document.createElement('div');
-          chips.className = 'tag-chip-list';
-          for (const tag of likes) {
-            const isMatched = matchedLikes.has(tag);
-            const chip = document.createElement('span');
-            chip.className = isMatched ? 'tag-chip matched' : 'tag-chip';
-            chip.textContent = isMatched ? `✓ ${tag}` : tag;
-            chip.title = isMatched ? `Likes ${tag} (in room)` : `Likes ${tag}`;
-            chips.appendChild(chip);
-          }
-          for (const tag of dislikes) {
-            const isTriggered = matchedDislikes.has(tag);
-            const chip = document.createElement('span');
-            chip.className = isTriggered ? 'tag-chip disliked-hit' : 'tag-chip disliked';
-            chip.textContent = `✕ ${tag}`;
-            chip.title = isTriggered ? `Dislikes ${tag} (in room!)` : `Dislikes ${tag}`;
-            chips.appendChild(chip);
-          }
-          card.appendChild(chips);
-        }
+        const reactLine = document.createElement('div');
+        reactLine.className = 'visitor-react-line';
+        reactLine.title = reactionText;
 
-        const thoughtBox = document.createElement('div');
-        thoughtBox.className = 'visitor-thought-strip';
-        const activityText = snap.activity || 'Exploring';
-        if (snap.thought) {
-          const quoteEl = document.createElement('div');
-          quoteEl.className = 'visitor-thought-quote';
-          quoteEl.textContent = `“${snap.thought}”`;
-          const actEl = document.createElement('div');
-          actEl.className = 'visitor-thought-activity';
-          actEl.textContent = activityText;
-          thoughtBox.append(quoteEl, actEl);
-        } else {
-          const actEl = document.createElement('div');
-          actEl.className = 'visitor-thought-activity';
-          actEl.textContent = activityText;
-          thoughtBox.appendChild(actEl);
-        }
-        card.appendChild(thoughtBox);
+        const toneDot = document.createElement('span');
+        toneDot.className = isNegative ? 'visitor-react-dot dislike' : 'visitor-react-dot like';
+        toneDot.textContent = isNegative ? '✕' : '♥';
+        toneDot.setAttribute('aria-hidden', 'true');
+
+        const reactSpan = document.createElement('span');
+        reactSpan.className = 'visitor-react-text';
+        reactSpan.textContent = reactionText;
+
+        reactLine.append(toneDot, reactSpan);
+        card.appendChild(reactLine);
 
         activeList.appendChild(card);
       }
@@ -3649,6 +4044,9 @@ export class HudController {
     for (const visitor of this.store.data.visitors.visitors) {
       const card = document.createElement('div');
       card.className = 'invite-visitor-card';
+      const dislikeNote =
+        visitor.dislikedTags.length > 0 ? ` · Dislikes ${visitor.dislikedTags.join(', ')}` : '';
+      card.title = `Likes ${visitor.likedTags.join(', ')}${dislikeNote}`;
 
       const portrait = this.createVisitorPortrait(visitor, 0, visitor.color, visitor.id);
 
@@ -3659,22 +4057,11 @@ export class HudController {
       name.className = 'invite-visitor-name';
       name.textContent = visitor.name;
 
-      const tags = document.createElement('div');
-      tags.className = 'tag-chip-list';
-      for (const tag of visitor.likedTags) {
-        const chip = document.createElement('span');
-        chip.className = 'tag-chip';
-        chip.textContent = tag;
-        tags.appendChild(chip);
-      }
-      for (const tag of visitor.dislikedTags) {
-        const chip = document.createElement('span');
-        chip.className = 'tag-chip disliked';
-        chip.textContent = `✕ ${tag}`;
-        tags.appendChild(chip);
-      }
+      const sub = document.createElement('div');
+      sub.className = 'invite-visitor-sub';
+      sub.textContent = visitor.likedTags.slice(0, 3).join(' · ');
 
-      body.append(name, tags);
+      body.append(name, sub);
 
       const inviteBtn = this.makeBtn(
         'Invite',
