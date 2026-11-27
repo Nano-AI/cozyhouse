@@ -510,12 +510,13 @@ export function createSkyDome(
 }
 
 interface LinearCloud {
-  /** Horizontal cross-sky position along camera-right axis in [-CLOUD_WRAP_HALF, +CLOUD_WRAP_HALF]. */
-  u: number;
-  /** Upper-sky vertical offset along camera-up axis so clouds float above the house without blocking it. */
-  v: number;
-  /** World-space altitude above ground (11.5..16.8), kept strictly above house/trees and in front of ground. */
-  altitude: number;
+  /** True world-space horizontal X coordinate in [-WORLD_CLOUD_SPAN, +WORLD_CLOUD_SPAN]. */
+  x: number;
+  /** True world-space horizontal Z coordinate in [-WORLD_CLOUD_SPAN, +WORLD_CLOUD_SPAN]. */
+  z: number;
+  /** World-space altitude above ground (13.5..17.5), high above the house. */
+  baseY: number;
+  /** Fixed world-space yaw rotation (never rotates with the camera). */
   rotY: number;
   speedMul: number;
   bobPhase: number;
@@ -536,20 +537,17 @@ export interface LinearCloudFieldHandle {
   dispose(): void;
 }
 
-/** Wide off-screen wrap distance so clouds enter and exit 100% outside any viewport (even ultrawide zoomed out). */
-const CLOUD_WRAP_HALF = 68;
-const WORLD_UP = new THREE.Vector3(0, 1, 0);
-
-function shortestAngleDiff(from: number, to: number): number {
-  let d = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
-  if (d < -Math.PI) d += Math.PI * 2;
-  return d;
-}
+/** Wide world-space sky grid half-extent (184 x 184) so clouds wrap strictly off-screen. */
+const WORLD_CLOUD_SPAN = 92;
+/** Fixed world-space horizontal wind vector (glides left-to-right at default 45° iso view). */
+const WIND_DIR_X = Math.SQRT1_2;
+const WIND_DIR_Z = -Math.SQRT1_2;
 
 /**
- * Natural horizontal cross-sky cumulus cloud layer rendered as a SINGLE InstancedMesh
- * draw call. Clouds glide strictly left-to-right across the upper sky at 100% constant
- * scale (`c.baseScale` — zero shrinking!) and recycle only once completely off-screen.
+ * Pure world-space linear wind-drifting cumulus cloud layer rendered as a SINGLE
+ * InstancedMesh draw call. Clouds stay 100% anchored to the 3D world (never moving with
+ * the camera), maintain constant scale (`c.baseScale`, zero shrinking), and wrap only
+ * once outside `±WORLD_CLOUD_SPAN`.
  */
 export function createLinearCloudField(
   weather: WeatherDef,
@@ -573,11 +571,13 @@ export function createLinearCloudField(
   });
 
   const clouds: LinearCloud[] = [];
-  const count = 18;
+  const cols = 6;
+  const rows = 4;
+  const count = cols * rows;
   let totalPuffs = 0;
 
   for (let i = 0; i < count; i++) {
-    const baseScale = 1.25 + seededHash(i * 3 + 1) * 1.15;
+    const baseScale = 1.35 + seededHash(i * 3 + 1) * 1.15;
     const puffCount = 4 + (i % 3);
     const puffOffsets: LinearCloud['puffOffsets'] = [];
 
@@ -597,21 +597,24 @@ export function createLinearCloudField(
       totalPuffs++;
     }
 
-    // Evenly stratified horizontally across the full [-68..+68] sky corridor
-    const u =
-      -CLOUD_WRAP_HALF +
-      ((i + 0.5) / count) * (CLOUD_WRAP_HALF * 2) +
-      (seededHash(i * 17 + 2) - 0.5) * 5.2;
-    // Upper sky backdrop band (+3.8..+13.8): frames the scene cleanly above the house
-    const bandRow = i % 3;
-    const v = 3.8 + bandRow * 3.1 + seededHash(i * 23 + 5) * 3.4;
-    const altitude = 11.8 + seededHash(i * 29 + 9) * 4.8;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x =
+      -WORLD_CLOUD_SPAN +
+      ((col + 0.5) / cols) * (WORLD_CLOUD_SPAN * 2) +
+      (seededHash(i * 17 + 2) - 0.5) * 20;
+    const z =
+      -WORLD_CLOUD_SPAN +
+      ((row + 0.5) / rows) * (WORLD_CLOUD_SPAN * 2) +
+      (seededHash(i * 23 + 5) - 0.5) * 26;
+    const baseY = 13.5 + seededHash(i * 29 + 9) * 4.0;
 
     clouds.push({
-      u,
-      v,
-      altitude,
-      rotY: (seededHash(i * 31) - 0.5) * 0.35,
+      x,
+      z,
+      baseY,
+      // World-space yaw roughly aligned with the horizontal breeze (never rotates with camera)
+      rotY: Math.PI / 4 + (seededHash(i * 31) - 0.5) * 0.5,
       speedMul: 0.78 + seededHash(i * 37) * 0.48,
       bobPhase: seededHash(i * 41) * Math.PI * 2,
       baseScale,
@@ -629,11 +632,6 @@ export function createLinearCloudField(
 
   const baseColor = new THREE.Color();
   const keyTint = new THREE.Color();
-  const camRight = new THREE.Vector3();
-  const camUp = new THREE.Vector3();
-  const prevCamPos = new THREE.Vector3();
-  let prevAzimuth = 0;
-  let camInitialized = false;
 
   const applyThemeTint = (w: WeatherDef, tod: TimeOfDay = 'day', hourParam?: number) => {
     const h = resolveTimeHour(tod, hourParam);
@@ -675,73 +673,35 @@ export function createLinearCloudField(
     group,
     applyThemeTint,
     update(elapsed, dt, activeWeather, cameraPos, cameraForward) {
-      // True horizontal cross-sky breeze vector strictly perpendicular to camera look direction
-      camRight.crossVectors(cameraForward, WORLD_UP);
-      if (camRight.lengthSq() < 1e-6) {
-        camRight.set(1, 0, 0);
-      } else {
-        camRight.normalize();
-      }
-      camUp.crossVectors(camRight, cameraForward).normalize();
-
-      // Smooth 3D sky parallax when camera rotates 90° or pans horizontally
-      const curAzimuth = Math.atan2(cameraForward.x, cameraForward.z);
-      let parallaxShiftU = 0;
-      if (camInitialized) {
-        const dAz = shortestAngleDiff(prevAzimuth, curAzimuth);
-        const dxCam = cameraPos.x - prevCamPos.x;
-        const dzCam = cameraPos.z - prevCamPos.z;
-        const panRight = dxCam * camRight.x + dzCam * camRight.z;
-        parallaxShiftU = dAz * 26.0 - panRight * 0.35;
-      } else {
-        camInitialized = true;
-      }
-      prevAzimuth = curAzimuth;
-      prevCamPos.copy(cameraPos);
-
-      // Horizontal basis aligned with camera-right so flat-bottomed clouds face cleanly across the sky
-      const rx = camRight.x;
-      const rz = camRight.z;
-      const bx = -rz;
-      const bz = rx;
-
       const baseSpeed = 1.15 + activeWeather.windStrength * 3.4;
-      const forwardDown = Math.max(0.25, -cameraForward.y);
       const arr = instancedClouds.instanceMatrix.array as Float32Array;
       let idx = 0;
 
       for (let i = 0; i < clouds.length; i++) {
         const c = clouds[i];
-        c.u += baseSpeed * c.speedMul * dt + parallaxShiftU;
+        c.x += WIND_DIR_X * baseSpeed * c.speedMul * dt;
+        c.z += WIND_DIR_Z * baseSpeed * c.speedMul * dt;
 
-        // Recycle strictly once completely past the off-screen viewport edge (zero shrinking!)
-        if (c.u > CLOUD_WRAP_HALF) {
-          c.u -= CLOUD_WRAP_HALF * 2;
-        } else if (c.u < -CLOUD_WRAP_HALF) {
-          c.u += CLOUD_WRAP_HALF * 2;
-        }
+        // Wrap strictly outside the visible world frustum (never shrinks or pops in-frame)
+        if (c.x > WORLD_CLOUD_SPAN) c.x -= WORLD_CLOUD_SPAN * 2;
+        else if (c.x < -WORLD_CLOUD_SPAN) c.x += WORLD_CLOUD_SPAN * 2;
+        if (c.z > WORLD_CLOUD_SPAN) c.z -= WORLD_CLOUD_SPAN * 2;
+        else if (c.z < -WORLD_CLOUD_SPAN) c.z += WORLD_CLOUD_SPAN * 2;
 
-        const bob = Math.sin(elapsed * 0.42 + c.bobPhase) * 0.16;
-        const cy = c.altitude + bob;
-        // Exact ray depth keeping P.y === cy while preserving exact screen-vertical band c.v
-        const camDepth = (cameraPos.y - cy + camUp.y * c.v) / forwardDown;
+        const cy = c.baseY + Math.sin(elapsed * 0.42 + c.bobPhase) * 0.16;
+        const camDepth =
+          (c.x - cameraPos.x) * cameraForward.x +
+          (cy - cameraPos.y) * cameraForward.y +
+          (c.z - cameraPos.z) * cameraForward.z;
 
-        // Constant full scale — NEVER shrinks! Only culls cleanly if behind camera plane.
-        const visible = camDepth >= 2.0 && camDepth <= 136.0;
+        // Pure world-anchored constant scale (zero nearFade/farFade shrinking!).
+        // Only cull if strictly behind the camera near plane.
+        const visible = camDepth >= 2.0;
         const cloudScale = c.baseScale;
-
-        const cx = cameraPos.x + camRight.x * c.u + camUp.x * c.v + cameraForward.x * camDepth;
-        const cz = cameraPos.z + camRight.z * c.u + camUp.z * c.v + cameraForward.z * camDepth;
-
-        const cosR = Math.cos(c.rotY);
-        const sinR = Math.sin(c.rotY);
-        // Combined horizontal cloud X-axis and Z-axis in world XZ plane
-        const ux = rx * cosR - bx * sinR;
-        const uz = rz * cosR - bz * sinR;
-        const vx = rx * sinR + bx * cosR;
-        const vz = rz * sinR + bz * cosR;
-
+        const cosY = Math.cos(c.rotY);
+        const sinY = Math.sin(c.rotY);
         const puffs = c.puffOffsets;
+
         for (let p = 0; p < puffs.length; p++) {
           const o = idx * 16;
           if (!visible) {
@@ -754,21 +714,21 @@ export function createLinearCloudField(
             const sx = pf.sx * cloudScale;
             const sy = pf.sy * cloudScale;
             const sz = pf.sz * cloudScale;
-            const px = cx + (pf.ox * ux + pf.oz * vx) * cloudScale;
+            const px = c.x + (pf.ox * cosY + pf.oz * sinY) * cloudScale;
             const py = cy + pf.oy * cloudScale;
-            const pz = cz + (pf.ox * uz + pf.oz * vz) * cloudScale;
+            const pz = c.z + (-pf.ox * sinY + pf.oz * cosY) * cloudScale;
 
-            arr[o] = ux * sx;
+            arr[o] = cosY * sx;
             arr[o + 1] = 0;
-            arr[o + 2] = uz * sx;
+            arr[o + 2] = -sinY * sx;
             arr[o + 3] = 0;
             arr[o + 4] = 0;
             arr[o + 5] = sy;
             arr[o + 6] = 0;
             arr[o + 7] = 0;
-            arr[o + 8] = vx * sz;
+            arr[o + 8] = sinY * sz;
             arr[o + 9] = 0;
-            arr[o + 10] = vz * sz;
+            arr[o + 10] = cosY * sz;
             arr[o + 11] = 0;
             arr[o + 12] = px;
             arr[o + 13] = py;
