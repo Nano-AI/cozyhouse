@@ -62,7 +62,7 @@ const CARDINAL_DIRS: readonly GridCoord[] = [
   { x: -1, z: 0 }, // West
 ];
 
-export const VISITOR_WALL_MARGIN = 0.24;
+export const VISITOR_WALL_MARGIN = 0.2;
 
 export function tileIndex(x: number, z: number, depth: number): number {
   return x * depth + z;
@@ -580,7 +580,7 @@ export function pickSpawnLocation(
       inGridBounds(chosen.outsideTile.x, chosen.outsideTile.z, nav.width, nav.depth) &&
       nav.walkable[chosen.outsideTile.x][chosen.outsideTile.z];
 
-    if (minClearance(chosen.outsideWorld) < 0.85 && outsideWalkable) {
+    if (minClearance(chosen.outsideWorld) < 0.55 && outsideWalkable) {
       // Find an adjacent clear tile near the door outside so visitors don't spawn stacked
       let bestTile = chosen.outsideTile;
       let bestWorld = chosen.outsideWorld;

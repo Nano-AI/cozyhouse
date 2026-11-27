@@ -8,7 +8,8 @@ export type VisitorPose =
   | 'sit'
   | 'dance'
   | 'pet'
-  | 'admire';
+  | 'admire'
+  | 'stumble';
 
 export type VisitorVariantIndex = 0 | 1 | 2;
 
@@ -519,8 +520,8 @@ export class VisitorMesh {
 
     this.root.add(this.bodyPivot);
 
-    // Soft ground shadow disc (the ONLY transparent mesh, flush at FLOOR_BASE_Y + 0.004)
-    const shadowGeo = this.trackGeo(new THREE.CircleGeometry(0.24, 16));
+    // Soft ground shadow disc matching tighter 0.42 body footprint (the ONLY transparent mesh)
+    const shadowGeo = this.trackGeo(new THREE.CircleGeometry(0.2, 16));
     shadowGeo.rotateX(-Math.PI / 2);
     const shadowMat = this.trackMat(
       new THREE.MeshBasicMaterial({
@@ -1420,7 +1421,29 @@ export class VisitorMesh {
     const bubbleY = isElevated ? 1.36 : 1.66;
     this.speechBubble.setBaseHeight(bubbleY);
 
+    // Reset any stumble lean before applying active pose
+    this.bodyPivot.rotation.set(0, 0, 0);
+
     switch (pose) {
+      case 'stumble': {
+        this.animPhase += dt * 24;
+        const wobble = Math.sin(this.animPhase);
+        const hop = Math.abs(Math.sin(this.animPhase * 0.5)) * 0.085;
+
+        this.bodyPivot.position.y = FLOOR_BASE_Y + hop;
+        this.bodyPivot.rotation.set(-0.22, 0, wobble * 0.16);
+        this.leftLegPivot.rotation.set(-0.28 + wobble * 0.2, 0, 0.1);
+        this.rightLegPivot.rotation.set(0.18 - wobble * 0.2, 0, -0.1);
+        this.leftKneePivot.rotation.set(0.32, 0, 0);
+        this.rightKneePivot.rotation.set(0.22, 0, 0);
+
+        this.torsoPivot.rotation.set(-0.26, wobble * 0.16, wobble * 0.12);
+        this.leftArmPivot.rotation.set(-1.55 + wobble * 0.45, 0, 0.35);
+        this.rightArmPivot.rotation.set(-1.55 - wobble * 0.45, 0, -0.35);
+        this.headPivot.rotation.set(-0.18, wobble * 0.22, -wobble * 0.18);
+        break;
+      }
+
       case 'walk': {
         this.animPhase += dt * walkSpeed * 6.5;
         const stride = Math.sin(this.animPhase);

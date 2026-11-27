@@ -159,6 +159,10 @@ interface ActiveVisitorRuntime {
   blockedProgressTimer: number;
   replanCooldown: number;
   yieldTimer: number;
+  stumbleTimer: number;
+  stumbleCooldown: number;
+  stumbleVx: number;
+  stumbleVz: number;
   lastWaypointDist: number;
   dismissedVoluntarily: boolean;
   lastLineId?: string;
@@ -166,9 +170,12 @@ interface ActiveVisitorRuntime {
   lastTargetItemUid?: string;
 }
 
-const PERSONAL_SPACE = 0.78;
-const AVOIDANCE_RADIUS = 1.08;
-const MAX_SEPARATION_SPEED = 0.85;
+const PERSONAL_SPACE = 0.42;
+const AVOIDANCE_RADIUS = 0.62;
+const MAX_SEPARATION_SPEED = 0.75;
+const STUMBLE_DURATION = 0.48;
+const STUMBLE_COOLDOWN = 3.5;
+const STUMBLE_COLLISION_DIST = 0.4;
 const SPAWN_POP_DURATION = 0.28;
 const LEAVE_POP_DURATION = 0.34;
 const SEAT_MOUNT_DURATION = 0.32;
@@ -222,6 +229,11 @@ const DISLIKE_EMOTES: Array<{ id: string; glyph: string; label: string; color: s
   { id: 'thumbsDown', glyph: '👎', label: 'Dislike', color: '#F4C3C2' },
   { id: 'unimpressed', glyph: '😒', label: 'Unimpressed', color: '#E5D4E8' },
   { id: 'grimace', glyph: '😖', label: 'Not my vibe', color: '#F5CDB6' },
+];
+
+const BUMP_EMOTES: Array<{ id: string; glyph: string; label: string; color: string }> = [
+  { id: 'dizzy', glyph: '😵‍💫', label: 'Bonk!', color: '#F6C6DE' },
+  { id: 'surprised', glyph: '😮', label: 'Oops!', color: '#FCE0A8' },
 ];
 
 const FALLBACK_PERSONAS: Record<string, [VisitorPersonaInfo, VisitorPersonaInfo, VisitorPersonaInfo]> = {
@@ -580,6 +592,10 @@ export class VisitorModule {
       blockedProgressTimer: 0,
       replanCooldown: 0,
       yieldTimer: 0,
+      stumbleTimer: 0,
+      stumbleCooldown: 0,
+      stumbleVx: 0,
+      stumbleVz: 0,
       lastWaypointDist: Infinity,
       dismissedVoluntarily: false,
     };
@@ -1958,20 +1974,20 @@ export class VisitorModule {
     v: ActiveVisitorRuntime,
     desiredDirX: number,
     desiredDirZ: number,
+    simSpeed = 1,
   ): { steerX: number; steerZ: number; speedFactor: number } {
     let steerX = 0;
     let steerZ = 0;
     let speedFactor = 1.0;
 
-    const rightX = -desiredDirZ;
-    const rightZ = desiredDirX;
-
+    // At 5x max speed, keep avoidance slightly looser so sprinting guests can playfully bump!
+    const highSpeedFactor = simSpeed >= 5 ? 0.52 : 1.0;
     const inNarrowSpot = isTightCorridor(this.navGrid, v.worldX, v.worldZ, desiredDirX, desiredDirZ);
 
     for (const other of this.active) {
       if (other.instanceId === v.instanceId) continue;
       if (other.leavingPopTimer > 0 || other.phase === 'arriving_transport') continue;
-      if (other.seatAnchor) continue; // Seated visitors sit ON furniture above walking path
+      if (other.seatAnchor) continue;
 
       const rx = v.worldX - other.worldX;
       const rz = v.worldZ - other.worldZ;
@@ -1982,10 +1998,47 @@ export class VisitorModule {
       const nx = dist > 0.001 ? rx / dist : v.instanceId < other.instanceId ? 1 : -1;
       const nz = dist > 0.001 ? rz / dist : 0;
 
+      // Positive aheadDot means `other` lies in front of `v`
       const aheadDot = -(nx * desiredDirX + nz * desiredDirZ);
 
+      // Right-hand-rule lateral tangent relative to separation line:
+      // two oncoming visitors automatically curve to opposite shoulders instead of stalling nose-to-nose!
+      const tangX = nz;
+      const tangZ = -nx;
+
+      if (aheadDot > -0.15) {
+        const proximity = (AVOIDANCE_RADIUS - dist) / AVOIDANCE_RADIUS;
+        const headOnBoost = aheadDot > 0.55 ? 1.35 : 1.0;
+        const tangStrength = proximity * 1.65 * headOnBoost * highSpeedFactor;
+        steerX += tangX * tangStrength;
+        steerZ += tangZ * tangStrength;
+      }
+
+      // Gentle radial push only inside tight PERSONAL_SPACE (never pushing straight backward into deadlock)
+      if (dist < PERSONAL_SPACE) {
+        const overlap = (PERSONAL_SPACE - dist) / PERSONAL_SPACE;
+        let pushX = nx * 1.15 * overlap * highSpeedFactor;
+        let pushZ = nz * 1.15 * overlap * highSpeedFactor;
+        const backDot = pushX * desiredDirX + pushZ * desiredDirZ;
+        if (backDot < 0) {
+          // Redirect backward component smoothly into lateral passing tangent!
+          pushX -= desiredDirX * backDot * 0.72;
+          pushZ -= desiredDirZ * backDot * 0.72;
+        }
+        steerX += pushX;
+        steerZ += pushZ;
+      }
+
+      // Only yield briefly if genuinely jammed head-on in a tight 1-tile doorway
       const otherSpeed = Math.hypot(other.smoothVelX, other.smoothVelZ);
-      if (inNarrowSpot && otherSpeed > 0.25 && aheadDot > 0.55) {
+      if (
+        simSpeed < 5 &&
+        inNarrowSpot &&
+        v.blockedProgressTimer > 0.45 &&
+        dist < PERSONAL_SPACE + 0.06 &&
+        otherSpeed > 0.25 &&
+        aheadDot > 0.65
+      ) {
         const otherDirX = other.smoothVelX / otherSpeed;
         const otherDirZ = other.smoothVelZ / otherSpeed;
         const opposing = desiredDirX * otherDirX + desiredDirZ * otherDirZ < -0.5;
@@ -1994,26 +2047,9 @@ export class VisitorModule {
             v.phase !== 'leaving' &&
             (other.phase === 'leaving' || v.instanceId < other.instanceId);
           if (shouldYield && v.yieldTimer <= 0) {
-            v.yieldTimer = 0.65;
+            v.yieldTimer = 0.35;
           }
         }
-      }
-
-      if (aheadDot > 0.05) {
-        const proximity = (AVOIDANCE_RADIUS - dist) / AVOIDANCE_RADIUS;
-        const passStrength = proximity * 1.2;
-        steerX += rightX * passStrength;
-        steerZ += rightZ * passStrength;
-        if (dist < PERSONAL_SPACE * 1.05 && aheadDot > 0.72) {
-          speedFactor = Math.min(speedFactor, 0.58);
-        }
-      }
-
-      if (dist < PERSONAL_SPACE) {
-        const overlap = (PERSONAL_SPACE - dist) / PERSONAL_SPACE;
-        const push = 1.45 * overlap;
-        steerX += nx * push;
-        steerZ += nz * push;
       }
     }
 
@@ -2025,6 +2061,68 @@ export class VisitorModule {
     }
 
     return { steerX, steerZ, speedFactor };
+  }
+
+  /**
+   * Playful 5x max-speed bump / knock-back easter egg:
+   * when running at >= 5x and two walking guests actually collide (< 0.40 u) closing fast,
+   * both do a brief 0.48s cartoon wobble + safe wall-clamped knock-back with a 😵‍💫/😮 emote!
+   */
+  private detectHighSpeedBumps(simSpeed: number): boolean {
+    if (simSpeed < 5 || this.active.length < 2) return false;
+    let bumped = false;
+
+    const isWalkingPhase = (p: VisitorPhase) =>
+      p === 'walking' || p === 'entering' || p === 'leaving';
+
+    for (let i = 0; i < this.active.length; i++) {
+      const a = this.active[i];
+      if (!isWalkingPhase(a.phase) || a.seatAnchor || a.leavingPopTimer > 0) continue;
+      if (a.stumbleTimer > 0 || a.stumbleCooldown > 0) continue;
+
+      for (let j = i + 1; j < this.active.length; j++) {
+        const b = this.active[j];
+        if (!isWalkingPhase(b.phase) || b.seatAnchor || b.leavingPopTimer > 0) continue;
+        if (b.stumbleTimer > 0 || b.stumbleCooldown > 0) continue;
+
+        const dx = b.worldX - a.worldX;
+        const dz = b.worldZ - a.worldZ;
+        const dist = Math.hypot(dx, dz);
+        if (dist >= STUMBLE_COLLISION_DIST) continue;
+
+        const nx = dist > 0.001 ? dx / dist : i % 2 === 0 ? 1 : -1;
+        const nz = dist > 0.001 ? dz / dist : 0;
+        const closingSpeed = (a.velX - b.velX) * nx + (a.velZ - b.velZ) * nz;
+        if (closingSpeed < 1.15) continue;
+
+        // Impulse spreads the pair ~0.35 units apart smoothly over the first ~0.24s of the 0.48s stumble
+        const knockSpeed = 1.48;
+        a.stumbleTimer = STUMBLE_DURATION;
+        a.stumbleCooldown = STUMBLE_COOLDOWN;
+        a.stumbleVx = -nx * knockSpeed;
+        a.stumbleVz = -nz * knockSpeed;
+        a.pose = 'stumble';
+        a.blockedProgressTimer = 0;
+
+        b.stumbleTimer = STUMBLE_DURATION;
+        b.stumbleCooldown = STUMBLE_COOLDOWN;
+        b.stumbleVx = nx * knockSpeed;
+        b.stumbleVz = nz * knockSpeed;
+        b.pose = 'stumble';
+        b.blockedProgressTimer = 0;
+
+        const emoteA = BUMP_EMOTES[0];
+        const emoteB = BUMP_EMOTES[1];
+        a.lastEmote = emoteA.glyph;
+        b.lastEmote = emoteB.glyph;
+        a.mesh.speechBubble.showEmote(emoteA, a.mood, 2.2, 0.7);
+        b.mesh.speechBubble.showEmote(emoteB, b.mood, 2.2, 0.7);
+        bumped = true;
+        break;
+      }
+    }
+
+    return bumped;
   }
 
   private nudgeAsideForYield(v: ActiveVisitorRuntime, dt: number): void {
@@ -2202,13 +2300,44 @@ export class VisitorModule {
     const toRemove: ActiveVisitorRuntime[] = [];
     let anyChanged = false;
     const velSmoothAlpha = 1 - Math.exp(-10 * dt);
+    const simSpeed = this.store.getSimSpeed();
 
     for (const v of this.active) {
       v.speechCooldown = Math.max(0, v.speechCooldown - dt);
       v.replanCooldown = Math.max(0, v.replanCooldown - dt);
+      v.stumbleCooldown = Math.max(0, v.stumbleCooldown - dt);
 
       // Waiting inside incoming car/boat/elevator until transport reaches curb/pier/terrace
       if (v.phase === 'arriving_transport') {
+        continue;
+      }
+
+      // Active 5x cartoon stumble/knock-back recovery (safe wall & City-parapet clamped!)
+      if (v.stumbleTimer > 0) {
+        v.stumbleTimer = Math.max(0, v.stumbleTimer - dt);
+        const progress = 1 - v.stumbleTimer / STUMBLE_DURATION;
+        // Decelerate knock-back impulse smoothly over the first half of the stumble
+        const decay = progress < 0.5 ? 1 - progress * 2 : 0;
+        if (decay > 0) {
+          const nextWx = v.worldX + v.stumbleVx * decay * dt;
+          const nextWz = v.worldZ + v.stumbleVz * decay * dt;
+          const allowOut = v.phase === 'entering' || v.phase === 'leaving';
+          const safe = resolveSafeMovement(this.navGrid, v.worldX, v.worldZ, nextWx, nextWz, allowOut);
+          v.worldX = safe.wx;
+          v.worldZ = safe.wz;
+          this.clampToCityTerrace(v, state);
+        }
+        v.velX = 0;
+        v.velZ = 0;
+        v.smoothVelX = 0;
+        v.smoothVelZ = 0;
+        v.mesh.root.position.set(v.worldX, v.worldY, v.worldZ);
+        v.mesh.updateAnimation(dt, 'stumble', v.def.walkSpeed);
+        if (v.stumbleTimer <= 0) {
+          v.pose = 'walk';
+          v.stumbleVx = 0;
+          v.stumbleVz = 0;
+        }
         continue;
       }
 
@@ -2379,7 +2508,7 @@ export class VisitorModule {
           const desiredDirX = dx / dist;
           const desiredDirZ = dz / dist;
 
-          const avoid = this.computeAvoidanceVector(v, desiredDirX, desiredDirZ);
+          const avoid = this.computeAvoidanceVector(v, desiredDirX, desiredDirZ, simSpeed);
 
           let moveDirX = desiredDirX + avoid.steerX;
           let moveDirZ = desiredDirZ + avoid.steerZ;
@@ -2423,10 +2552,11 @@ export class VisitorModule {
           v.mesh.root.position.set(v.worldX, 0, v.worldZ);
           v.mesh.updateAnimation(dt, smoothSpeed > 0.08 ? 'walk' : 'idle', speed);
 
+          // Fast anti-stall recovery: smoothly sidestep or replan if blocked > 0.75s
           const newDist = Math.hypot(nextWp.wx - v.worldX, nextWp.wz - v.worldZ);
           if (newDist >= v.lastWaypointDist - 0.004) {
             v.blockedProgressTimer += dt;
-            if (v.blockedProgressTimer > 1.55 && v.replanCooldown <= 0) {
+            if (v.blockedProgressTimer > 0.75 && v.replanCooldown <= 0) {
               v.blockedProgressTimer = 0;
               v.replanCooldown = 0.45;
               if (v.phase === 'leaving') {
@@ -2551,6 +2681,11 @@ export class VisitorModule {
 
     // Proximity automatic door opening & closing
     this.updateDoorProximity(dt, state);
+
+    // Playful 5x max-speed head-on bump / knock-back check BEFORE hard separation
+    if (this.detectHighSpeedBumps(simSpeed)) {
+      anyChanged = true;
+    }
 
     // Damped wall-safe personal-space separation pass (skips seated guests)
     this.enforcePersonalSpace(dt);

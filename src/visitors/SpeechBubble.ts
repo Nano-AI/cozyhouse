@@ -29,6 +29,8 @@ const EMOTE_EMOJI_MAP: Record<string, string> = {
   thumbsDown: '👎',
   unimpressed: '😒',
   grimace: '😖',
+  dizzy: '😵‍💫',
+  surprised: '😮',
 };
 
 const EXTRA_EMOTE_COLOR: Record<string, string> = {
@@ -39,6 +41,8 @@ const EXTRA_EMOTE_COLOR: Record<string, string> = {
   thumbsDown: '#F0AEAC',
   unimpressed: '#D8BFE0',
   grimace: '#F0BC9C',
+  dizzy: '#F6C6DE',
+  surprised: '#FCE0A8',
 };
 
 /**
