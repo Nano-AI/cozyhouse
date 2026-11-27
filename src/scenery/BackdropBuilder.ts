@@ -16,8 +16,8 @@ import {
   resolveTimeHour,
 } from './SkyDome';
 
-/** Flush ground plane right beneath the flat y = 0 buildable lot (no stacked platforms!). */
-const GROUND_Y = -0.015;
+/** Ground plane cleanly separated below flat y = 0 floor tiles [0.004..0.024] (zero Z-fighting). */
+const GROUND_Y = -0.025;
 /** Expansive horizon terrain size (260 x 260) so edges never visibly end. */
 const TERRAIN_SPAN = 260;
 /** Deep street-canyon floor elevation for the elevated City apartment view. */
@@ -234,6 +234,9 @@ class PaletteMaterials {
       glowKind?: GlowKind;
       groundTex?: GroundTextureKind;
       texRepeat?: number;
+      polygonOffset?: boolean;
+      polygonOffsetFactor?: number;
+      polygonOffsetUnits?: number;
     },
   ): THREE.MeshStandardMaterial {
     const colorKey = typeof hex === 'number' ? hex.toString(16) : hex;
@@ -249,6 +252,7 @@ class PaletteMaterials {
       opts?.glowKind ?? '',
       opts?.groundTex ?? '',
       opts?.texRepeat ?? '',
+      opts?.polygonOffset ? `${opts.polygonOffsetFactor ?? 2}:${opts.polygonOffsetUnits ?? 2}` : '',
     ].join('|');
 
     const existing = this.cache.get(key);
@@ -266,6 +270,13 @@ class PaletteMaterials {
       transparent: opts?.transparent ?? false,
       opacity: opts?.opacity ?? 1,
       side: opts?.side ?? THREE.FrontSide,
+      ...(opts?.polygonOffset
+        ? {
+            polygonOffset: true,
+            polygonOffsetFactor: opts.polygonOffsetFactor ?? 2,
+            polygonOffsetUnits: opts.polygonOffsetUnits ?? 2,
+          }
+        : {}),
       ...(map ? { map } : {}),
     });
     if (opts?.emissive !== undefined) {
@@ -427,7 +438,14 @@ function addEndlessGround(
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(
     geo,
-    mats.get(hex, { roughness: 0.96, groundTex, texRepeat: 42 }),
+    mats.get(hex, {
+      roughness: 0.96,
+      groundTex,
+      texRepeat: 42,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2,
+    }),
   );
   mesh.position.y = y;
   mesh.receiveShadow = true;
@@ -492,7 +510,7 @@ function writeGrassShearMatrix(
   arr[o + 10] = it.cs;
   arr[o + 11] = 0;
   arr[o + 12] = it.x;
-  arr[o + 13] = GROUND_Y + 0.005;
+  arr[o + 13] = GROUND_Y + 0.003;
   arr[o + 14] = it.z;
   arr[o + 15] = 1;
 }
@@ -777,6 +795,7 @@ function addFenceSpan(
   z1: number,
   x2: number,
   z2: number,
+  skipEndPosts = false,
 ): void {
   const dx = x2 - x1;
   const dz = z2 - z1;
@@ -786,23 +805,25 @@ function addFenceSpan(
   const cz = (z1 + z2) / 2;
   const rotY = -Math.atan2(dz, dx);
 
-  addBox(parent, len, 0.055, 0.045, fenceMat, cx, GROUND_Y + 0.36, cz, rotY);
-  addBox(parent, len, 0.055, 0.045, fenceMat, cx, GROUND_Y + 0.16, cz, rotY);
+  // Strict thickness hierarchy (rails 0.032 < pickets 0.048 < posts 0.096) eliminates coplanar faces
+  addBox(parent, len, 0.052, 0.032, fenceMat, cx, GROUND_Y + 0.36, cz, rotY);
+  addBox(parent, len, 0.052, 0.032, fenceMat, cx, GROUND_Y + 0.16, cz, rotY);
 
   const steps = Math.max(2, Math.round(len / 0.58));
   for (let i = 0; i <= steps; i++) {
+    if (skipEndPosts && (i === 0 || i === steps)) continue;
     const t = i / steps;
     const px = x1 + dx * t;
     const pz = z1 + dz * t;
     const isPost = i % 3 === 0 || i === steps;
     addBox(
       parent,
-      isPost ? 0.09 : 0.065,
-      isPost ? 0.5 : 0.42,
-      isPost ? 0.09 : 0.04,
+      isPost ? 0.096 : 0.064,
+      isPost ? 0.52 : 0.42,
+      isPost ? 0.096 : 0.048,
       fenceMat,
       px,
-      GROUND_Y + (isPost ? 0.25 : 0.22),
+      GROUND_Y + (isPost ? 0.27 : 0.22),
       pz,
       rotY,
     );
@@ -829,7 +850,7 @@ function addSuburbanHome(
   const h = (variant === 2 ? 1.85 : 1.32) * scale;
   const d = (variant === 1 ? 2.0 : 1.9) * scale;
 
-  addBox(g, w, h, d, mats.get(wallHex, { roughness: 0.88 }), 0, h / 2, 0, 0, shadow);
+  addBox(g, w, h, d, mats.get(wallHex, { roughness: 0.88 }), 0, h / 2 + 0.008, 0, 0, shadow);
 
   // Varied pitched roof silhouettes
   const roofH = (variant === 2 ? 0.92 : 1.02) * scale;
@@ -837,26 +858,49 @@ function addSuburbanHome(
     new THREE.ConeGeometry(Math.max(w, d) * 0.8, roofH, 4),
     mats.get(roofHex, { roughness: 0.85 }),
   );
-  roof.position.y = h + roofH / 2 - 0.03;
+  roof.position.y = h + roofH / 2 - 0.02;
   roof.rotation.y = Math.PI / 4;
   roof.scale.set(w / Math.max(w, d), 1, d / Math.max(w, d));
   roof.castShadow = shadow;
   roof.receiveShadow = true;
   g.add(roof);
 
-  // Side garage or porch wing on alternating homes
+  // Side garage or porch wing cleanly abutted without intersecting main walls
   if (variant === 1) {
-    addBox(g, 1.2 * scale, 0.95 * scale, 1.5 * scale, mats.get(wallHex, { roughness: 0.9 }), w * 0.65, 0.48 * scale, 0.1 * scale, 0, shadow);
-    addBox(g, 0.82 * scale, 0.72 * scale, 0.05, mats.get('#EAE5DC', { roughness: 0.85 }), w * 0.65, 0.36 * scale, 0.87 * scale);
+    const gW = 1.14 * scale;
+    const gH = 0.95 * scale;
+    const gD = 1.5 * scale;
+    const gX = w / 2 + gW / 2 + 0.004 * scale;
+    const gZ = 0.08 * scale;
+    addBox(g, gW, gH, gD, mats.get(wallHex, { roughness: 0.9 }), gX, gH / 2 + 0.008, gZ, 0, shadow);
+    addBox(
+      g,
+      0.82 * scale,
+      0.72 * scale,
+      0.06,
+      mats.get('#EAE5DC', { roughness: 0.85 }),
+      gX,
+      0.38 * scale,
+      gZ + gD / 2 + 0.032,
+    );
   } else {
-    // Cozy front porch awning
-    addBox(g, 1.15 * scale, 0.1 * scale, 0.62 * scale, mats.get('#EFEAE0', { roughness: 0.86 }), -0.35 * scale, 0.95 * scale, d / 2 + 0.28 * scale);
+    // Cozy front porch awning strictly outside front facade
+    addBox(
+      g,
+      1.15 * scale,
+      0.1 * scale,
+      0.62 * scale,
+      mats.get('#EFEAE0', { roughness: 0.86 }),
+      -0.35 * scale,
+      0.95 * scale,
+      d / 2 + 0.314 * scale,
+    );
   }
 
   // Chimney
   addBox(g, 0.26 * scale, 0.55 * scale, 0.26 * scale, mats.get('#D9C6B8', { roughness: 0.92 }), 0.55 * scale, h + 0.48 * scale, -0.25 * scale);
 
-  // Door & warm glowing windows
+  // Door & warm glowing windows cleanly proud of wall faces (zero facade Z-fighting)
   const doorMat = mats.get('#B5896B', { roughness: 0.85 });
   const winMat = mats.get('#FFF2C2', {
     roughness: 0.4,
@@ -864,12 +908,12 @@ function addSuburbanHome(
     emissiveIntensity: 0.08,
     glowKind: 'window',
   });
-  addBox(g, 0.4 * scale, 0.68 * scale, 0.05, doorMat, -0.35 * scale, 0.34 * scale, d / 2 + 0.02);
-  addBox(g, 0.44 * scale, 0.36 * scale, 0.05, winMat, 0.48 * scale, 0.68 * scale, d / 2 + 0.02);
-  addBox(g, 0.48 * scale, 0.36 * scale, 0.05, winMat, 0, 0.68 * scale, -d / 2 - 0.02);
+  addBox(g, 0.4 * scale, 0.66 * scale, 0.06, doorMat, -0.35 * scale, 0.35 * scale, d / 2 + 0.032);
+  addBox(g, 0.44 * scale, 0.36 * scale, 0.06, winMat, 0.48 * scale, 0.68 * scale, d / 2 + 0.032);
+  addBox(g, 0.48 * scale, 0.36 * scale, 0.06, winMat, 0, 0.68 * scale, -d / 2 - 0.032);
   if (variant === 2) {
-    addBox(g, 0.4 * scale, 0.34 * scale, 0.05, winMat, -0.42 * scale, 1.38 * scale, d / 2 + 0.02);
-    addBox(g, 0.4 * scale, 0.34 * scale, 0.05, winMat, 0.42 * scale, 1.38 * scale, d / 2 + 0.02);
+    addBox(g, 0.4 * scale, 0.34 * scale, 0.06, winMat, -0.42 * scale, 1.38 * scale, d / 2 + 0.032);
+    addBox(g, 0.4 * scale, 0.34 * scale, 0.06, winMat, 0.42 * scale, 1.38 * scale, d / 2 + 0.032);
   }
 
   parent.add(g);
@@ -913,34 +957,34 @@ function buildSuburbs(
   const fenceMat = mats.get('#F6F2E8', { roughness: 0.86 });
   const gateHalf = 1.15;
 
-  addFenceSpan(root, fenceMat, -fenceX, -fenceZ, -fenceX, fenceZ);
-  addFenceSpan(root, fenceMat, fenceX, -fenceZ, fenceX, fenceZ);
+  addFenceSpan(root, fenceMat, -fenceX, -fenceZ + 0.05, -fenceX, fenceZ - 0.05, true);
+  addFenceSpan(root, fenceMat, fenceX, -fenceZ + 0.05, fenceX, fenceZ - 0.05, true);
   addFenceSpan(root, fenceMat, -fenceX, fenceZ, fenceX, fenceZ);
   addFenceSpan(root, fenceMat, -fenceX, -fenceZ, -gateHalf, -fenceZ);
   addFenceSpan(root, fenceMat, gateHalf, -fenceZ, fenceX, -fenceZ);
 
-  // Stepping-stone path from front garden gate to the neighborhood sidewalk + mailbox
+  // Stepping-stone path stopping cleanly before the neighborhood sidewalk + mailbox
   const stoneMat = mats.get('#DFD7CA', { roughness: 0.94 });
   const sidewalkZ = -(halfD + 4.2);
-  for (let z = -fenceZ; z >= sidewalkZ + 0.55; z -= 0.72) {
-    addBox(root, 0.78, 0.028, 0.44, stoneMat, 0, GROUND_Y + 0.018, z);
+  for (let z = -fenceZ; z >= sidewalkZ + 0.88; z -= 0.72) {
+    addBox(root, 0.78, 0.026, 0.44, stoneMat, 0, GROUND_Y + 0.029, z);
   }
-  addBox(root, 0.07, 0.52, 0.07, mats.get('#8F6E54'), gateHalf + 0.45, GROUND_Y + 0.26, sidewalkZ + 0.85);
-  addBox(root, 0.22, 0.16, 0.34, mats.get('#D97F6C'), gateHalf + 0.45, GROUND_Y + 0.55, sidewalkZ + 0.85);
+  addBox(root, 0.07, 0.5, 0.07, mats.get('#8F6E54'), gateHalf + 0.45, GROUND_Y + 0.26, sidewalkZ + 0.88);
+  addBox(root, 0.22, 0.16, 0.34, mats.get('#D97F6C'), gateHalf + 0.45, GROUND_Y + 0.592, sidewalkZ + 0.88);
 
-  // ENDLESS straight quiet residential street & sidewalks (260 units long — NEVER visibly ends!)
+  // ENDLESS straight quiet residential street & sidewalks (strict vertical & curb separation)
   const roadZ = -(halfD + 6.45);
   const farSidewalkZ = -(halfD + 8.7);
   const sidewalkMat = mats.get('#EBE6DD', { roughness: 0.92 });
   const roadMat = mats.get('#CECBC4', { roughness: 0.95 });
   const dashMat = mats.get('#F6F3EC', { roughness: 0.82 });
 
-  addBox(root, TERRAIN_SPAN, 0.036, 1.3, sidewalkMat, 0, GROUND_Y + 0.018, sidewalkZ);
-  addBox(root, TERRAIN_SPAN, 0.022, 3.2, roadMat, 0, GROUND_Y + 0.012, roadZ);
-  addBox(root, TERRAIN_SPAN, 0.036, 1.3, sidewalkMat, 0, GROUND_Y + 0.018, farSidewalkZ);
+  addBox(root, TERRAIN_SPAN, 0.044, 1.24, sidewalkMat, 0, GROUND_Y + 0.034, sidewalkZ);
+  addBox(root, TERRAIN_SPAN, 0.02, 3.16, roadMat, 0, GROUND_Y + 0.014, roadZ);
+  addBox(root, TERRAIN_SPAN, 0.044, 1.24, sidewalkMat, 0, GROUND_Y + 0.034, farSidewalkZ);
 
   for (let x = -124; x <= 124; x += 2.6) {
-    addBox(root, 1.1, 0.01, 0.09, dashMat, x, GROUND_Y + 0.026, roadZ);
+    addBox(root, 1.1, 0.02, 0.09, dashMat, x, GROUND_Y + 0.038, roadZ);
   }
 
   // Continuous varied neighborhood across the street (15 homes stretching past the horizon!)
@@ -957,12 +1001,12 @@ function buildSuburbs(
     const variant = houseIdx % 3;
     addSuburbanHome(root, mats, hx, acrossZ, 0, wall, roof, variant, 1.04);
 
-    // Connecting driveway & occasional parked pastel car
-    addBox(root, 1.45, 0.024, 3.2, drivewayMat, hx + 1.5, GROUND_Y + 0.014, acrossZ + 2.3);
+    // Connecting driveway trimmed strictly before far sidewalk edge & occasional parked car
+    addBox(root, 1.45, 0.024, 2.2, drivewayMat, hx + 1.5, GROUND_Y + 0.024, acrossZ + 2.15);
     if (houseIdx % 3 === 1) {
       const carC = carColors[houseIdx % carColors.length];
-      addBox(root, 0.65, 0.25, 1.1, mats.get(carC, { roughness: 0.65 }), hx + 1.5, GROUND_Y + 0.16, acrossZ + 2.5);
-      addBox(root, 0.54, 0.16, 0.56, mats.get('#F7F9FA', { roughness: 0.45 }), hx + 1.5, GROUND_Y + 0.34, acrossZ + 2.45);
+      addBox(root, 0.65, 0.25, 1.1, mats.get(carC, { roughness: 0.65 }), hx + 1.5, GROUND_Y + 0.165, acrossZ + 2.25);
+      addBox(root, 0.54, 0.16, 0.56, mats.get('#F7F9FA', { roughness: 0.45 }), hx + 1.5, GROUND_Y + 0.372, acrossZ + 2.2);
     }
 
     // Neighbor side yard fences & shade trees
@@ -990,7 +1034,7 @@ function buildSuburbs(
         idx % 3,
         1.02,
       );
-      addBox(root, 1.4, 0.024, 3.4, drivewayMat, hx - side * 1.4, GROUND_Y + 0.014, -(halfD + 2.2));
+      addBox(root, 1.4, 0.024, 2.64, drivewayMat, hx - side * 1.4, GROUND_Y + 0.024, -(halfD + 2.22));
       addFenceSpan(root, fenceMat, hx + side * 4.9, sameSideZ - 2.6, hx + side * 4.9, sameSideZ + 5.0);
       addLayeredOakTree(root, mats, hx + side * 3.5, sameSideZ + 4.2, 1.08, '#87BC8E', '#A1D199');
     }
@@ -1022,10 +1066,10 @@ function buildSuburbs(
   }
 
   const hedgeMat = mats.get('#82B68A', { roughness: 0.9 });
-  addBox(root, 1.8, 0.44, 0.46, hedgeMat, -fenceX - 0.65, GROUND_Y + 0.22, fenceZ * 0.42, Math.PI / 2, true);
-  addBox(root, 1.8, 0.44, 0.46, hedgeMat, fenceX + 0.65, GROUND_Y + 0.22, fenceZ * 0.42, Math.PI / 2, true);
-  addBox(root, 2.2, 0.44, 0.46, hedgeMat, -fenceX * 0.35, GROUND_Y + 0.22, fenceZ + 0.65, 0, true);
-  addBox(root, 2.2, 0.44, 0.46, hedgeMat, fenceX * 0.35, GROUND_Y + 0.22, fenceZ + 0.65, 0, true);
+  addBox(root, 1.8, 0.44, 0.46, hedgeMat, -fenceX - 0.65, GROUND_Y + 0.23, fenceZ * 0.42, Math.PI / 2, true);
+  addBox(root, 1.8, 0.44, 0.46, hedgeMat, fenceX + 0.65, GROUND_Y + 0.23, fenceZ * 0.42, Math.PI / 2, true);
+  addBox(root, 2.2, 0.44, 0.46, hedgeMat, -fenceX * 0.35, GROUND_Y + 0.23, fenceZ + 0.65, 0, true);
+  addBox(root, 2.2, 0.44, 0.46, hedgeMat, fenceX * 0.35, GROUND_Y + 0.23, fenceZ + 0.65, 0, true);
 
   const flowerPalette = ['#F6DB7D', '#EEABBA', '#B7D4F2'];
   addWildflowers(root, mats, -gateHalf - 0.85, -fenceZ - 0.6, flowerPalette);
@@ -1068,10 +1112,10 @@ function addSkyscraperFromStreet(
   const g = new THREE.Group();
   g.position.set(x, CITY_STREET_Y, z);
 
-  addBox(g, w, height, d, mats.get(bodyHex, { roughness: 0.84 }), 0, height / 2, 0);
-  addBox(g, w + 0.2, 0.24, d + 0.2, mats.get(accentHex, { roughness: 0.78 }), 0, height - 0.08, 0);
+  addBox(g, w, height, d, mats.get(bodyHex, { roughness: 0.84 }), 0, height / 2 + 0.01, 0);
+  addBox(g, w + 0.24, 0.24, d + 0.24, mats.get(accentHex, { roughness: 0.78 }), 0, height - 0.07, 0);
 
-  // Warm illuminated apartment / office window ribbons along upper visible stories
+  // Warm illuminated apartment / office window ribbons (proud +0.04 per face, staggered heights)
   const winMat = mats.get('#FFF1C4', {
     roughness: 0.34,
     emissive: '#FFE299',
@@ -1080,38 +1124,38 @@ function addSkyscraperFromStreet(
   });
   const bandStart = Math.max(6, height - 22);
   for (let wy = bandStart; wy <= height - 0.9; wy += 1.45) {
-    addBox(g, w * 0.76, 0.38, d + 0.05, winMat, 0, wy, 0);
-    addBox(g, w + 0.05, 0.38, d * 0.76, winMat, 0, wy, 0);
+    addBox(g, w * 0.76, 0.38, d + 0.08, winMat, 0, wy, 0);
+    addBox(g, w + 0.08, 0.34, d * 0.76, winMat, 0, wy, 0);
   }
 
-  let capTop = height;
+  let capTop = height + 0.05;
   if (opts?.setback) {
     const sbH = 1.6;
-    addBox(g, w * 0.68, sbH, d * 0.68, mats.get(accentHex, { roughness: 0.8 }), 0, height + sbH / 2, 0);
-    capTop += sbH;
+    addBox(g, w * 0.68, sbH, d * 0.68, mats.get(accentHex, { roughness: 0.8 }), 0, capTop + sbH / 2 + 0.004, 0);
+    capTop += sbH + 0.004;
   }
 
   if (opts?.spire) {
-    addBox(g, 0.2, 1.8, 0.2, mats.get('#E2E6EC', { roughness: 0.55, metalness: 0.2 }), 0, capTop + 0.9, 0);
+    addBox(g, 0.2, 1.8, 0.2, mats.get('#E2E6EC', { roughness: 0.55, metalness: 0.2 }), 0, capTop + 0.904, 0);
   } else {
-    addBox(g, 0.75, 0.42, 0.62, mats.get('#C4C8CF', { roughness: 0.8 }), -w * 0.18, capTop + 0.22, -d * 0.16);
+    addBox(g, 0.75, 0.42, 0.62, mats.get('#C4C8CF', { roughness: 0.8 }), -w * 0.18, capTop + 0.214, -d * 0.16);
   }
 
   if (opts?.waterTower) {
     const wx = w * 0.22;
     const wz = d * 0.2;
-    addBox(g, 0.36, 0.44, 0.36, mats.get('#8D847B', { roughness: 0.88 }), wx, capTop + 0.22, wz);
+    addBox(g, 0.36, 0.44, 0.36, mats.get('#8D847B', { roughness: 0.88 }), wx, capTop + 0.224, wz);
     const tank = new THREE.Mesh(
       new THREE.CylinderGeometry(0.3, 0.3, 0.55, 8),
       mats.get('#D6B896', { roughness: 0.85 }),
     );
-    tank.position.set(wx, capTop + 0.7, wz);
+    tank.position.set(wx, capTop + 0.725, wz);
     g.add(tank);
   }
 
   if (opts?.rooftopGarden) {
-    addLayeredOakTree(g, mats, -w * 0.18, d * 0.18, 0.65, '#8BC091', '#A6D6A0', '#96775D', capTop);
-    addLayeredOakTree(g, mats, w * 0.2, -d * 0.16, 0.55, '#99CA96', '#B3DDA9', '#96775D', capTop);
+    addLayeredOakTree(g, mats, -w * 0.18, d * 0.18, 0.65, '#8BC091', '#A6D6A0', '#96775D', capTop + 0.01);
+    addLayeredOakTree(g, mats, w * 0.2, -d * 0.16, 0.55, '#99CA96', '#B3DDA9', '#96775D', capTop + 0.01);
   }
 
   parent.add(g);
@@ -1125,12 +1169,13 @@ function buildCity(
 ): void {
   const shaftW = halfW * 2 + 0.46;
   const shaftD = halfD * 2 + 0.46;
-  const shaftHeight = -0.02 - CITY_STREET_Y;
+  const shaftTopY = -0.055;
+  const shaftHeight = shaftTopY - CITY_STREET_Y;
 
   // Endless atmospheric urban floor far below (260x260)
   addEndlessGround(root, mats, '#727D90', CITY_STREET_Y);
 
-  // Endless orthogonal city avenues far below stretching cleanly to horizon
+  // Endless orthogonal city avenues staggered in Y so intersections never Z-fight
   const avenueMat = mats.get('#5A6476', { roughness: 0.94 });
   const glowLaneMat = mats.get('#E2E6EE', {
     roughness: 0.7,
@@ -1142,19 +1187,21 @@ function buildCity(
   const avZ = [-(halfD + 3.8), halfD + 3.8, -(halfD + 17.5), halfD + 17.5, -(halfD + 34), halfD + 34];
 
   for (const zPos of avZ) {
-    addBox(root, TERRAIN_SPAN, 0.05, 2.8, avenueMat, 0, CITY_STREET_Y + 0.03, zPos);
+    addBox(root, TERRAIN_SPAN, 0.04, 2.8, avenueMat, 0, CITY_STREET_Y + 0.036, zPos);
     for (let x = -110; x <= 110; x += 4.2) {
-      addBox(root, 1.2, 0.02, 0.14, glowLaneMat, x, CITY_STREET_Y + 0.07, zPos);
+      if (avX.some((ax) => Math.abs(x - ax) < 2.3)) continue;
+      addBox(root, 1.2, 0.018, 0.14, glowLaneMat, x, CITY_STREET_Y + 0.072, zPos);
     }
   }
   for (const xPos of avX) {
-    addBox(root, 2.8, 0.05, TERRAIN_SPAN, avenueMat, xPos, CITY_STREET_Y + 0.03, 0);
+    addBox(root, 2.8, 0.04, TERRAIN_SPAN, avenueMat, xPos, CITY_STREET_Y + 0.064, 0);
     for (let z = -110; z <= 110; z += 4.2) {
-      addBox(root, 0.14, 0.02, 1.2, glowLaneMat, xPos, CITY_STREET_Y + 0.07, z);
+      if (avZ.some((az) => Math.abs(z - az) < 2.3)) continue;
+      addBox(root, 0.14, 0.018, 1.2, glowLaneMat, xPos, CITY_STREET_Y + 0.1, z);
     }
   }
 
-  // Sleek elevated apartment building shaft flush with y = 0 (NO clunky stacked plinths!)
+  // Sleek elevated apartment building shaft below textured rooftop terrace (clean separation below y = 0)
   const shaftGroup = new THREE.Group();
   const concreteMat = mats.get('#DBD6CE', { roughness: 0.86 });
   const ledgeMat = mats.get('#EFEAE2', { roughness: 0.82 });
@@ -1172,7 +1219,7 @@ function buildCity(
     glowKind: 'window',
   });
 
-  // Main flush floor-terrace deck right at y = -0.02 down to street
+  // Main shaft deck stopping cleanly at y = -0.055 below the rooftop terrace surface
   addBox(
     shaftGroup,
     shaftW,
@@ -1184,64 +1231,74 @@ function buildCity(
     0,
   );
 
-  // Subtle architectural concrete/travertine rooftop terrace surface flush at y = -0.014
+  // Textured concrete/travertine rooftop terrace strictly at y = -0.022 (+0.033 above shaft, -0.026 below floor tiles)
   const terraceGeo = new THREE.PlaneGeometry(shaftW, shaftD);
   terraceGeo.rotateX(-Math.PI / 2);
   const terraceMesh = new THREE.Mesh(
     terraceGeo,
-    mats.get('#E2DDD5', { roughness: 0.9, groundTex: 'concrete', texRepeat: Math.max(4, Math.round(Math.max(halfW, halfD) * 0.7)) }),
+    mats.get('#E2DDD5', {
+      roughness: 0.9,
+      groundTex: 'concrete',
+      texRepeat: Math.max(4, Math.round(Math.max(halfW, halfD) * 0.7)),
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
+    }),
   );
-  terraceMesh.position.y = -0.014;
+  terraceMesh.position.y = -0.022;
   terraceMesh.receiveShadow = true;
   shaftGroup.add(terraceMesh);
 
-  // Sleek flush rooftop terrace glass parapet rim strictly outside [-halfW, halfW] x [-halfD, halfD]
+  // Sleek rooftop terrace glass parapet rails trimmed cleanly between corner pilasters (zero overlap)
   const parX = halfW + 0.18;
   const parZ = halfD + 0.18;
-  addBox(shaftGroup, shaftW, 0.22, 0.05, railGlassMat, 0, 0.1, -parZ);
-  addBox(shaftGroup, shaftW, 0.22, 0.05, railGlassMat, 0, 0.1, parZ);
-  addBox(shaftGroup, 0.05, 0.22, shaftD, railGlassMat, -parX, 0.1, 0);
-  addBox(shaftGroup, 0.05, 0.22, shaftD, railGlassMat, parX, 0.1, 0);
-  addBox(shaftGroup, shaftW + 0.06, 0.04, 0.07, ledgeMat, 0, 0.22, -parZ);
-  addBox(shaftGroup, shaftW + 0.06, 0.04, 0.07, ledgeMat, 0, 0.22, parZ);
-  addBox(shaftGroup, 0.07, 0.04, shaftD + 0.06, ledgeMat, -parX, 0.22, 0);
-  addBox(shaftGroup, 0.07, 0.04, shaftD + 0.06, ledgeMat, parX, 0.22, 0);
+  const innerRailW = Math.max(0.2, parX * 2 - 0.36);
+  const innerRailD = Math.max(0.2, parZ * 2 - 0.36);
+  addBox(shaftGroup, innerRailW, 0.2, 0.05, railGlassMat, 0, 0.09, -parZ);
+  addBox(shaftGroup, innerRailW, 0.2, 0.05, railGlassMat, 0, 0.09, parZ);
+  addBox(shaftGroup, 0.05, 0.2, innerRailD, railGlassMat, -parX, 0.09, 0);
+  addBox(shaftGroup, 0.05, 0.2, innerRailD, railGlassMat, parX, 0.09, 0);
+  addBox(shaftGroup, innerRailW, 0.036, 0.07, ledgeMat, 0, 0.21, -parZ);
+  addBox(shaftGroup, innerRailW, 0.036, 0.07, ledgeMat, 0, 0.21, parZ);
+  addBox(shaftGroup, 0.07, 0.036, innerRailD, ledgeMat, -parX, 0.21, 0);
+  addBox(shaftGroup, 0.07, 0.036, innerRailD, ledgeMat, parX, 0.21, 0);
 
-  // Corner structural pilasters
+  // Corner structural pilasters proud of shaft corners and clear of parapet rails
+  const pilasterH = 0.24 - (CITY_STREET_Y + 0.01);
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       addBox(
         shaftGroup,
         0.34,
-        shaftHeight + 0.24,
+        pilasterH,
         0.34,
         ledgeMat,
         sx * parX,
-        CITY_STREET_Y + (shaftHeight + 0.24) / 2,
+        CITY_STREET_Y + 0.01 + pilasterH / 2,
         sz * parZ,
       );
     }
   }
 
-  // Horizontal story ledges & warm apartment window bays on lower floors below us
+  // Horizontal story ledges & warm apartment window bays (protruding & staggered heights)
   const floorStep = 3.2;
   for (let story = 0; story < 10; story++) {
     const slabY = -0.22 - story * floorStep;
-    addBox(shaftGroup, shaftW + 0.3, 0.24, shaftD + 0.3, ledgeMat, 0, slabY, 0);
+    addBox(shaftGroup, shaftW + 0.34, 0.24, shaftD + 0.34, ledgeMat, 0, slabY, 0);
     if (story < 9) {
       const winY = slabY - floorStep * 0.5;
       const baysW = Math.max(3, Math.round(halfW / 2.2));
       const baysD = Math.max(3, Math.round(halfD / 2.2));
       for (let b = 0; b < baysW; b++) {
         const bx = -shaftW * 0.38 + (b / Math.max(1, baysW - 1)) * (shaftW * 0.76);
-        addBox(shaftGroup, (shaftW * 0.58) / baysW, 1.45, shaftD + 0.04, aptWinMat, bx, winY, 0);
+        addBox(shaftGroup, (shaftW * 0.58) / baysW, 1.46, shaftD + 0.08, aptWinMat, bx, winY, 0);
       }
       for (let b = 0; b < baysD; b++) {
         const bz = -shaftD * 0.38 + (b / Math.max(1, baysD - 1)) * (shaftD * 0.76);
-        addBox(shaftGroup, shaftW + 0.04, 1.45, (shaftD * 0.58) / baysD, aptWinMat, 0, winY, bz);
+        addBox(shaftGroup, shaftW + 0.08, 1.4, (shaftD * 0.58) / baysD, aptWinMat, 0, winY, bz);
       }
-      addBox(shaftGroup, 0.22, floorStep - 0.24, shaftD + 0.08, mullionMat, 0, winY, 0);
-      addBox(shaftGroup, shaftW + 0.08, floorStep - 0.24, 0.22, mullionMat, 0, winY, 0);
+      addBox(shaftGroup, 0.22, floorStep - 0.28, shaftD + 0.14, mullionMat, 0, winY, 0);
+      addBox(shaftGroup, shaftW + 0.14, floorStep - 0.34, 0.22, mullionMat, 0, winY, 0);
     }
   }
   root.add(shaftGroup);
@@ -1263,12 +1320,44 @@ function buildCity(
 
   const clearX = halfW + 1.0;
   const clearZ = halfD + 1.0;
+  const placedTowers: Array<{ x: number; z: number; hw: number; hd: number }> = [];
+  const resolveTowerSpot = (
+    angle: number,
+    baseOffset: number,
+    tw: number,
+    td: number,
+  ): { x: number; z: number } => {
+    const hw = tw / 2 + 0.45;
+    const hd = td / 2 + 0.45;
+    let offset = baseOffset;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const pt = rectPerimeterPoint(angle, clearX, clearZ, offset);
+      let overlaps = false;
+      for (let j = 0; j < placedTowers.length; j++) {
+        const t = placedTowers[j];
+        if (Math.abs(pt.x - t.x) < hw + t.hw && Math.abs(pt.z - t.z) < hd + t.hd) {
+          overlaps = true;
+          break;
+        }
+      }
+      if (!overlaps) {
+        placedTowers.push({ x: pt.x, z: pt.z, hw, hd });
+        return pt;
+      }
+      offset += 2.6;
+    }
+    const fallback = rectPerimeterPoint(angle, clearX, clearZ, offset);
+    placedTowers.push({ x: fallback.x, z: fallback.z, hw, hd });
+    return fallback;
+  };
 
   // Tier 1: Immediate neighboring roofs & mid-rise buildings
   const tier1Count = 12;
   for (let i = 0; i < tier1Count; i++) {
     const angle = (i / tier1Count) * Math.PI * 2 + 0.26;
-    const pt = rectPerimeterPoint(angle, clearX, clearZ, 5.8 + (i % 2) * 2.1);
+    const tw = 4.2 + (i % 2) * 0.9;
+    const td = 4.0 + ((i + 1) % 2) * 0.9;
+    const pt = resolveTowerSpot(angle, 5.8 + (i % 2) * 2.1, tw, td);
     const [body, acc] = nearPalette[i % nearPalette.length];
     const desiredTop = -3.8 + (i % 3) * 1.9;
     const topY = Math.min(desiredTop, maxSafeHeight(pt.x, pt.z, halfW, halfD, 2.8));
@@ -1277,8 +1366,8 @@ function buildCity(
       mats,
       pt.x,
       pt.z,
-      4.2 + (i % 2) * 0.9,
-      4.0 + ((i + 1) % 2) * 0.9,
+      tw,
+      td,
       topY,
       body,
       acc,
@@ -1290,7 +1379,9 @@ function buildCity(
   const tier2Count = 18;
   for (let i = 0; i < tier2Count; i++) {
     const angle = (i / tier2Count) * Math.PI * 2 + 0.11;
-    const pt = rectPerimeterPoint(angle, clearX, clearZ, 13.5 + (i % 3) * 3.0);
+    const tw = 4.8 + (i % 3) * 0.8;
+    const td = 4.6 + ((i + 1) % 3) * 0.8;
+    const pt = resolveTowerSpot(angle, 13.5 + (i % 3) * 3.0, tw, td);
     const [body, acc] = nearPalette[(i + 2) % nearPalette.length];
     const hasSpire = i % 2 === 0;
     const hasSetback = i % 3 === 0;
@@ -1302,8 +1393,8 @@ function buildCity(
       mats,
       pt.x,
       pt.z,
-      4.8 + (i % 3) * 0.8,
-      4.6 + ((i + 1) % 3) * 0.8,
+      tw,
+      td,
       topY,
       body,
       acc,
@@ -1315,7 +1406,9 @@ function buildCity(
   const tier3Count = 26;
   for (let i = 0; i < tier3Count; i++) {
     const angle = (i / tier3Count) * Math.PI * 2 + 0.05;
-    const pt = rectPerimeterPoint(angle, clearX, clearZ, 26.5 + (i % 4) * 5.8);
+    const tw = 6.2 + (i % 3) * 1.4;
+    const td = 6.0 + ((i + 2) % 3) * 1.4;
+    const pt = resolveTowerSpot(angle, 26.5 + (i % 4) * 5.8, tw, td);
     const [body, acc] = farPalette[i % farPalette.length];
     const hasSpire = i % 3 === 0;
     const hasSetback = i % 2 === 0;
@@ -1327,8 +1420,8 @@ function buildCity(
       mats,
       pt.x,
       pt.z,
-      6.2 + (i % 3) * 1.4,
-      6.0 + ((i + 2) % 3) * 1.4,
+      tw,
+      td,
       topY,
       body,
       acc,
@@ -1399,50 +1492,65 @@ function addDramaticPeak(
   const rotY = x * 0.23 + z * 0.17;
   const facets = 7;
 
-  // Main towering peak body
+  // Non-overlapping lower rock frustum + upper snow cap (seamless edge-to-edge, zero Z-fighting!)
+  const rockH = height * snowThreshold;
+  const snowH = height - rockH;
+  const snowBaseR = baseRadius * (1 - snowThreshold);
+
   const rock = new THREE.Mesh(
-    new THREE.ConeGeometry(baseRadius, height, facets),
+    new THREE.CylinderGeometry(snowBaseR, baseRadius, rockH, facets, 1, true),
     mats.get(rockHex, { roughness: 0.93 }),
   );
-  rock.position.y = height / 2;
+  rock.position.y = rockH / 2;
   rock.rotation.y = rotY;
   rock.receiveShadow = true;
   g.add(rock);
 
-  // Secondary shoulder ridge buttress for jagged alpine silhouette
-  const subH = height * 0.66;
-  const subR = baseRadius * 0.72;
-  const shoulder = new THREE.Mesh(
-    new THREE.ConeGeometry(subR, subH, 6),
-    mats.get(ridgeHex, { roughness: 0.94 }),
-  );
-  shoulder.position.set(Math.cos(rotY) * baseRadius * 0.42, subH / 2, Math.sin(rotY) * baseRadius * 0.42);
-  shoulder.rotation.y = rotY + 0.5;
-  shoulder.receiveShadow = true;
-  g.add(shoulder);
-
-  // Crisp snow-capped upper summit
-  const snowH = height * (1 - snowThreshold) + 0.16;
-  const snowR = baseRadius * (1 - snowThreshold) + 0.16;
   const snow = new THREE.Mesh(
-    new THREE.ConeGeometry(snowR, snowH, facets),
+    new THREE.ConeGeometry(snowBaseR, snowH, facets, 1, true),
     mats.get('#F5F9FD', { roughness: 0.78 }),
   );
-  snow.position.y = height - snowH / 2 + 0.04;
+  snow.position.y = rockH + snowH / 2;
   snow.rotation.y = rotY;
   g.add(snow);
 
-  // Smaller snow dusting on shoulder summit for taller peaks
+  // Secondary shoulder ridge buttress (also split cleanly into rock frustum + snow cap when tall)
+  const subH = height * 0.66;
+  const subR = baseRadius * 0.72;
+  const shX = Math.cos(rotY) * baseRadius * 0.42;
+  const shZ = Math.sin(rotY) * baseRadius * 0.42;
+  const shRot = rotY + 0.5;
+
   if (height >= 12) {
-    const subSnowH = subH * 0.34;
+    const subRockH = subH * 0.66;
+    const subSnowH = subH - subRockH;
     const subSnowR = subR * 0.34;
+
+    const shoulder = new THREE.Mesh(
+      new THREE.CylinderGeometry(subSnowR, subR, subRockH, 6, 1, true),
+      mats.get(ridgeHex, { roughness: 0.94 }),
+    );
+    shoulder.position.set(shX, subRockH / 2, shZ);
+    shoulder.rotation.y = shRot;
+    shoulder.receiveShadow = true;
+    g.add(shoulder);
+
     const subSnow = new THREE.Mesh(
-      new THREE.ConeGeometry(subSnowR, subSnowH, 6),
+      new THREE.ConeGeometry(subSnowR, subSnowH, 6, 1, true),
       mats.get('#F2F7FC', { roughness: 0.8 }),
     );
-    subSnow.position.set(shoulder.position.x, subH - subSnowH / 2 + 0.03, shoulder.position.z);
-    subSnow.rotation.y = shoulder.rotation.y;
+    subSnow.position.set(shX, subRockH + subSnowH / 2, shZ);
+    subSnow.rotation.y = shRot;
     g.add(subSnow);
+  } else {
+    const shoulder = new THREE.Mesh(
+      new THREE.ConeGeometry(subR, subH, 6, 1, true),
+      mats.get(ridgeHex, { roughness: 0.94 }),
+    );
+    shoulder.position.set(shX, subH / 2, shZ);
+    shoulder.rotation.y = shRot;
+    shoulder.receiveShadow = true;
+    g.add(shoulder);
   }
 
   parent.add(g);
@@ -1459,22 +1567,8 @@ function buildMountains(
   // Lush continuous alpine valley meadow (260x260 — ZERO gray void!)
   addEndlessGround(root, mats, view.groundColor, GROUND_Y, TERRAIN_SPAN, 'grass');
 
-  // Subtle sculpted valley grass & mossy slope patches
-  const patchPalette = ['#A8C49B', '#BED2A9', '#9DBB93'];
   const clearX = halfW + 1.8;
   const clearZ = halfD + 1.8;
-  for (let i = 0; i < 12; i++) {
-    const angle = (i / 12) * Math.PI * 2 + 0.3;
-    const pt = rectPerimeterPoint(angle, clearX, clearZ, 8 + (i % 3) * 8);
-    const patch = new THREE.Mesh(
-      new THREE.CircleGeometry(7 + (i % 3) * 3.5, 10),
-      mats.get(patchPalette[i % patchPalette.length], { roughness: 0.96 }),
-    );
-    patch.rotation.x = -Math.PI / 2;
-    patch.position.set(pt.x, GROUND_Y + 0.008, pt.z);
-    patch.receiveShadow = true;
-    root.add(patch);
-  }
 
   // REAL ANIMATED CURVED ALPINE RIVER via CatmullRomCurve3
   // Passes safely outside even extreme rectangular lots (e.g. 36x12 or 12x36)
@@ -1496,34 +1590,75 @@ function buildMountains(
     'catmullrom',
     0.5,
   );
+  const riverSamples = riverCurve.getSpacedPoints(80);
+  const isNearRiver = (x: number, z: number, pad = 3.2): boolean => {
+    const padSq = pad * pad;
+    for (let i = 0; i < riverSamples.length; i += 2) {
+      const dx = x - riverSamples[i].x;
+      const dz = z - riverSamples[i].z;
+      if (dx * dx + dz * dz < padSq) return true;
+    }
+    return false;
+  };
 
-  // Sculpted pebbly & mossy riverbanks flanking both sides of the curve
+  // Non-overlapping sculpted valley grass & mossy slope patches strictly clear of river
+  const patchPalette = ['#A8C49B', '#BED2A9', '#9DBB93'];
+  const placedPatches: Array<{ x: number; z: number; r: number }> = [];
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2 + 0.3;
+    const r = 4.2 + (i % 3) * 1.4;
+    const pt = rectPerimeterPoint(angle, clearX, clearZ, 8 + (i % 3) * 8.5);
+    if (isNearRiver(pt.x, pt.z, r + 3.1)) continue;
+    let overlaps = false;
+    for (let j = 0; j < placedPatches.length; j++) {
+      const p = placedPatches[j];
+      const minD = r + p.r + 0.3;
+      const dx = pt.x - p.x;
+      const dz = pt.z - p.z;
+      if (dx * dx + dz * dz < minD * minD) {
+        overlaps = true;
+        break;
+      }
+    }
+    if (overlaps) continue;
+    placedPatches.push({ x: pt.x, z: pt.z, r });
+    const patch = new THREE.Mesh(
+      new THREE.CircleGeometry(r, 10),
+      mats.get(patchPalette[i % patchPalette.length], { roughness: 0.96 }),
+    );
+    patch.rotation.x = -Math.PI / 2;
+    patch.position.set(pt.x, GROUND_Y + 0.022 + (i % 3) * 0.004, pt.z);
+    patch.receiveShadow = true;
+    root.add(patch);
+  }
+
+  // Sculpted pebbly & mossy riverbanks flanking both sides of the curve (strictly separated Y layers)
   const bankGeo = buildCurveRibbonGeometry(riverCurve, 130, [
-    { offset: -2.75, y: GROUND_Y + 0.01 },
-    { offset: -1.95, y: GROUND_Y + 0.085 },
+    { offset: -2.75, y: GROUND_Y + 0.018 },
+    { offset: -1.95, y: GROUND_Y + 0.115 },
     { offset: -1.35, y: GROUND_Y + 0.02 },
     { offset: 1.35, y: GROUND_Y + 0.02 },
-    { offset: 1.95, y: GROUND_Y + 0.085 },
-    { offset: 2.75, y: GROUND_Y + 0.01 },
+    { offset: 1.95, y: GROUND_Y + 0.115 },
+    { offset: 2.75, y: GROUND_Y + 0.018 },
   ]);
   const bankMesh = new THREE.Mesh(bankGeo, mats.get('#9DA89B', { roughness: 0.94 }));
   bankMesh.receiveShadow = true;
   root.add(bankMesh);
 
-  // Shallow luminous aqua water layer
+  // Shallow luminous aqua water layer (+0.030 above bed)
   const shallowGeo = buildCurveRibbonGeometry(riverCurve, 130, [
-    { offset: -1.55, y: GROUND_Y + 0.036 },
-    { offset: 1.55, y: GROUND_Y + 0.036 },
+    { offset: -1.55, y: GROUND_Y + 0.05 },
+    { offset: 1.55, y: GROUND_Y + 0.05 },
   ]);
   const shallowMat = mats.get('#7ACDD9', { roughness: 0.32, metalness: 0.08 });
   const shallowMesh = new THREE.Mesh(shallowGeo, shallowMat);
   shallowMesh.receiveShadow = true;
   root.add(shallowMesh);
 
-  // Deeper glacier-turquoise center stream
+  // Deeper glacier-turquoise center stream (+0.026 above shallow water)
   const deepGeo = buildCurveRibbonGeometry(riverCurve, 130, [
-    { offset: -0.92, y: GROUND_Y + 0.048 },
-    { offset: 0.92, y: GROUND_Y + 0.048 },
+    { offset: -0.92, y: GROUND_Y + 0.076 },
+    { offset: 0.92, y: GROUND_Y + 0.076 },
   ]);
   const deepMesh = new THREE.Mesh(
     deepGeo,
@@ -1533,7 +1668,7 @@ function buildMountains(
 
   // Flowing animated white-water foam chevrons/streaks gliding along the river spline!
   const streakCount = 42;
-  const streakGeo = new THREE.BoxGeometry(0.14, 0.018, 1.05);
+  const streakGeo = new THREE.BoxGeometry(0.14, 0.016, 1.05);
   const streakMat = mats.get('#F2FBFC', {
     roughness: 0.4,
     transparent: true,
@@ -1558,7 +1693,6 @@ function buildMountains(
   }
 
   // Smooth alpine river boulders along the banks
-  const riverSamples = riverCurve.getSpacedPoints(80);
   for (let i = 10; i < 70; i += 4) {
     const pt = riverSamples[i];
     const next = riverSamples[Math.min(79, i + 1)];
@@ -1572,16 +1706,6 @@ function buildMountains(
       addRock(root, mats, bx, bz, 0.65 + rand() * 0.55, '#8E99A2', '#7FAE7C');
     }
   }
-
-  const isNearRiver = (x: number, z: number, pad = 3.2): boolean => {
-    const padSq = pad * pad;
-    for (let i = 0; i < riverSamples.length; i += 2) {
-      const dx = x - riverSamples[i].x;
-      const dz = z - riverSamples[i].z;
-      if (dx * dx + dz * dz < padSq) return true;
-    }
-    return false;
-  };
 
   // MULTI-LAYER TOWERING DRAMATIC MOUNTAIN RANGE (heights 6..38, guaranteed non-occluding!)
   const rockMain = ['#8092A5', '#8C9EAE', '#75879B', '#93A3B2'];
@@ -1757,35 +1881,35 @@ function addBarnAndSilo(
   g.rotation.y = rotY;
   const shadow = isWithinShadowRange(x, z);
 
-  addBox(g, 2.5, 1.5, 1.9, mats.get('#D47D6D', { roughness: 0.88 }), 0, 0.75, 0, 0, shadow);
+  addBox(g, 2.5, 1.5, 1.9, mats.get('#D47D6D', { roughness: 0.88 }), 0, 0.758, 0, 0, shadow);
   const roof = new THREE.Mesh(
     new THREE.ConeGeometry(1.9, 1.0, 4),
     mats.get('#AD6153', { roughness: 0.88 }),
   );
-  roof.position.y = 1.95;
+  roof.position.y = 1.96;
   roof.rotation.y = Math.PI / 4;
   roof.scale.set(1.12, 1, 0.86);
   roof.castShadow = shadow;
   g.add(roof);
 
-  // Cream barn doors & warm hayloft + side windows
+  // Cream barn doors & warm hayloft + side windows cleanly proud of walls
   const barnWinMat = mats.get('#FFF0C0', {
     roughness: 0.4,
     emissive: '#FFE099',
     emissiveIntensity: 0.08,
     glowKind: 'window',
   });
-  addBox(g, 0.85, 0.95, 0.06, mats.get('#F6F0E4', { roughness: 0.85 }), 0, 0.48, 0.97);
-  addBox(g, 0.42, 0.34, 0.06, barnWinMat, 0, 1.22, 0.97);
-  addBox(g, 0.06, 0.36, 0.44, barnWinMat, 1.27, 0.85, 0);
-  addBox(g, 0.06, 0.36, 0.44, barnWinMat, -1.27, 0.85, 0);
+  addBox(g, 0.85, 0.92, 0.06, mats.get('#F6F0E4', { roughness: 0.85 }), 0, 0.48, 0.985);
+  addBox(g, 0.42, 0.34, 0.06, barnWinMat, 0, 1.22, 0.985);
+  addBox(g, 0.06, 0.36, 0.44, barnWinMat, 1.285, 0.85, 0);
+  addBox(g, 0.06, 0.36, 0.44, barnWinMat, -1.285, 0.85, 0);
 
   // Tall farmhouse silo
   const silo = new THREE.Mesh(
     new THREE.CylinderGeometry(0.46, 0.46, 2.3, 10),
     mats.get('#EBE7DF', { roughness: 0.82 }),
   );
-  silo.position.set(1.75, 1.15, -0.2);
+  silo.position.set(1.75, 1.158, -0.2);
   silo.castShadow = shadow;
   g.add(silo);
 
@@ -1793,7 +1917,7 @@ function addBarnAndSilo(
     new THREE.ConeGeometry(0.5, 0.48, 10),
     mats.get('#A4B4BF', { roughness: 0.75 }),
   );
-  cap.position.set(1.75, 2.52, -0.2);
+  cap.position.set(1.75, 2.555, -0.2);
   g.add(cap);
 
   parent.add(g);
@@ -1863,23 +1987,33 @@ function buildCountryside(
   // Endless sunlit pasture terrain (260x260)
   addEndlessGround(root, mats, view.groundColor, GROUND_Y, TERRAIN_SPAN, 'grass');
 
-  // Expansive pastoral patchwork fields (wheat gold, soft clover, meadow strips)
-  const fields: Array<[number, number, number, number, string, number]> = [
-    [-halfW * 0.55, -(halfD + 8.5), 14, 10, '#E8D695', 0.04],
-    [halfW * 0.75, -(halfD + 9.2), 16, 11, '#BED297', -0.03],
-    [-(halfW + 10.5), 2.0, 12, 18, '#E6D492', 0.02],
-    [halfW + 10.8, -2.5, 13, 18, '#D8C794', 0.05],
-    [-2.0, halfD + 10.5, 18, 12, '#BED297', -0.02],
-    [-(halfW + 24), -(halfD + 18), 24, 18, '#DDD096', 0.06],
-    [halfW + 24, halfD + 18, 22, 18, '#C3D59A', -0.05],
+  // Expansive pastoral patchwork fields with 3-tier elevation separation (>= 0.020 between overlaps)
+  const fields: Array<[number, number, number, number, string, number, number]> = [
+    [-halfW * 0.55, -(halfD + 8.5), 14, 10, '#E8D695', 0.04, 0],
+    [halfW * 0.75, -(halfD + 9.2), 16, 11, '#BED297', -0.03, 1],
+    [-(halfW + 10.5), 2.0, 12, 18, '#E6D492', 0.02, 1],
+    [halfW + 10.8, -2.5, 13, 18, '#D8C794', 0.05, 0],
+    [-2.0, halfD + 10.5, 18, 12, '#BED297', -0.02, 0],
+    [-(halfW + 24), -(halfD + 18), 24, 18, '#DDD096', 0.06, 2],
+    [halfW + 24, halfD + 18, 22, 18, '#C3D59A', -0.05, 1],
   ];
-  for (const [fx, fz, fw, fd, hex, rot] of fields) {
-    addBox(root, fw, 0.025, fd, mats.get(hex, { roughness: 0.96 }), fx, GROUND_Y + 0.012, fz, rot);
+  for (const [fx, fz, fw, fd, hex, rot, tier] of fields) {
+    addBox(
+      root,
+      fw,
+      0.016,
+      fd,
+      mats.get(hex, { roughness: 0.96 }),
+      fx,
+      GROUND_Y + 0.018 + tier * 0.02,
+      fz,
+      rot,
+    );
   }
 
-  // Winding dirt farm lane extending out past the horizon on the North/East pasture
+  // Winding dirt farm lane elevated cleanly above all patchwork fields (+0.024 above tier 2)
   const dirtMat = mats.get('#D7C29E', { roughness: 0.96 });
-  addBox(root, TERRAIN_SPAN, 0.02, 1.6, dirtMat, 0, GROUND_Y + 0.016, -(halfD + 15.5), 0.03);
+  addBox(root, TERRAIN_SPAN, 0.02, 1.6, dirtMat, 0, GROUND_Y + 0.08, -(halfD + 15.5), 0.03);
 
   // Rolling golden-green distant hills (no giant blobby bushes!)
   const hillGreens = ['#BDD197', '#CBD89D', '#B6CC92', '#C7D59A'];
@@ -1894,28 +2028,29 @@ function buildCountryside(
   addBarnAndSilo(root, mats, -(halfW + 5.2), -halfD * 0.42, Math.PI * 0.35);
   const windmillBlades = addWindmill(root, mats, halfW * 0.45, -(halfD + 5.4), Math.PI * 0.14);
 
-  // Split-rail wooden pasture fences cleanly hugging the rectangular lot
+  // Split-rail wooden pasture fences cleanly hugging the rectangular lot (zero corner overlap)
   const fenceMat = mats.get('#B5906D', { roughness: 0.92 });
   const fenceX = halfW + 1.85;
   const fenceZ = halfD + 1.85;
-  const railSpans: Array<[number, number, number, number]> = [
-    [-fenceX, -fenceZ, -1.5, -fenceZ],
-    [1.8, -fenceZ, fenceX, -fenceZ],
-    [-fenceX, -fenceZ, -fenceX, fenceZ],
-    [fenceX, -fenceZ, fenceX, fenceZ],
-    [-fenceX, fenceZ, fenceX, fenceZ],
+  const railSpans: Array<[number, number, number, number, boolean]> = [
+    [-fenceX, -fenceZ, -1.5, -fenceZ, false],
+    [1.8, -fenceZ, fenceX, -fenceZ, false],
+    [-fenceX, -fenceZ + 0.05, -fenceX, fenceZ - 0.05, true],
+    [fenceX, -fenceZ + 0.05, fenceX, fenceZ - 0.05, true],
+    [-fenceX, fenceZ, fenceX, fenceZ, false],
   ];
-  for (const [x1, z1, x2, z2] of railSpans) {
+  for (const [x1, z1, x2, z2, skipEnds] of railSpans) {
     const dx = x2 - x1;
     const dz = z2 - z1;
     const len = Math.hypot(dx, dz);
     const rot = -Math.atan2(dz, dx);
-    addBox(root, len, 0.06, 0.055, fenceMat, (x1 + x2) / 2, GROUND_Y + 0.36, (z1 + z2) / 2, rot);
-    addBox(root, len, 0.06, 0.055, fenceMat, (x1 + x2) / 2, GROUND_Y + 0.18, (z1 + z2) / 2, rot);
+    addBox(root, len, 0.055, 0.04, fenceMat, (x1 + x2) / 2, GROUND_Y + 0.36, (z1 + z2) / 2, rot);
+    addBox(root, len, 0.055, 0.04, fenceMat, (x1 + x2) / 2, GROUND_Y + 0.18, (z1 + z2) / 2, rot);
     const posts = Math.max(2, Math.round(len / 2.2));
     for (let i = 0; i <= posts; i++) {
+      if (skipEnds && (i === 0 || i === posts)) continue;
       const t = i / posts;
-      addBox(root, 0.09, 0.48, 0.09, fenceMat, x1 + dx * t, GROUND_Y + 0.24, z1 + dz * t);
+      addBox(root, 0.096, 0.5, 0.096, fenceMat, x1 + dx * t, GROUND_Y + 0.26, z1 + dz * t);
     }
   }
 
@@ -2075,14 +2210,14 @@ function addBeachUmbrella(
   g.add(canopy);
 
   const stripe = new THREE.Mesh(
-    new THREE.ConeGeometry(0.45, 0.22, 4),
+    new THREE.ConeGeometry(0.4, 0.2, 4),
     mats.get(colorB, { roughness: 0.78 }),
   );
-  stripe.position.y = 1.15;
+  stripe.position.y = 1.19;
   stripe.rotation.y = Math.PI / 4;
   g.add(stripe);
 
-  addBox(g, 0.85, 0.03, 0.48, mats.get(colorA, { roughness: 0.9 }), 0.55, 0.02, 0.25, 0.3);
+  addBox(g, 0.85, 0.024, 0.48, mats.get(colorA, { roughness: 0.9 }), 0.55, 0.022, 0.25, 0.3);
   parent.add(g);
 }
 
@@ -2097,7 +2232,7 @@ function addSailboat(
 ): void {
   const g = new THREE.Group();
   g.userData.dynamicBackdrop = true;
-  const baseY = GROUND_Y - 0.06;
+  const baseY = GROUND_Y - 0.08;
   g.position.set(x, baseY, z);
   g.rotation.y = rotY;
 
@@ -2135,44 +2270,53 @@ function buildBeach(
   const clearX = halfW + 1.4;
   const clearZ = halfD + 1.4;
 
-  // Endless turquoise ocean (260x260)
-  addEndlessGround(root, mats, '#5BB8CC', GROUND_Y - 0.1);
+  // Endless turquoise ocean (260x260) cleanly below lagoon/foam/sand layers
+  addEndlessGround(root, mats, '#5BB8CC', GROUND_Y - 0.14);
 
-  // Wide shallow aqua coastal lagoon scaling independently with rectangular lot
+  // Wide shallow aqua coastal lagoon (+0.045 above deep ocean)
   const shallowGeo = new THREE.CircleGeometry(1, 32);
   shallowGeo.rotateX(-Math.PI / 2);
   const shallow = new THREE.Mesh(shallowGeo, mats.get('#8EE0DF', { roughness: 0.38 }));
-  shallow.position.y = GROUND_Y - 0.055;
+  shallow.position.y = GROUND_Y - 0.095;
   shallow.scale.set(halfW * 1.55 + 11.5, 1, halfD * 1.55 + 11.5);
   shallow.receiveShadow = true;
   root.add(shallow);
 
-  // Flush warm sandy shore island cleanly surrounding rectangular lot
-  const sandGeo = new THREE.CylinderGeometry(1, 1.07, 0.08, 16);
+  // Flush warm sandy shore island (top exactly at GROUND_Y = -0.025, +0.070 above lagoon)
+  const sandGeo = new THREE.CylinderGeometry(1, 1.07, 0.07, 16);
   const sand = new THREE.Mesh(
     sandGeo,
-    mats.get(view.groundColor, { roughness: 0.95, groundTex: 'sand', texRepeat: 8 }),
+    mats.get(view.groundColor, {
+      roughness: 0.95,
+      groundTex: 'sand',
+      texRepeat: 8,
+      polygonOffset: true,
+      polygonOffsetFactor: 2,
+      polygonOffsetUnits: 2,
+    }),
   );
   const sandScaleX = halfW * 1.42 + 4.4;
   const sandScaleZ = halfD * 1.42 + 4.4;
-  sand.position.y = GROUND_Y - 0.036;
+  sand.position.y = GROUND_Y - 0.035;
   sand.scale.set(sandScaleX, 1, sandScaleZ);
   sand.rotation.y = Math.PI / 16;
   sand.receiveShadow = true;
   root.add(sand);
 
-  // Animated translucent rolling sea-foam wave rings hugging the rectangular sandy shore
+  // Animated translucent rolling sea-foam wave rings (+0.029 above lagoon, strictly outside sand)
   const foamMat = mats.get('#F4FCFC', {
     roughness: 0.45,
     transparent: true,
     opacity: 0.58,
   });
+  foamMat.depthWrite = false;
   for (let i = 0; i < 4; i++) {
     const ringGeo = new THREE.RingGeometry(1, 1.022, 36);
     ringGeo.rotateX(-Math.PI / 2);
     const ring = new THREE.Mesh(ringGeo, foamMat);
     ring.userData.dynamicBackdrop = true;
-    ring.position.y = GROUND_Y - 0.044;
+    ring.renderOrder = 1;
+    ring.position.y = GROUND_Y - 0.066;
     const sx = sandScaleX + 1.2 + i * 2.2;
     const sz = sandScaleZ + 1.2 + i * 2.2;
     ring.scale.set(sx, 1, sz);
@@ -2184,7 +2328,7 @@ function buildBeach(
   const pierMat = mats.get('#C9A882', { roughness: 0.9 });
   const pierZStart = -(sandScaleZ - 1.2);
   for (let i = 0; i < 8; i++) {
-    addBox(root, 1.85, 0.08, 0.48, pierMat, 0, GROUND_Y + 0.05, pierZStart - i * 0.58);
+    addBox(root, 1.85, 0.08, 0.48, pierMat, 0, GROUND_Y + 0.08, pierZStart - i * 0.58);
   }
   const pierLanternMat = mats.get('#FFF4CF', {
     roughness: 0.3,
@@ -2194,11 +2338,16 @@ function buildBeach(
   });
   for (let i = 0; i <= 3; i++) {
     const pz = pierZStart - i * 1.4;
-    addBox(root, 0.12, 0.65, 0.12, mats.get('#9B7B5C'), -0.82, GROUND_Y - 0.1, pz);
-    addBox(root, 0.12, 0.65, 0.12, mats.get('#9B7B5C'), 0.82, GROUND_Y - 0.1, pz);
-    if (i === 3) {
-      addBox(root, 0.16, 0.2, 0.16, pierLanternMat, -0.82, GROUND_Y + 0.32, pz);
-      addBox(root, 0.16, 0.2, 0.16, pierLanternMat, 0.82, GROUND_Y + 0.32, pz);
+    if (i < 3) {
+      // Support pilings terminate cleanly below pier planks (bottom of planks = GROUND_Y + 0.04)
+      addBox(root, 0.12, 0.44, 0.12, mats.get('#9B7B5C'), -0.82, GROUND_Y - 0.184, pz);
+      addBox(root, 0.12, 0.44, 0.12, mats.get('#9B7B5C'), 0.82, GROUND_Y - 0.184, pz);
+    } else {
+      // End lantern posts sit cleanly outboard of pier planks with lanterns resting on top
+      addBox(root, 0.12, 0.64, 0.12, mats.get('#9B7B5C'), -0.99, GROUND_Y - 0.08, pz);
+      addBox(root, 0.12, 0.64, 0.12, mats.get('#9B7B5C'), 0.99, GROUND_Y - 0.08, pz);
+      addBox(root, 0.16, 0.2, 0.16, pierLanternMat, -0.99, GROUND_Y + 0.344, pz);
+      addBox(root, 0.16, 0.2, 0.16, pierLanternMat, 0.99, GROUND_Y + 0.344, pz);
     }
   }
 
@@ -2256,13 +2405,13 @@ function buildForest(
   // Endless mossy woodland floor (260x260)
   addEndlessGround(root, mats, view.groundColor, GROUND_Y, TERRAIN_SPAN, 'grass');
 
-  // Curving dirt woodland trail heading out through the trees
+  // Curving dirt woodland trail heading out through the trees (cleanly elevated above mossy floor)
   const pathMat = mats.get('#D6C8AC', { roughness: 0.95 });
   for (let i = 0; i < 16; i++) {
     const z = -(halfD + 1.6) - i * 1.9;
     const x = Math.sin(i * 0.45) * 2.2;
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.92, 0.025, 7), pathMat);
-    pad.position.set(x, GROUND_Y + 0.014, z);
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.92, 0.026, 7), pathMat);
+    pad.position.set(x, GROUND_Y + 0.028, z);
     pad.receiveShadow = true;
     root.add(pad);
   }
@@ -2616,7 +2765,7 @@ export function buildBackdropForView(
           arr[o + 10] = dz * len;
           arr[o + 11] = 0;
           arr[o + 12] = px + rx * st.lateral;
-          arr[o + 13] = GROUND_Y + 0.056;
+          arr[o + 13] = GROUND_Y + 0.096;
           arr[o + 14] = pz + rz * st.lateral;
           arr[o + 15] = 1;
         }

@@ -4,11 +4,14 @@ import { getSurfaceTextures, inferSurfaceTextureKind } from './TextureKit';
 
 export const FLOOR_BASE_Y = 0.024;
 
+export type MergeSide = 'left' | 'right' | 'middle';
+
 export interface ModelBuildOptions {
   ghost?: boolean;
   ghostColor?: string;
   active?: boolean;
   hideLabel?: boolean;
+  mergeSide?: MergeSide;
 }
 
 export interface MatOptions {
@@ -41,6 +44,7 @@ export interface ModelContext {
   accent: string;
   isGhost: boolean;
   isActive: boolean;
+  mergeSide?: MergeSide;
   mat(color: string | number, opts?: MatOptions): THREE.MeshStandardMaterial;
   box(
     w: number,
@@ -255,6 +259,7 @@ export function createModelContext(
     accent,
     isGhost,
     isActive,
+    mergeSide: options?.mergeSide,
     mat,
     box,
     cyl,

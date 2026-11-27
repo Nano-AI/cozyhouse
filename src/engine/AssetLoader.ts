@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { FurnitureItemDef, FurnitureVariant, GameDataBundle } from '../data/schemas';
-import { buildFurnitureModel, type ModelBuildOptions } from '../models';
+import { buildFurnitureModel } from '../models';
+import type { MergeSide, ModelBuildOptions } from '../models/ModelKit';
 
 /**
  * Lazy asset & sculpted low-poly 3D model factory with prototype caching.
@@ -9,11 +10,11 @@ import { buildFurnitureModel, type ModelBuildOptions } from '../models';
  * UI thumbnails) to the unified procedural 3D model library (`src/models/`)
  * with zero floating text labels.
  *
- * Non-ghost prototypes are cached by `${def.id}__${variant.id}__${active ? 1 : 0}`:
+ * Non-ghost prototypes are cached by `${def.id}__${variant.id}__${active ? 1 : 0}__${mergeSide ?? 'none'}`:
  * - Geometries are marked `userData.sharedGeo = true` and shared across all instances.
  * - Non-wall static items also share materials (`userData.sharedMat = true`).
  * - Structural walls & wall-mounted items clone materials per instance so per-wall
- *   cutaway opacity fading never affects sibling walls.
+ *   cutaway opacity fading and corner anti-z-fighting never affect sibling walls.
  *
  * `loadModelLazy()` stays wired for optional compressed glTF/GLB swaps.
  */
@@ -41,23 +42,24 @@ export class AssetLoader {
   }
 
   /**
-   * Returns the cached read-only prototype `THREE.Group` for `(def.id, variantId, active)`.
+   * Returns the cached read-only prototype `THREE.Group` for `(def.id, variantId, active, mergeSide)`.
    * Callers MUST NOT mutate the returned prototype or attach it directly to the scene.
    */
   getOrBuildPrototype(
     def: FurnitureItemDef,
     variantId: string,
     active = false,
+    mergeSide?: MergeSide,
   ): THREE.Group {
     const variant = this.resolveVariant(def, variantId);
-    const key = `${def.id}__${variant.id}__${active ? 1 : 0}`;
+    const key = `${def.id}__${variant.id}__${active ? 1 : 0}__${mergeSide ?? 'none'}`;
     const cached = this.prototypeCache.get(key);
     if (cached) {
       return cached;
     }
 
     const tabColor = this.data.tabsById.get(def.tab)?.color ?? '#D8CFC2';
-    const proto = buildFurnitureModel(def, variant, tabColor, { active });
+    const proto = buildFurnitureModel(def, variant, tabColor, { active, mergeSide });
     proto.updateMatrixWorld(true);
 
     const shareMaterials = def.layer !== 'wall';
@@ -132,7 +134,12 @@ export class AssetLoader {
       return buildFurnitureModel(def, variant, tabColor, options);
     }
 
-    const proto = this.getOrBuildPrototype(def, variantId, Boolean(options?.active));
+    const proto = this.getOrBuildPrototype(
+      def,
+      variantId,
+      Boolean(options?.active),
+      options?.mergeSide,
+    );
     return this.clonePrototypeInstance(proto, def.layer === 'wall');
   }
 

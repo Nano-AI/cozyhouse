@@ -44,30 +44,30 @@ function buildCafeCounter(ctx: ModelContext): void {
   // Main warm wood cabinet carcass
   ctx.box(w - 0.04, bodyH, bodyD, ctx.shade(ctx.primary, -0.1), 0, bodyY, 0);
 
-  // Vertical slatted wood front facade (+Z)
+  // Vertical slatted wood front facade (+Z), inset cleanly from carcass sides
   const frontZ = bodyD / 2;
   const slatCount = 10;
-  const slatSpan = w - 0.14;
+  const slatSpan = w - 0.18;
   for (let i = 0; i < slatCount; i++) {
     const sx = -slatSpan / 2 + (i / (slatCount - 1)) * slatSpan;
     const tone = i % 2 === 0 ? ctx.primary : ctx.shade(ctx.primary, 0.05);
-    ctx.box(0.095, bodyH - 0.08, 0.034, tone, sx, bodyY, frontZ + 0.012, { roughness: 0.7 });
+    ctx.box(0.092, bodyH - 0.08, 0.034, tone, sx, bodyY, frontZ + 0.012, { roughness: 0.7 });
   }
 
-  // Top & bottom brushed brass front trim bands + small menu plaque rail
-  ctx.box(w - 0.04, 0.024, 0.042, BRASS, 0, bodyBottom + bodyH - 0.02, frontZ + 0.018, {
+  // Top & bottom brushed brass front trim bands cleanly proud of carcass sides
+  ctx.box(w - 0.02, 0.024, 0.036, BRASS, 0, bodyBottom + bodyH - 0.02, frontZ + 0.024, {
     metalness: 0.72,
     roughness: 0.28,
   });
-  ctx.box(w - 0.04, 0.024, 0.042, BRASS, 0, bodyBottom + 0.02, frontZ + 0.018, {
+  ctx.box(w - 0.02, 0.024, 0.036, BRASS, 0, bodyBottom + 0.02, frontZ + 0.024, {
     metalness: 0.72,
     roughness: 0.28,
   });
   // Small framed menu trim plaque on right front
-  ctx.box(0.36, 0.22, 0.024, '#565A62', 0.56, bodyY + 0.08, frontZ + 0.032);
-  ctx.box(0.28, 0.018, 0.01, '#F5EFE4', 0.56, bodyY + 0.13, frontZ + 0.044);
-  ctx.box(0.22, 0.014, 0.01, '#F0D594', 0.56, bodyY + 0.08, frontZ + 0.044);
-  ctx.box(0.26, 0.014, 0.01, '#F5EFE4', 0.56, bodyY + 0.035, frontZ + 0.044);
+  ctx.box(0.35, 0.22, 0.024, '#565A62', 0.54, bodyY + 0.08, frontZ + 0.032);
+  ctx.box(0.28, 0.018, 0.01, '#F5EFE4', 0.54, bodyY + 0.13, frontZ + 0.044);
+  ctx.box(0.22, 0.014, 0.01, '#F0D594', 0.54, bodyY + 0.08, frontZ + 0.044);
+  ctx.box(0.26, 0.014, 0.01, '#F5EFE4', 0.54, bodyY + 0.035, frontZ + 0.044);
 
   // Rear barista shelf nook detail (-Z) so all 4 camera angles look finished
   ctx.box(w - 0.22, 0.032, 0.18, ctx.primary, 0, bodyY - 0.04, -bodyD / 2 - 0.01);
@@ -93,8 +93,8 @@ function buildEspressoMachine(ctx: ModelContext): void {
   const bodyY = baseH + bodyH / 2;
   ctx.box(bodyW, bodyH, bodyD, ctx.primary, 0, bodyY, -0.075, { roughness: 0.36 });
 
-  // Upper overhanging brew brow + chrome side cheeks
-  ctx.box(bodyW + 0.02, 0.12, 0.15, ctx.primary, 0, baseH + bodyH - 0.06, 0.095, { roughness: 0.36 });
+  // Upper overhanging brew brow (stepped slightly below boiler top) + chrome side cheeks
+  ctx.box(bodyW + 0.02, 0.112, 0.115, ctx.primary, 0, baseH + bodyH - 0.064, 0.112, { roughness: 0.36 });
   for (const sx of [-bodyW / 2 - 0.012, bodyW / 2 + 0.012]) {
     ctx.box(0.024, bodyH - 0.04, bodyD + 0.02, CHROME, sx, bodyY, -0.075, {
       metalness: 0.78,
@@ -129,7 +129,7 @@ function buildEspressoMachine(ctx: ModelContext): void {
   // Ceramic espresso cup + saucer sitting on drip grate directly under group head
   ctx.cyl(0.056, 0.042, 0.012, 10, PORCELAIN, groupX, baseH + 0.014, 0.115, { roughness: 0.32 });
   ctx.cyl(0.036, 0.028, 0.064, 10, PORCELAIN, groupX, baseH + 0.05, 0.115, { roughness: 0.32 });
-  ctx.cyl(0.032, 0.032, 0.008, 10, '#5D3B24', groupX, baseH + 0.08, 0.115);
+  ctx.cyl(0.032, 0.032, 0.006, 10, '#5D3B24', groupX, baseH + 0.085, 0.115);
 
   // Articulated chrome steam wand on right side angling gently forward-outward toward steam tip
   ctx.cyl(0.01, 0.01, 0.16, 7, CHROME, 0.152, baseH + bodyH - 0.19, 0.118, {
@@ -153,7 +153,7 @@ function buildEspressoMachine(ctx: ModelContext): void {
 
   // Active brew state: rich espresso shot stream + rising steam puffs from steam wand!
   if (ctx.isActive) {
-    ctx.cyl(0.006, 0.008, 0.11, 6, '#5A341C', groupX, baseH + 0.132, 0.115, {
+    ctx.cyl(0.006, 0.008, 0.098, 6, '#5A341C', groupX, baseH + 0.138, 0.115, {
       emissive: '#3D2212',
       emissiveIntensity: 0.35,
       castShadow: false,
@@ -265,10 +265,10 @@ function buildSmoothieStation(ctx: ModelContext): void {
     });
   }
 
-  // Upper rear support wall behind chilled showcase + left/right end cheeks
+  // Upper rear support wall strictly between left & right end cheeks (zero corner overlap)
   const vitrineH = bodyH - lowerH;
   const vitrineY = bodyBottom + lowerH + vitrineH / 2;
-  ctx.box(w - 0.04, vitrineH, bodyD * 0.46, ctx.primary, 0, vitrineY, -bodyD * 0.27);
+  ctx.box(w - 0.24, vitrineH, bodyD * 0.46, ctx.primary, 0, vitrineY, -bodyD * 0.27);
   for (const sx of [-(w - 0.04) / 2 + 0.05, (w - 0.04) / 2 - 0.05]) {
     ctx.box(0.10, vitrineH, bodyD, ctx.primary, sx, vitrineY, 0);
   }
@@ -330,12 +330,12 @@ function buildBarCounter(ctx: ModelContext): void {
     const rx = -ribSpan / 2 + (i / (ribCount - 1)) * ribSpan;
     ctx.cyl(0.052, 0.052, bodyH - 0.10, 8, ctx.primary, rx, bodyY, frontZ + 0.008, { roughness: 0.55 });
   }
-  // Upper & lower brass inlay rails framing the fluted front
-  ctx.box(w - 0.04, 0.03, 0.055, BRASS, 0, bodyBottom + bodyH - 0.03, frontZ + 0.022, {
+  // Upper & lower brass inlay rails cleanly proud of carcass sides
+  ctx.box(w - 0.02, 0.03, 0.048, BRASS, 0, bodyBottom + bodyH - 0.03, frontZ + 0.028, {
     metalness: 0.78,
     roughness: 0.25,
   });
-  ctx.box(w - 0.04, 0.03, 0.055, BRASS, 0, bodyBottom + 0.03, frontZ + 0.022, {
+  ctx.box(w - 0.02, 0.03, 0.048, BRASS, 0, bodyBottom + 0.03, frontZ + 0.028, {
     metalness: 0.78,
     roughness: 0.25,
   });
@@ -361,8 +361,8 @@ function buildBarCounter(ctx: ModelContext): void {
 
   // Thick generous overhanging bar top flush at exact surfaceHeight
   ctx.box(w, topH, topD, ctx.accent, 0, surfaceY - topH / 2, 0.02, { roughness: 0.42 });
-  // Subtle dark under-lip shadow reveal
-  ctx.box(w - 0.06, 0.024, topD - 0.06, ctx.shade(ctx.primary, -0.22), 0, surfaceY - topH - 0.012, 0.02);
+  // Subtle dark under-lip shadow reveal tucked under the front overhang (clear of carcass & brass rail)
+  ctx.box(w - 0.06, 0.020, 0.11, ctx.shade(ctx.primary, -0.22), 0, surfaceY - topH - 0.010, frontZ + 0.086);
 }
 
 /** 6. bar_stool (1x1, h 0.72, bounce) */
@@ -465,9 +465,10 @@ function buildPastryCase(ctx: ModelContext): void {
   ctx.cyl(0.075, 0.075, 0.068, 10, '#8A634C', 0.22, tray2Y + 0.044, -0.02);
   ctx.sphere(0.018, 6, '#E25D6E', 0.22, tray2Y + 0.086, -0.02);
 
-  // Brass corner frame pillars + flat top glass/wood cap flush at exact surfaceHeight
-  const vitrineH = surfaceY - cabTopY - 0.028;
-  const vitrineMidY = cabTopY + vitrineH / 2;
+  // Brass corner frame pillars starting cleanly above lower display deck + flat top cap
+  const deckTopY = tray1Y + 0.013;
+  const vitrineH = surfaceY - 0.028 - deckTopY;
+  const vitrineMidY = deckTopY + vitrineH / 2;
   for (const sx of [-w / 2 + 0.024, w / 2 - 0.024]) {
     ctx.box(0.028, vitrineH, 0.028, BRASS, sx, vitrineMidY, -d / 2 + 0.024, { metalness: 0.74, roughness: 0.28 });
     // Angled front brass frame struts
@@ -520,8 +521,8 @@ function buildChalkboardMenu(ctx: ModelContext): void {
   const boardD = 0.026;
   const frameD = 0.046;
 
-  // Matte charcoal slate board flush at z = 0
-  ctx.box(w - frameT, h - frameT, boardD, ctx.shade(ctx.primary, -0.38), 0, 0, boardD / 2, {
+  // Matte charcoal slate board inset strictly inside the 4 frame rails (non-coplanar back)
+  ctx.box(w - frameT * 2, h - frameT * 2, boardD, ctx.shade(ctx.primary, -0.38), 0, 0, 0.010 + boardD / 2, {
     roughness: 0.92,
   });
 
@@ -532,12 +533,12 @@ function buildChalkboardMenu(ctx: ModelContext): void {
   ctx.box(frameT, h - frameT * 2, frameD, ctx.accent, w / 2 - frameT / 2, 0, frameD / 2);
 
   // Small bottom chalk ledge tray + 2 pastel chalk sticks
-  ctx.box(w - 0.08, 0.022, 0.072, ctx.shade(ctx.accent, -0.08), 0, -h / 2 + 0.02, 0.052);
-  ctx.cyl(0.008, 0.008, 0.075, 6, '#FAF6EE', -0.14, -h / 2 + 0.038, 0.068, { rotZ: Math.PI / 2 });
-  ctx.cyl(0.008, 0.008, 0.06, 6, '#F2B8C4', 0.08, -h / 2 + 0.038, 0.068, { rotZ: Math.PI / 2 });
+  ctx.box(w - 0.08, 0.022, 0.072, ctx.shade(ctx.accent, -0.08), 0, -h / 2 + 0.02, 0.056);
+  ctx.cyl(0.008, 0.008, 0.075, 6, '#FAF6EE', -0.14, -h / 2 + 0.038, 0.072, { rotZ: Math.PI / 2 });
+  ctx.cyl(0.008, 0.008, 0.06, 6, '#F2B8C4', 0.08, -h / 2 + 0.038, 0.072, { rotZ: Math.PI / 2 });
 
   // Graphic pastel chalk coffee cup motif + menu line strokes (zero text strings!)
-  const chalkZ = boardD + 0.006;
+  const chalkZ = 0.010 + boardD + 0.006;
   // Chalk header coffee cup
   ctx.box(0.10, 0.082, 0.008, '#F6F1E5', 0, 0.22, chalkZ, { roughness: 0.95 });
   ctx.torus(0.024, 0.007, 5, 8, '#F6F1E5', 0.056, 0.224, chalkZ, { roughness: 0.95 });
@@ -565,7 +566,8 @@ function buildCafeBistroTable(ctx: ModelContext): void {
   const surfaceY = ctx.def.surfaceHeight ?? 0.76;
   const topH = 0.04;
   const stemTopY = surfaceY - topH;
-  const stemH = stemTopY - FLOOR_BASE_Y - 0.08;
+  const mountPlateH = 0.026;
+  const stemH = stemTopY - FLOOR_BASE_Y - 0.08 - mountPlateH;
 
   // Flared cast-iron Parisian pedestal foot + 4 arched spider feet at FLOOR_BASE_Y
   ctx.cyl(0.072, 0.14, 0.08, 10, DARK_IRON, 0, FLOOR_BASE_Y + 0.04, 0, {
@@ -650,10 +652,10 @@ function buildCafeBooth(ctx: ModelContext): void {
     roughness: 0.82,
   });
 
-  // Sculpted wooden end cheek panels framing both sides
+  // Sculpted wooden end cheek panels stacked cleanly without vertical overlap
   for (const sx of [-w / 2 + 0.03, w / 2 - 0.03]) {
     ctx.box(0.06, 0.44, d - 0.08, WALNUT, sx, FLOOR_BASE_Y + 0.22, 0);
-    ctx.box(0.06, 0.52, 0.26, WALNUT, sx, 0.68, backZ);
+    ctx.box(0.06, 0.476, 0.26, WALNUT, sx, FLOOR_BASE_Y + 0.44 + 0.238, backZ);
   }
 }
 
@@ -661,11 +663,11 @@ function buildCafeBooth(ctx: ModelContext): void {
 function buildCoffeeGrinder(ctx: ModelContext): void {
   // Compact weighted grinder base at local y = 0
   ctx.box(0.22, 0.036, 0.28, ctx.primary, 0, 0.018, 0, { roughness: 0.46 });
-  // Portafilter catch tray + grounds dosing cup on front (+Z)
-  ctx.cyl(0.044, 0.038, 0.078, 9, ctx.accent, 0, 0.074, 0.088, { roughness: 0.42 });
+  // Portafilter catch tray + grounds dosing cup on front (+Z), cleanly clear of housing
+  ctx.cyl(0.042, 0.036, 0.078, 9, ctx.accent, 0, 0.075, 0.098, { roughness: 0.42 });
 
   // Vertical motor housing column
-  ctx.box(0.175, 0.19, 0.175, ctx.primary, 0, 0.131, -0.025, { roughness: 0.44 });
+  ctx.box(0.175, 0.19, 0.155, ctx.primary, 0, 0.131, -0.035, { roughness: 0.44 });
   // Front angled chrome dosing chute pointing toward catch cup
   ctx.box(0.056, 0.052, 0.085, CHROME, 0, 0.175, 0.082, {
     rotX: 0.42,
@@ -740,12 +742,12 @@ function buildPouroverStand(ctx: ModelContext): void {
   ctx.box(0.32, 0.026, 0.24, ctx.primary, 0, 0.013, 0, standOpts);
   ctx.cyl(0.088, 0.088, 0.006, 12, DARK_IRON, 0, 0.029, 0.01, { roughness: 0.8 });
 
-  // Minimalist arch frame: two vertical columns + horizontal crossbeam + circular dripper collar
+  // Minimalist arch frame: two vertical columns stopping cleanly under crossbeam + forward neck
   for (const sx of [-0.115, 0.115]) {
-    ctx.cyl(0.012, 0.014, 0.23, 8, ctx.primary, sx, 0.14, -0.05, standOpts);
+    ctx.cyl(0.012, 0.014, 0.217, 8, ctx.primary, sx, 0.026 + 0.1085, -0.05, standOpts);
   }
   ctx.box(0.245, 0.018, 0.024, ctx.primary, 0, 0.252, -0.05, standOpts);
-  ctx.box(0.02, 0.016, 0.06, ctx.primary, 0, 0.252, -0.02, standOpts);
+  ctx.box(0.02, 0.014, 0.046, ctx.primary, 0, 0.252, -0.015, standOpts);
   ctx.torus(0.062, 0.01, 6, 14, ctx.primary, 0, 0.252, 0.02, {
     ...standOpts,
     rotX: Math.PI / 2,
@@ -770,9 +772,9 @@ function buildPouroverStand(ctx: ModelContext): void {
   });
 
   // Inverted conical V60 ceramic dripper + folded paper filter + dark coffee grounds bed
-  ctx.cyl(0.082, 0.018, 0.092, 12, PORCELAIN, 0, 0.292, 0.02, { roughness: 0.34 });
-  ctx.cyl(0.074, 0.022, 0.078, 10, '#EFE4D2', 0, 0.304, 0.02, { roughness: 0.9 });
-  ctx.cyl(0.058, 0.044, 0.016, 10, '#4F3322', 0, 0.324, 0.02, { roughness: 0.88 });
+  ctx.cyl(0.082, 0.018, 0.092, 12, PORCELAIN, 0, 0.298, 0.02, { roughness: 0.34 });
+  ctx.cyl(0.074, 0.022, 0.078, 10, '#EFE4D2', 0, 0.310, 0.02, { roughness: 0.9 });
+  ctx.cyl(0.058, 0.044, 0.016, 10, '#4F3322', 0, 0.330, 0.02, { roughness: 0.88 });
 
   // Active drip stream + gentle steam wisps!
   if (ctx.isActive) {
@@ -984,12 +986,12 @@ function buildMenuEasel(ctx: ModelContext): void {
     for (const sx of [-frameW / 2 + 0.03, frameW / 2 - 0.03]) {
       ctx.box(0.052, legH, 0.036, ctx.primary, sx, 0, 0, { parent: face });
     }
-    // Top & lower cross rails framing the chalkboard panel
-    ctx.box(frameW, 0.056, 0.038, ctx.primary, 0, 0.50, 0, { parent: face });
-    ctx.box(frameW, 0.052, 0.038, ctx.primary, 0, -0.30, 0, { parent: face });
+    // Top & lower cross rails strictly between legs (zero corner overlap)
+    ctx.box(frameW - 0.112, 0.056, 0.038, ctx.primary, 0, 0.50, 0, { parent: face });
+    ctx.box(frameW - 0.112, 0.052, 0.038, ctx.primary, 0, -0.30, 0, { parent: face });
 
     // Slate chalkboard panel
-    ctx.box(frameW - 0.08, 0.76, 0.018, slateColor, 0, 0.10, 0, { parent: face, roughness: 0.92 });
+    ctx.box(frameW - 0.112, 0.744, 0.018, slateColor, 0, 0.10, 0, { parent: face, roughness: 0.92 });
 
     // Chalk café icon & menu lines on front (+Z) face
     if (side === 1) {
@@ -1012,8 +1014,8 @@ function buildMenuEasel(ctx: ModelContext): void {
     metalness: 0.76,
     roughness: 0.26,
   });
-  for (const sx of [-frameW / 2 + 0.025, frameW / 2 - 0.025]) {
-    ctx.box(0.012, 0.012, 0.34, BRASS, sx, FLOOR_BASE_Y + 0.28, 0, {
+  for (const sx of [-frameW / 2 + 0.056, frameW / 2 - 0.056]) {
+    ctx.box(0.012, 0.012, 0.34, BRASS, sx, FLOOR_BASE_Y + 0.24, 0, {
       metalness: 0.76,
       roughness: 0.26,
     });
@@ -1028,8 +1030,8 @@ function buildCupStack(ctx: ModelContext): void {
 
   const mugSpecs = [
     { y: 0.014, col: ctx.primary, rotY: 0.35 },
-    { y: 0.094, col: ctx.accent, rotY: 1.45 },
-    { y: 0.174, col: ctx.shade(ctx.primary, 0.08), rotY: -0.55 },
+    { y: 0.098, col: ctx.accent, rotY: 1.45 },
+    { y: 0.182, col: ctx.shade(ctx.primary, 0.08), rotY: -0.55 },
   ];
   for (const m of mugSpecs) {
     const mugGroup = new THREE.Group();
@@ -1038,7 +1040,7 @@ function buildCupStack(ctx: ModelContext): void {
     ctx.group.add(mugGroup);
 
     ctx.cyl(0.056, 0.048, 0.082, 10, m.col, 0, 0.041, 0, { parent: mugGroup, roughness: 0.34 });
-    ctx.cyl(0.046, 0.046, 0.008, 10, ctx.shade(m.col, -0.15), 0, 0.08, 0, { parent: mugGroup });
+    ctx.cyl(0.046, 0.046, 0.006, 10, ctx.shade(m.col, -0.15), 0, 0.085, 0, { parent: mugGroup });
     ctx.torus(0.026, 0.008, 5, 10, m.col, 0.056, 0.042, 0, { parent: mugGroup, roughness: 0.34 });
   }
 
@@ -1048,9 +1050,9 @@ function buildCupStack(ctx: ModelContext): void {
   ctx.cyl(0.082, 0.062, 0.014, 12, ctx.accent, cupX, 0.007, cupZ, { roughness: 0.34 });
   ctx.cyl(0.054, 0.042, 0.076, 10, ctx.primary, cupX, 0.052, cupZ, { roughness: 0.34 });
   ctx.torus(0.024, 0.008, 5, 10, ctx.primary, cupX + 0.054, 0.054, cupZ, { roughness: 0.34 });
-  // Rich espresso crema + pale steamed milk art dot
-  ctx.cyl(0.046, 0.046, 0.008, 10, '#A67954', cupX, 0.088, cupZ, { roughness: 0.48 });
-  ctx.cyl(0.02, 0.02, 0.009, 8, '#FAF5EC', cupX, 0.089, cupZ, { roughness: 0.55 });
+  // Rich espresso crema + pale steamed milk art dot (strictly layered heights)
+  ctx.cyl(0.046, 0.046, 0.006, 10, '#A67954', cupX, 0.093, cupZ, { roughness: 0.48 });
+  ctx.cyl(0.02, 0.02, 0.005, 8, '#FAF5EC', cupX, 0.0985, cupZ, { roughness: 0.55 });
 }
 
 /** 18. cake_stand (1x1, surface, h 0.34, bounce) */
@@ -1219,11 +1221,11 @@ function buildDinerJukebox(ctx: ModelContext): void {
     emissive: lit ? '#FFE099' : undefined,
     emissiveIntensity: lit ? 0.65 : 0,
   });
-  ctx.cyl(0.125, 0.125, 0.018, 12, '#222428', 0, archCenterY + 0.09, frontZ + 0.018, {
+  ctx.cyl(0.125, 0.125, 0.014, 12, '#222428', 0, archCenterY + 0.09, frontZ + 0.022, {
     rotX: Math.PI / 2,
     roughness: 0.3,
   });
-  ctx.cyl(0.042, 0.042, 0.02, 10, ctx.primary, 0, archCenterY + 0.09, frontZ + 0.022, {
+  ctx.cyl(0.042, 0.042, 0.010, 10, ctx.primary, 0, archCenterY + 0.09, frontZ + 0.034, {
     rotX: Math.PI / 2,
   });
 
@@ -1242,19 +1244,19 @@ function buildDinerJukebox(ctx: ModelContext): void {
     });
   }
 
-  // Lower acoustic speaker grille with vertical chrome ribs
+  // Lower acoustic speaker grille with strictly layered vertical ribs & horizontal bumper
   const grillY = bodyBottom + bodyH * 0.28;
   const grillH = 0.42;
-  ctx.box(0.48, grillH, 0.024, '#3A3533', 0, grillY, frontZ + 0.008, { roughness: 0.9 });
+  ctx.box(0.48, grillH, 0.020, '#3A3533', 0, grillY, frontZ + 0.010, { roughness: 0.9 });
   for (let i = 0; i < 5; i++) {
     const rx = -0.16 + i * 0.08;
-    ctx.box(0.018, grillH - 0.03, 0.022, CHROME, rx, grillY, frontZ + 0.02, {
+    ctx.box(0.018, grillH - 0.03, 0.014, CHROME, rx, grillY, frontZ + 0.027, {
       metalness: 0.84,
       roughness: 0.2,
     });
   }
-  // Chrome horizontal accent bumper across speaker center
-  ctx.box(0.50, 0.036, 0.028, CHROME, 0, grillY, frontZ + 0.026, {
+  // Chrome horizontal accent bumper strictly in front of vertical ribs
+  ctx.box(0.50, 0.036, 0.016, CHROME, 0, grillY, frontZ + 0.042, {
     metalness: 0.86,
     roughness: 0.18,
   });

@@ -3,6 +3,10 @@ import * as THREE from 'three';
 const ISO_ELEVATION_RAD = Math.atan(Math.SQRT1_2); // True isometric ~35.264°
 const CAMERA_DISTANCE = 32;
 const BASE_FRUSTUM_HALF_HEIGHT = 8.4;
+// Tight near/far span maximizes 24-bit depth buffer precision while cleanly containing
+// SkyDome (radius <= 125) and LinearCloudField (depth <= 132) without far-plane clipping.
+const CAMERA_NEAR = 1.5;
+const CAMERA_FAR = 160;
 
 const MIN_ZOOM = 0.55;
 const MAX_ZOOM = 2.45;
@@ -41,8 +45,8 @@ export class IsometricCamera {
       BASE_FRUSTUM_HALF_HEIGHT * this.aspect,
       BASE_FRUSTUM_HALF_HEIGHT,
       -BASE_FRUSTUM_HALF_HEIGHT,
-      0.1,
-      140,
+      CAMERA_NEAR,
+      CAMERA_FAR,
     );
     this.camera.zoom = this.currentZoom;
     this.camera.updateProjectionMatrix();

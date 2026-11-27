@@ -26,6 +26,9 @@ const EMOTE_EMOJI_MAP: Record<string, string> = {
   art: '🎨',
   vinyl: '💿',
   sofa: '🛋️',
+  thumbsDown: '👎',
+  unimpressed: '😒',
+  grimace: '😖',
 };
 
 const EXTRA_EMOTE_COLOR: Record<string, string> = {
@@ -33,6 +36,9 @@ const EXTRA_EMOTE_COLOR: Record<string, string> = {
   art: '#F6CAD6',
   vinyl: '#CFD9F5',
   sofa: '#F3D2BE',
+  thumbsDown: '#F4C3C2',
+  unimpressed: '#E5D4E8',
+  grimace: '#F5CDB6',
 };
 
 const MOOD_FALLBACK_EMOJI: Record<VisitorMood, string> = {
@@ -96,6 +102,7 @@ export class SpeechBubble {
   private blabberElapsed = 0;
   private redrawTimer = 0;
   private needsRestingRedraw = false;
+  private baseOffsetY = 1.66;
 
   private readonly baseScaleX = 0.78;
   private readonly baseScaleY = 0.84;
@@ -118,9 +125,16 @@ export class SpeechBubble {
     });
 
     this.sprite = new THREE.Sprite(this.material);
-    this.sprite.position.set(0, 1.66, 0);
+    this.sprite.position.set(0, this.baseOffsetY, 0);
     this.sprite.visible = false;
     this.sprite.renderOrder = 22;
+  }
+
+  setBaseHeight(y: number): void {
+    this.baseOffsetY = y;
+    if (!this.sprite.visible) {
+      this.sprite.position.y = y;
+    }
   }
 
   isVisible(): boolean {
@@ -280,7 +294,7 @@ export class SpeechBubble {
     this.sprite.scale.set(this.baseScaleX * scaleBoost, this.baseScaleY * scaleBoost, 1);
 
     // Gentle buoyant float
-    this.sprite.position.y = 1.66 + Math.sin(elapsed * 2.8) * 0.024;
+    this.sprite.position.y = this.baseOffsetY + Math.sin(elapsed * 2.8) * 0.024;
 
     // Smooth fade out during last 0.45s
     if (this.remaining < 0.45) {

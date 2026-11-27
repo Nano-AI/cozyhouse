@@ -149,10 +149,10 @@ function buildHangingIvy(ctx: ModelContext): void {
   // Macrame tassel under pot
   ctx.cone(0.026, 0.08, 6, ropeColor, 0, potBotY - 0.055, 0, { rotX: Math.PI });
 
-  // Ceramic tapered hanging pot + rim + soil
+  // Ceramic tapered hanging pot + rim + soil (soil cleanly proud inside rim)
   ctx.cyl(0.15, 0.105, 0.18, 9, potColor, 0, (potTopY + potBotY) / 2, 0, { roughness: 0.62 });
   ctx.torus(0.148, 0.014, 6, 12, ctx.shade(potColor, -0.08), 0, potTopY - 0.008, 0, { rotX: Math.PI / 2 });
-  ctx.cyl(0.132, 0.132, 0.025, 8, '#5E4738', 0, potTopY - 0.014, 0, { roughness: 0.92 });
+  ctx.cyl(0.132, 0.132, 0.022, 8, '#5E4738', 0, potTopY - 0.006, 0, { roughness: 0.92 });
 
   // Lush leafy crown mound over pot rim
   ctx.sphere(0.13, 6, leafDark, 0, potTopY + 0.04, 0, { scaleX: 1.2, scaleY: 0.68, scaleZ: 1.2 });
@@ -243,11 +243,11 @@ function buildPottedMonstera(ctx: ModelContext): void {
   const leafDark = ctx.shade(ctx.primary, -0.18);
   const stemColor = ctx.shade(ctx.primary, -0.25);
 
-  // Terracotta saucer + tapered pot + lip + rich soil
+  // Terracotta saucer + tapered pot + lip + rich soil (soil cleanly above lip top)
   ctx.cyl(0.20, 0.185, 0.028, 10, ctx.shade(potColor, -0.08), 0, baseY + 0.014, 0, { roughness: 0.74 });
   ctx.cyl(0.215, 0.155, 0.30, 10, potColor, 0, baseY + 0.178, 0, { roughness: 0.68 });
   ctx.cyl(0.23, 0.22, 0.048, 10, ctx.shade(potColor, 0.04), 0, baseY + 0.325, 0, { roughness: 0.65 });
-  ctx.cyl(0.195, 0.195, 0.03, 9, '#5C4435', 0, baseY + 0.335, 0, { roughness: 0.94 });
+  ctx.cyl(0.195, 0.195, 0.022, 9, '#5C4435', 0, baseY + 0.344, 0, { roughness: 0.94 });
 
   // 7 broad sculpted monstera leaves radiating on slender curving stems
   const leaves: Array<{ angle: number; reach: number; height: number; size: number; tilt: number; col: string }> = [
@@ -353,10 +353,10 @@ function buildPottedCactus(ctx: ModelContext): void {
   // Main ribbed saguaro column
   ctx.cyl(0.062, 0.058, 0.27, 8, cactusMain, 0, 0.30, 0, { roughness: 0.75 });
   ctx.sphere(0.062, 8, cactusMain, 0, 0.435, 0, { roughness: 0.75 });
-  // Vertical rib ridges around main trunk
+  // Vertical rib ridges around main trunk (staggered slightly in height to avoid coplanar cap overlap)
   for (let i = 0; i < 4; i++) {
     const a = (i * Math.PI) / 4;
-    ctx.box(0.014, 0.25, 0.132, cactusRib, 0, 0.305, 0, { rotY: a, roughness: 0.78 });
+    ctx.box(0.014, 0.252 - i * 0.008, 0.132, cactusRib, 0, 0.305, 0, { rotY: a, roughness: 0.78 });
   }
 
   // Left raised saguaro arm (higher)
@@ -397,9 +397,9 @@ function buildPottedBonsai(ctx: ModelContext): void {
   }
   ctx.box(0.36, 0.068, 0.25, trayColor, 0, 0.056, 0, { roughness: 0.52 });
   ctx.box(0.38, 0.018, 0.27, ctx.shade(trayColor, 0.08), 0, 0.094, 0, { roughness: 0.48 });
-  // Mossy soil bed + zen pebble
-  ctx.box(0.32, 0.022, 0.21, '#6C845E', 0, 0.096, 0, { roughness: 0.92 });
-  ctx.sphere(0.032, 5, '#B4ABA0', 0.10, 0.112, 0.04, { scaleX: 1.3, scaleY: 0.65, scaleZ: 0.9 });
+  // Mossy soil bed cleanly above tray rim + zen pebble
+  ctx.box(0.32, 0.018, 0.21, '#6C845E', 0, 0.102, 0, { roughness: 0.92 });
+  ctx.sphere(0.032, 5, '#B4ABA0', 0.10, 0.118, 0.04, { scaleX: 1.3, scaleY: 0.65, scaleZ: 0.9 });
 
   // Gnarled angled S-curve trunk + 3 sculpted branches
   connectRod(ctx, -0.04, 0.095, 0, -0.09, 0.19, 0.01, 0.03, bark, 6);
@@ -443,7 +443,7 @@ function buildPottedSnakePlant(ctx: ModelContext): void {
     ctx.cyl(0.018, 0.015, 0.24, 6, standWood, ox, baseY + 0.12, oz, { roughness: 0.74 });
   }
   ctx.box(0.36, 0.024, 0.026, standWood, 0, baseY + 0.085, 0, { rotY: Math.PI / 4 });
-  ctx.box(0.36, 0.024, 0.026, standWood, 0, baseY + 0.085, 0, { rotY: -Math.PI / 4 });
+  ctx.box(0.36, 0.016, 0.026, standWood, 0, baseY + 0.085, 0, { rotY: -Math.PI / 4 });
 
   // Sleek cylindrical modern ceramic planter + soil
   ctx.cyl(0.175, 0.172, 0.26, 12, potColor, 0, baseY + 0.215, 0, { roughness: 0.56 });
@@ -530,10 +530,10 @@ function buildVinylRecordsStack(ctx: ModelContext): void {
     '#A9C9B6',
   ];
 
-  // Low oak countertop display stand / cradle
+  // Low oak countertop display stand / cradle (rails sit cleanly atop base, zero side overlap)
   ctx.box(0.38, 0.026, 0.28, '#C8A27A', 0, 0.013, 0, { roughness: 0.72 });
-  ctx.box(0.38, 0.055, 0.024, '#B58E66', 0, 0.04, 0.128, { roughness: 0.74 });
-  ctx.box(0.38, 0.055, 0.024, '#B58E66', 0, 0.04, -0.128, { roughness: 0.74 });
+  ctx.box(0.372, 0.044, 0.024, '#B58E66', 0, 0.048, 0.124, { roughness: 0.74 });
+  ctx.box(0.372, 0.044, 0.024, '#B58E66', 0, 0.048, -0.124, { roughness: 0.74 });
 
   // 5 neatly offset leaning square album sleeves
   for (let i = 0; i < 5; i++) {
@@ -548,7 +548,7 @@ function buildVinylRecordsStack(ctx: ModelContext): void {
 
   // Minimalist album art graphic patch on the frontmost sleeve
   ctx.box(0.18, 0.14, 0.008, '#FAF4EA', 0.01, 0.19, 0.09, { rotX: -0.08, castShadow: false });
-  ctx.cyl(0.044, 0.044, 0.008, 10, ctx.primary, 0.01, 0.195, 0.095, {
+  ctx.cyl(0.044, 0.044, 0.008, 10, ctx.primary, 0.01, 0.195, 0.098, {
     rotX: Math.PI / 2 - 0.08,
     castShadow: false,
   });
@@ -559,11 +559,11 @@ function buildVinylRecordsStack(ctx: ModelContext): void {
     roughness: 0.28,
     metalness: 0.22,
   });
-  ctx.cyl(0.044, 0.044, 0.009, 10, ctx.primary, 0.135, 0.178, 0.062, {
+  ctx.cyl(0.044, 0.044, 0.016, 10, ctx.primary, 0.135, 0.178, 0.062, {
     rotX: Math.PI / 2 - 0.1,
     roughness: 0.55,
   });
-  ctx.cyl(0.009, 0.009, 0.012, 8, '#EDE5D8', 0.135, 0.178, 0.062, {
+  ctx.cyl(0.009, 0.009, 0.025, 8, '#EDE5D8', 0.135, 0.178, 0.062, {
     rotX: Math.PI / 2 - 0.1,
   });
 }
@@ -605,14 +605,14 @@ function buildRecordWallDisplay(ctx: ModelContext): void {
     }
   }
 
-  // Mounted glossy black vinyl LP peeking out to the right of top-right sleeve!
+  // Mounted glossy black vinyl LP peeking out to the right of top-right sleeve (cleanly stepped Z)
   ctx.cyl(0.125, 0.125, 0.01, 16, '#23252B', 0.31, 0.185, 0.026, {
     rotX: Math.PI / 2,
     roughness: 0.26,
     metalness: 0.24,
   });
-  ctx.cyl(0.042, 0.042, 0.012, 10, c1, 0.31, 0.185, 0.027, { rotX: Math.PI / 2 });
-  ctx.cyl(0.009, 0.009, 0.015, 8, '#EFE7DA', 0.31, 0.185, 0.028, { rotX: Math.PI / 2 });
+  ctx.cyl(0.042, 0.042, 0.008, 10, c1, 0.31, 0.185, 0.035, { rotX: Math.PI / 2 });
+  ctx.cyl(0.009, 0.009, 0.008, 8, '#EFE7DA', 0.31, 0.185, 0.043, { rotX: Math.PI / 2 });
 }
 
 function buildRecordPlayer(ctx: ModelContext): void {
@@ -657,7 +657,7 @@ function buildRecordPlayer(ctx: ModelContext): void {
     parent: spinGroup,
   });
   // Black vinyl LP disc
-  ctx.cyl(0.164, 0.164, 0.008, 18, '#22242A', 0, 0.02, 0, {
+  ctx.cyl(0.164, 0.164, 0.006, 18, '#22242A', 0, 0.020, 0, {
     roughness: 0.26,
     metalness: 0.22,
     parent: spinGroup,
@@ -670,17 +670,17 @@ function buildRecordPlayer(ctx: ModelContext): void {
     parent: spinGroup,
     castShadow: false,
   });
-  // Colored center record label + off-center white marker so spinning is unmistakably visible!
-  ctx.cyl(0.054, 0.054, 0.01, 12, '#E59479', 0, 0.022, 0, {
+  // Colored center record label + off-center white marker (strictly stepped Y)
+  ctx.cyl(0.054, 0.054, 0.006, 12, '#E59479', 0, 0.026, 0, {
     roughness: 0.65,
     parent: spinGroup,
   });
-  ctx.box(0.036, 0.006, 0.012, '#FAF3E6', 0.025, 0.028, 0, {
+  ctx.box(0.036, 0.005, 0.012, '#FAF3E6', 0.025, 0.032, 0, {
     parent: spinGroup,
     castShadow: false,
   });
   // Chrome center spindle
-  ctx.cyl(0.007, 0.007, 0.024, 6, '#DCE1E8', 0, 0.032, 0, {
+  ctx.cyl(0.007, 0.007, 0.020, 6, '#DCE1E8', 0, 0.040, 0, {
     metalness: 0.75,
     roughness: 0.2,
     parent: spinGroup,
@@ -737,26 +737,26 @@ function buildPosterIndie(ctx: ModelContext): void {
   ctx.box(0.60, 0.032, 0.028, '#C8A37B', 0, 0.375, 0.024, { roughness: 0.7 });
   ctx.box(0.60, 0.028, 0.028, '#C8A37B', 0, -0.375, 0.024, { roughness: 0.7 });
 
-  // Crisp paper backing + printed poster art field
+  // Crisp paper backing + printed poster art field (strictly stepped Z layers)
   ctx.box(0.56, 0.72, 0.014, paper, 0, 0, 0.02, { roughness: 0.85 });
-  ctx.box(0.49, 0.64, 0.008, posterBg, 0, 0, 0.03, { roughness: 0.82, castShadow: false });
+  ctx.box(0.49, 0.64, 0.006, posterBg, 0, 0, 0.031, { roughness: 0.82, castShadow: false });
 
   // Geometric mid-century gig poster art: glowing sun disc + layered stylized waves
-  ctx.cyl(0.115, 0.115, 0.008, 14, '#FAF0D1', 0, 0.12, 0.037, {
+  ctx.cyl(0.115, 0.115, 0.006, 14, '#FAF0D1', 0, 0.12, 0.039, {
     rotX: Math.PI / 2,
     roughness: 0.75,
     castShadow: false,
   });
-  ctx.torus(0.155, 0.008, 5, 16, paper, 0, 0.12, 0.038, { castShadow: false });
+  ctx.torus(0.155, 0.008, 5, 16, paper, 0, 0.12, 0.041, { castShadow: false });
 
-  // Layered angled geometric wave/dune bands across lower half
-  ctx.box(0.47, 0.13, 0.008, midWave, -0.01, -0.08, 0.038, { rotZ: 0.08, castShadow: false });
-  ctx.box(0.47, 0.14, 0.008, deepWave, 0.01, -0.18, 0.042, { rotZ: -0.06, castShadow: false });
-  ctx.box(0.47, 0.09, 0.008, '#3B4252', 0, -0.26, 0.045, { castShadow: false });
+  // Layered angled geometric wave/dune bands across lower half (0.006 Z separation each)
+  ctx.box(0.47, 0.13, 0.005, midWave, -0.01, -0.08, 0.039, { rotZ: 0.08, castShadow: false });
+  ctx.box(0.47, 0.14, 0.005, deepWave, 0.01, -0.18, 0.045, { rotZ: -0.06, castShadow: false });
+  ctx.box(0.47, 0.09, 0.005, '#3B4252', 0, -0.26, 0.051, { castShadow: false });
 
   // Crisp graphic bar accents at header/footer (abstract typography motif, zero real text)
-  ctx.box(0.32, 0.018, 0.008, paper, 0, 0.27, 0.039, { castShadow: false });
-  ctx.box(0.20, 0.012, 0.008, paper, 0, -0.26, 0.051, { castShadow: false });
+  ctx.box(0.32, 0.018, 0.005, paper, 0, 0.27, 0.039, { castShadow: false });
+  ctx.box(0.20, 0.012, 0.005, paper, 0, -0.26, 0.057, { castShadow: false });
 }
 
 function buildFramedArt(ctx: ModelContext): void {
@@ -773,23 +773,33 @@ function buildFramedArt(ctx: ModelContext): void {
   ctx.box(rim, h - rim * 2, 0.048, frameColor, -w / 2 + rim / 2, 0, 0.034, { roughness: 0.58 });
   ctx.box(rim, h - rim * 2, 0.048, frameColor, w / 2 - rim / 2, 0, 0.034, { roughness: 0.58 });
 
-  // Matte backing board + warm white museum passe-partout
-  ctx.box(w - rim * 1.4, h - rim * 1.4, 0.018, '#F8F3EB', 0, 0, 0.02, { roughness: 0.88 });
+  // Matte backing board strictly inside frame rails (non-coplanar back) + warm museum passe-partout
+  ctx.box(w - rim * 2, h - rim * 2, 0.016, '#F8F3EB', 0, 0, 0.026, { roughness: 0.88 });
   // Inner recessed pastel art canvas
-  ctx.box(0.38, 0.50, 0.008, ctx.shade(leafColor, 0.55), 0, 0, 0.032, {
+  ctx.box(0.38, 0.50, 0.005, ctx.shade(leafColor, 0.55), 0, 0, 0.038, {
     roughness: 0.85,
     castShadow: false,
   });
 
-  // Minimalist terracotta/cream organic arch shape behind botanical stem
-  ctx.cyl(0.11, 0.11, 0.006, 12, '#EAD4BF', 0.02, 0.05, 0.037, {
-    rotX: Math.PI / 2,
-    castShadow: false,
-  });
-  ctx.box(0.22, 0.22, 0.006, '#EAD4BF', 0.02, -0.06, 0.037, { castShadow: false });
+  // Minimalist terracotta/cream organic arch shape as a single seamless extruded solid
+  const archShape = new THREE.Shape();
+  archShape.moveTo(-0.11, -0.17);
+  archShape.lineTo(0.11, -0.17);
+  archShape.lineTo(0.11, 0.05);
+  archShape.absarc(0, 0.05, 0.11, 0, Math.PI, false);
+  archShape.closePath();
+  addMesh(
+    ctx,
+    new THREE.ExtrudeGeometry(archShape, { depth: 0.005, bevelEnabled: false, curveSegments: 12 }),
+    '#EAD4BF',
+    0.02,
+    0,
+    0.042,
+    { castShadow: false },
+  );
 
   // Minimalist botanical leaf branch composition in subtle 3D relief
-  connectRod(ctx, -0.03, -0.18, 0.042, 0.01, 0.16, 0.042, 0.007, leafDark, 5, { castShadow: false });
+  connectRod(ctx, -0.03, -0.18, 0.052, 0.01, 0.16, 0.052, 0.007, leafDark, 5, { castShadow: false });
   const leafSpecs: Array<{ x: number; y: number; rz: number; col: string }> = [
     { x: -0.065, y: -0.06, rz: 0.72, col: leafColor },
     { x: 0.065, y: -0.01, rz: -0.68, col: leafDark },
@@ -798,7 +808,7 @@ function buildFramedArt(ctx: ModelContext): void {
     { x: 0.01, y: 0.185, rz: -0.08, col: leafColor },
   ];
   for (const lf of leafSpecs) {
-    ctx.sphere(0.052, 6, lf.col, lf.x, lf.y, 0.044, {
+    ctx.sphere(0.052, 6, lf.col, lf.x, lf.y, 0.054, {
       scaleX: 0.65,
       scaleY: 1.2,
       scaleZ: 0.22,
@@ -856,8 +866,8 @@ function buildNeonSign(ctx: ModelContext): void {
     emissiveIntensity: active ? 1.25 : 0,
     castShadow: false,
   };
-  ctx.box(0.018, 0.11, 0.018, sparkColor, 0.245, 0.11, zTube, sparkOpts);
-  ctx.box(0.11, 0.018, 0.018, sparkColor, 0.245, 0.11, zTube, sparkOpts);
+  ctx.box(0.018, 0.11, 0.020, sparkColor, 0.245, 0.11, zTube, sparkOpts);
+  ctx.box(0.11, 0.018, 0.010, sparkColor, 0.245, 0.11, zTube, sparkOpts);
   // Subtle wavy pulse underline on bottom-left
   connectRod(ctx, -0.27, -0.09, zTube, -0.21, -0.05, zTube, 0.011, sparkColor, 5, sparkOpts);
   connectRod(ctx, -0.21, -0.05, zTube, -0.16, -0.10, zTube, 0.011, sparkColor, 5, sparkOpts);
@@ -1089,8 +1099,8 @@ function buildLampDesk(ctx: ModelContext): void {
   // Weighted stepped circular desk base (sits at surface y = 0)
   ctx.cyl(0.092, 0.105, 0.028, 12, body, 0, 0.014, -0.05, { roughness: 0.42 });
   ctx.cyl(0.068, 0.082, 0.016, 10, ctx.shade(body, -0.08), 0, 0.036, -0.05, { roughness: 0.45 });
-  // Tiny metallic rocker switch button
-  ctx.box(0.022, 0.012, 0.018, trim, 0.045, 0.034, -0.01, { metalness: 0.4, roughness: 0.35 });
+  // Tiny metallic rocker switch button resting cleanly forward of upper tier
+  ctx.box(0.022, 0.012, 0.018, trim, 0.045, 0.034, 0.044, { metalness: 0.4, roughness: 0.35 });
 
   // Articulated architect swing-arm (base pivot -> rear elbow -> upper wrist)
   const metalOpts: MeshOptions = { metalness: 0.42, roughness: 0.36 };
@@ -1189,17 +1199,21 @@ function buildBookshelfTall(ctx: ModelContext): void {
   const h = 1.72;
   const d = 0.38;
 
-  // Frame: bottom plinth, top crown cap, side panels, solid back
-  ctx.box(w, 0.075, d, ctx.shade(wood, -0.06), 0, baseY + 0.0375, 0, { roughness: 0.74 });
-  ctx.box(w + 0.03, 0.052, d + 0.03, wood, 0, baseY + h - 0.026, 0, { roughness: 0.68 });
-  ctx.box(0.042, h - 0.12, d, wood, -w / 2 + 0.021, baseY + h / 2, 0, { roughness: 0.72 });
-  ctx.box(0.042, h - 0.12, d, wood, w / 2 - 0.021, baseY + h / 2, 0, { roughness: 0.72 });
-  ctx.box(w - 0.04, h - 0.08, 0.03, woodBack, 0, baseY + h / 2, -d / 2 + 0.015, { roughness: 0.8 });
+  // Frame: bottom plinth, top crown cap, non-overlapping side panels & recessed back panel
+  const plinthH = 0.075;
+  const crownH = 0.052;
+  const sideH = h - plinthH - crownH;
+  const sideY = baseY + plinthH + sideH / 2;
+  ctx.box(w, plinthH, d, ctx.shade(wood, -0.06), 0, baseY + plinthH / 2, 0, { roughness: 0.74 });
+  ctx.box(w + 0.03, crownH, d + 0.03, wood, 0, baseY + h - crownH / 2, 0, { roughness: 0.68 });
+  ctx.box(0.042, sideH, d, wood, -w / 2 + 0.021, sideY, 0, { roughness: 0.72 });
+  ctx.box(0.042, sideH, d, wood, w / 2 - 0.021, sideY, 0, { roughness: 0.72 });
+  ctx.box(w - 0.086, sideH, 0.024, woodBack, 0, sideY, -d / 2 + 0.018, { roughness: 0.8 });
 
-  // 3 interior shelves creating 4 cozy tiers
+  // 3 interior shelves strictly between side panels and in front of back panel
   const shelfYs = [baseY + 0.46, baseY + 0.86, baseY + 1.26];
   for (const sy of shelfYs) {
-    ctx.box(w - 0.08, 0.032, d - 0.03, wood, 0, sy, 0.005, { roughness: 0.72 });
+    ctx.box(w - 0.086, 0.032, d - 0.038, wood, 0, sy, 0.016, { roughness: 0.72 });
   }
 
   // Packed colorful varied books across all 4 tiers (upright + leaning!)
@@ -1284,13 +1298,15 @@ function buildBookshelfLow(ctx: ModelContext): void {
   ctx.box(w, boardH, d, wood, 0, bottomY + boardH / 2, 0, { roughness: 0.7 });
   ctx.box(w + 0.02, boardH, d + 0.02, wood, 0, topY - boardH / 2, 0, { roughness: 0.66 });
 
-  // Outer side walls, center divider, solid back panel, and mid horizontal shelf
+  // Outer side walls, center divider, recessed solid back panel, and split left/right mid shelves
   const innerMidY = bottomY + boardH + innerH / 2;
   ctx.box(0.044, innerH, d, wood, -w / 2 + 0.022, innerMidY, 0, { roughness: 0.72 });
   ctx.box(0.044, innerH, d, wood, w / 2 - 0.022, innerMidY, 0, { roughness: 0.72 });
-  ctx.box(0.038, innerH, d - 0.02, wood, 0, innerMidY, 0, { roughness: 0.72 });
-  ctx.box(w - 0.04, innerH + 0.02, 0.028, woodDark, 0, innerMidY, -d / 2 + 0.014, { roughness: 0.8 });
-  ctx.box(w - 0.08, 0.03, d - 0.04, wood, 0, innerMidY, 0.006, { roughness: 0.72 });
+  ctx.box(w - 0.09, innerH, 0.024, woodDark, 0, innerMidY, -d / 2 + 0.018, { roughness: 0.8 });
+  ctx.box(0.038, innerH, d - 0.036, wood, 0, innerMidY, 0.015, { roughness: 0.72 });
+  const halfShelfW = (w - 0.088 - 0.040) / 2;
+  ctx.box(halfShelfW, 0.03, d - 0.038, wood, -(0.020 + halfShelfW / 2), innerMidY, 0.015, { roughness: 0.72 });
+  ctx.box(halfShelfW, 0.03, d - 0.038, wood, 0.020 + halfShelfW / 2, innerMidY, 0.015, { roughness: 0.72 });
 
   // Cubby contents!
   const lowerFloor = bottomY + boardH;
@@ -1340,12 +1356,12 @@ function buildBookshelfWall(ctx: ModelContext): void {
   const wood = ctx.primary;
   const accent = ctx.accent;
 
-  // Floating wooden ledge mounted on wall (back at z = 0.02)
+  // Floating wooden ledge mounted on wall (back at z = 0.015)
   ctx.box(0.80, 0.044, 0.22, wood, 0, -0.10, 0.125, { roughness: 0.7 });
-  // Slim rear lip & underside brackets
-  ctx.box(0.80, 0.052, 0.022, ctx.shade(wood, -0.08), 0, -0.075, 0.025, { roughness: 0.72 });
-  ctx.box(0.036, 0.055, 0.14, ctx.shade(wood, -0.16), -0.28, -0.145, 0.085);
-  ctx.box(0.036, 0.055, 0.14, ctx.shade(wood, -0.16), 0.28, -0.145, 0.085);
+  // Slim rear lip strictly atop ledge & underside brackets strictly below ledge (non-coplanar backs)
+  ctx.box(0.788, 0.048, 0.022, ctx.shade(wood, -0.08), 0, -0.054, 0.032, { roughness: 0.72 });
+  ctx.box(0.036, 0.056, 0.14, ctx.shade(wood, -0.16), -0.28, -0.150, 0.095);
+  ctx.box(0.036, 0.056, 0.14, ctx.shade(wood, -0.16), 0.28, -0.150, 0.095);
 
   const ledgeTop = -0.078;
   // Minimalist arched brass bookends flanking the books
@@ -1384,23 +1400,23 @@ function buildCurtainsLinen(ctx: ModelContext): void {
   // Left & right pleated draped linen panels with soft mid-height tiebacks
   for (const side of [-1, 1]) {
     const cx = side * 0.34;
-    // Upper pleated header & 3 vertical folds above tieback
-    ctx.cyl(0.032, 0.028, 0.96, 6, linen, cx - side * 0.065, 0.37, 0.085, { scaleZ: 0.85, roughness: 0.88 });
-    ctx.cyl(0.034, 0.026, 0.96, 6, linenFold, cx, 0.37, 0.105, { scaleZ: 0.85, roughness: 0.9 });
-    ctx.cyl(0.032, 0.024, 0.96, 6, linen, cx + side * 0.065, 0.37, 0.082, { scaleZ: 0.85, roughness: 0.88 });
+    // Upper pleated header & 3 vertical folds stopping cleanly inside tieback
+    ctx.cyl(0.032, 0.028, 0.92, 6, linen, cx - side * 0.065, 0.39, 0.085, { scaleZ: 0.85, roughness: 0.88 });
+    ctx.cyl(0.034, 0.026, 0.92, 6, linenFold, cx, 0.39, 0.105, { scaleZ: 0.85, roughness: 0.9 });
+    ctx.cyl(0.032, 0.024, 0.92, 6, linen, cx + side * 0.065, 0.39, 0.082, { scaleZ: 0.85, roughness: 0.88 });
 
-    // Lower gently flared pleated drape below tieback
-    ctx.cyl(0.028, 0.042, 0.84, 6, linen, cx - side * 0.06, -0.48, 0.088, {
+    // Lower gently flared pleated drape starting cleanly below tieback
+    ctx.cyl(0.028, 0.042, 0.80, 6, linen, cx - side * 0.06, -0.50, 0.088, {
       rotZ: side * 0.04,
       scaleZ: 0.9,
       roughness: 0.88,
     });
-    ctx.cyl(0.028, 0.044, 0.84, 6, linenFold, cx + side * 0.01, -0.48, 0.11, {
+    ctx.cyl(0.028, 0.044, 0.80, 6, linenFold, cx + side * 0.01, -0.50, 0.11, {
       rotZ: -side * 0.02,
       scaleZ: 0.9,
       roughness: 0.9,
     });
-    ctx.cyl(0.026, 0.04, 0.84, 6, linen, cx + side * 0.075, -0.48, 0.085, {
+    ctx.cyl(0.026, 0.04, 0.80, 6, linen, cx + side * 0.075, -0.50, 0.085, {
       rotZ: -side * 0.05,
       scaleZ: 0.9,
       roughness: 0.88,
@@ -1431,46 +1447,67 @@ function buildMirrorArch(ctx: ModelContext): void {
   const rectH = 1.40;
   const archY = rectH;
 
-  // Frame: left/right vertical rails, bottom sill, curved semi-circular arch crown
-  ctx.box(0.042, rectH, 0.048, frame, -r, rectH / 2, 0, { ...frameOpts, parent: body });
-  ctx.box(0.042, rectH, 0.048, frame, r, rectH / 2, 0, { ...frameOpts, parent: body });
-  ctx.box(r * 2 + 0.042, 0.046, 0.052, frame, 0, 0.023, 0, { ...frameOpts, parent: body });
+  // Frame: left/right vertical rails resting cleanly atop bottom sill + curved semi-circular arch crown
+  const sillH = 0.046;
+  const sideRailH = rectH - sillH;
+  ctx.box(0.042, sideRailH, 0.048, frame, -r, sillH + sideRailH / 2, 0, { ...frameOpts, parent: body });
+  ctx.box(0.042, sideRailH, 0.048, frame, r, sillH + sideRailH / 2, 0, { ...frameOpts, parent: body });
+  ctx.box(r * 2 + 0.042, sillH, 0.052, frame, 0, sillH / 2, 0, { ...frameOpts, parent: body });
   addMesh(ctx, new THREE.TorusGeometry(r, 0.024, 7, 18, Math.PI), frame, 0, archY, 0, {
     ...frameOpts,
     parent: body,
   });
 
-  // Solid wood/matte backing behind mirror
-  ctx.box(r * 2 - 0.01, rectH - 0.02, 0.02, ctx.shade(frame, -0.2), 0, rectH / 2, -0.016, {
-    parent: body,
-  });
-  ctx.cyl(r - 0.008, r - 0.008, 0.02, 16, ctx.shade(frame, -0.2), 0, archY, -0.016, {
-    rotX: Math.PI / 2,
-    parent: body,
-  });
+  // Seamless single-piece extruded backing arch (zero seam or coplanar overlap)
+  const backShape = new THREE.Shape();
+  const backR = r - 0.018;
+  backShape.moveTo(-backR, sillH);
+  backShape.lineTo(backR, sillH);
+  backShape.lineTo(backR, archY);
+  backShape.absarc(0, archY, backR, 0, Math.PI, false);
+  backShape.closePath();
+  addMesh(
+    ctx,
+    new THREE.ExtrudeGeometry(backShape, { depth: 0.016, bevelEnabled: false, curveSegments: 16 }),
+    ctx.shade(frame, -0.2),
+    0,
+    0,
+    -0.022,
+    { parent: body },
+  );
 
-  // Reflective sky-tinted glass pane (lower rectangle + upper semicircle)
-  const glassOpts: MeshOptions = {
-    roughness: 0.1,
-    metalness: 0.36,
-    parent: body,
-    castShadow: false,
-  };
-  ctx.box(r * 2 - 0.036, rectH - 0.04, 0.012, glass, 0, rectH / 2 + 0.005, 0.006, glassOpts);
-  ctx.cyl(r - 0.018, r - 0.018, 0.012, 16, glass, 0, archY, 0.006, {
-    rotX: Math.PI / 2,
-    ...glassOpts,
-  });
+  // Seamless single-piece extruded reflective sky-tinted glass arch cleanly proud of backing
+  const glassShape = new THREE.Shape();
+  const glassR = r - 0.022;
+  glassShape.moveTo(-glassR, sillH + 0.002);
+  glassShape.lineTo(glassR, sillH + 0.002);
+  glassShape.lineTo(glassR, archY);
+  glassShape.absarc(0, archY, glassR, 0, Math.PI, false);
+  glassShape.closePath();
+  addMesh(
+    ctx,
+    new THREE.ExtrudeGeometry(glassShape, { depth: 0.010, bevelEnabled: false, curveSegments: 16 }),
+    glass,
+    0,
+    0,
+    0.002,
+    {
+      roughness: 0.1,
+      metalness: 0.36,
+      parent: body,
+      castShadow: false,
+    },
+  );
 
   // Subtle diagonal pale-white specular highlight streaks on glass
-  ctx.box(0.052, 0.56, 0.004, '#F5FBFF', -0.05, 1.12, 0.016, {
+  ctx.box(0.052, 0.56, 0.004, '#F5FBFF', -0.05, 1.12, 0.018, {
     rotZ: -0.58,
     opacity: 0.55,
     roughness: 0.1,
     parent: body,
     castShadow: false,
   });
-  ctx.box(0.022, 0.44, 0.004, '#F5FBFF', 0.05, 0.96, 0.016, {
+  ctx.box(0.022, 0.44, 0.004, '#F5FBFF', 0.05, 0.96, 0.018, {
     rotZ: -0.58,
     opacity: 0.42,
     roughness: 0.1,
@@ -1501,8 +1538,8 @@ function buildMirrorRound(ctx: ModelContext): void {
   });
   ctx.torus(r + 0.004, 0.02, 7, 20, frame, 0, cy, 0.048, frameOpts);
 
-  // Reflective sky-tinted circular glass face
-  ctx.cyl(r - 0.008, r - 0.008, 0.012, 18, glass, 0, cy, 0.048, {
+  // Reflective sky-tinted circular glass face (cleanly proud of drum)
+  ctx.cyl(r - 0.008, r - 0.008, 0.010, 18, glass, 0, cy, 0.052, {
     rotX: Math.PI / 2,
     roughness: 0.1,
     metalness: 0.36,
@@ -1510,13 +1547,13 @@ function buildMirrorRound(ctx: ModelContext): void {
   });
 
   // Crisp diagonal specular reflection glints
-  ctx.box(0.044, 0.34, 0.004, '#F6FCFF', -0.04, cy + 0.02, 0.057, {
+  ctx.box(0.044, 0.34, 0.004, '#F6FCFF', -0.04, cy + 0.02, 0.061, {
     rotZ: -0.62,
     opacity: 0.56,
     roughness: 0.1,
     castShadow: false,
   });
-  ctx.box(0.018, 0.26, 0.004, '#F6FCFF', 0.055, cy - 0.03, 0.057, {
+  ctx.box(0.018, 0.26, 0.004, '#F6FCFF', 0.055, cy - 0.03, 0.061, {
     rotZ: -0.62,
     opacity: 0.4,
     roughness: 0.1,
@@ -1531,45 +1568,45 @@ function buildMirrorRound(ctx: ModelContext): void {
 }
 
 function buildRugRunner(ctx: ModelContext): void {
-  const baseY = 0.028;
+  const baseY = 0.032;
   const main = ctx.primary;
   const accent = ctx.accent;
   const border = ctx.shade(main, -0.1);
   const w = 0.76;
   const len = 2.66;
 
-  // Flat woven hallway runner base sitting cleanly at y = 0.028
-  ctx.box(w, 0.016, len, main, 0, baseY + 0.008, 0, { roughness: 0.92, castShadow: false });
-  // Subtle woven outer border side trim
-  ctx.box(0.055, 0.005, len - 0.04, border, -w / 2 + 0.035, baseY + 0.018, 0, { roughness: 0.94, castShadow: false });
-  ctx.box(0.055, 0.005, len - 0.04, border, w / 2 - 0.035, baseY + 0.018, 0, { roughness: 0.94, castShadow: false });
+  // Flat woven hallway runner base sitting strictly at y >= 0.032 (clear of floor tiles & grid!)
+  ctx.box(w, 0.012, len, main, 0, baseY + 0.006, 0, { roughness: 0.92, castShadow: false });
+  // Subtle woven outer border side trim (raised 0.005 above base, stopping clear of end stripe bands)
+  ctx.box(0.055, 0.005, 1.76, border, -w / 2 + 0.035, baseY + 0.0145, 0, { roughness: 0.94, castShadow: false });
+  ctx.box(0.055, 0.005, 1.76, border, w / 2 - 0.035, baseY + 0.0145, 0, { roughness: 0.94, castShadow: false });
 
-  // End geometric stripe bands
+  // End geometric stripe bands (strictly beyond z = ±0.88 so zero overlap with side borders)
   for (const sz of [-1, 1]) {
-    ctx.box(w - 0.04, 0.006, 0.085, accent, 0, baseY + 0.018, sz * 1.16, { roughness: 0.94, castShadow: false });
-    ctx.box(w - 0.08, 0.006, 0.042, border, 0, baseY + 0.018, sz * 1.03, { roughness: 0.94, castShadow: false });
-    ctx.box(w - 0.08, 0.006, 0.032, accent, 0, baseY + 0.018, sz * 0.94, { roughness: 0.94, castShadow: false });
+    ctx.box(w - 0.04, 0.005, 0.085, accent, 0, baseY + 0.0145, sz * 1.16, { roughness: 0.94, castShadow: false });
+    ctx.box(w - 0.08, 0.005, 0.042, border, 0, baseY + 0.0145, sz * 1.03, { roughness: 0.94, castShadow: false });
+    ctx.box(w - 0.08, 0.005, 0.032, accent, 0, baseY + 0.0145, sz * 0.94, { roughness: 0.94, castShadow: false });
   }
 
-  // 3 geometric woven diamond medallions running down the runner center
+  // 3 geometric woven diamond medallions running down the runner center (strictly layered heights)
   for (const dz of [-0.56, 0, 0.56]) {
-    ctx.box(0.24, 0.006, 0.24, accent, 0, baseY + 0.018, dz, {
+    ctx.box(0.24, 0.005, 0.24, accent, 0, baseY + 0.0145, dz, {
       rotY: Math.PI / 4,
       roughness: 0.94,
       castShadow: false,
     });
-    ctx.box(0.11, 0.007, 0.11, border, 0, baseY + 0.019, dz, {
+    ctx.box(0.11, 0.005, 0.11, border, 0, baseY + 0.0195, dz, {
       rotY: Math.PI / 4,
       roughness: 0.94,
       castShadow: false,
     });
   }
 
-  // Fringe tassels along both short ends (5 per end)
+  // Fringe tassels starting strictly outside rug short ends
   for (const sz of [-1, 1]) {
     for (let i = 0; i < 5; i++) {
       const tx = -0.28 + i * 0.14;
-      ctx.box(0.026, 0.01, 0.095, accent, tx, baseY + 0.005, sz * (len / 2 + 0.042), {
+      ctx.box(0.026, 0.008, 0.09, accent, tx, baseY + 0.005, sz * (len / 2 + 0.049), {
         roughness: 0.95,
         castShadow: false,
       });
@@ -1774,9 +1811,9 @@ function buildWallClock(ctx: ModelContext): void {
   ctx.group.add(spinTarget);
 
   // Minute hand pointing toward 12 o'clock (+Y), rotating clockwise (-Z)
-  ctx.box(0.012, 0.155, 0.008, handColor, 0, 0.062, 0, { parent: spinTarget, castShadow: false });
-  // Slim brass accent counterweight tail pointing down (-Y)
-  ctx.box(0.007, 0.048, 0.008, '#D7A366', 0, -0.022, 0, { parent: spinTarget, castShadow: false });
+  ctx.box(0.012, 0.14, 0.008, handColor, 0, 0.07, 0, { parent: spinTarget, castShadow: false });
+  // Slim brass accent counterweight tail strictly below center pivot (-Y)
+  ctx.box(0.007, 0.044, 0.008, '#D7A366', 0, -0.022, 0, { parent: spinTarget, castShadow: false });
 
   // Center brass pin cap
   ctx.cyl(0.016, 0.016, 0.014, 8, '#D7B574', 0, 0, 0.088, {

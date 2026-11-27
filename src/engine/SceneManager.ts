@@ -8,6 +8,7 @@ import type {
   TimeOfDay,
   WeatherDef,
 } from '../data/schemas';
+import type { MergeSide } from '../models/ModelKit';
 import type { HouseStore } from '../state/houseStore';
 import { AssetLoader } from './AssetLoader';
 import {
@@ -26,11 +27,40 @@ import { ModelPreviewRenderer } from './ModelPreviewRenderer';
 interface RenderedItemEntry {
   uid: string;
   item: PlacedItem;
+  def: FurnitureItemDef;
   group: THREE.Group;
+  mergeSide?: MergeSide;
+  baseX: number;
+  baseY: number;
+  baseZ: number;
+  baseRotY: number;
+  baseScaleZ: number;
+  // Placement drop + elastic squash-stretch (-1 when inactive)
+  placeAnimTime: number;
+  // Smooth move/rotate glide + vertical hop (-1 when inactive)
+  transformAnimTime: number;
+  transformAnimDuration: number;
+  fromX: number;
+  fromY: number;
+  fromZ: number;
+  fromRotY: number;
+  hopHeight: number;
+  isPureRotationAnim: boolean;
+  // Interactive click bounce
   bounceTime: number;
+  // Wall cutaway state
   wallOpacity: number;
   wallOpacityInitialized: boolean;
+  // Animated child rigs
   spinTargets: THREE.Object3D[];
+  doorPivot: THREE.Object3D | null;
+  doorBaseX: number;
+  doorOpenProgress: number;
+  doorTargetOpen: number;
+  doorSwingSign: number;
+  doorIsSliding: boolean;
+  doorSlideSign: number;
+  doorSlideDistance: number;
   isDynamicGroup: boolean;
 }
 
@@ -101,7 +131,16 @@ interface SampledAtmosphere {
 }
 
 const MAX_ACTIVE_POINT_LIGHTS = 12;
-const DYNAMIC_SHADOW_INTERVAL = 1 / 15; // ~15 Hz while visitors/bounces move; 0 Hz when idle
+const DYNAMIC_SHADOW_INTERVAL = 1 / 15; // ~15 Hz while visitors/animations move; 0 Hz when idle
+const PLACE_ANIM_DURATION = 0.28;
+const ROTATE_ANIM_DURATION = 0.22;
+const MOVE_ANIM_DURATION = 0.20;
+const EW_WALL_Y_OFFSET = -0.0015;
+const EW_WALL_SCALE_Z = 0.992;
+const TIME_CYCLE_HOURS_PER_SEC = 0.22;
+const TIME_CYCLE_SYNC_INTERVAL = 0.05; // ~20 Hz store updates (~0.011h per step, avoids 0.01 rounding stall)
+
+const MERGEABLE_BED_IDS = new Set(['bed_cozy', 'bed_daybed', 'bed_canopy']);
 
 const LIGHT_EMITTER_IDS = new Set([
   'table_lamp',
@@ -148,6 +187,30 @@ const VIVID_COLOR_LIGHT_IDS = new Set([
   'led_strip_wall',
   'diner_jukebox',
 ]);
+
+function isDoorDef(def: FurnitureItemDef): boolean {
+  return (
+    def.layer === 'wall' &&
+    def.wallKind === 'structure' &&
+    (def.id.startsWith('door_') || def.tags.includes('door'))
+  );
+}
+
+function shortestAngleDelta(from: number, to: number): number {
+  let diff = ((to - from + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return diff;
+}
+
+function easeOutCubic(t: number): number {
+  const inv = 1 - t;
+  return 1 - inv * inv * inv;
+}
+
+function easeOutBackSoft(t: number, overshoot = 0.55): number {
+  const u = t - 1;
+  return 1 + (overshoot + 1) * u * u * u + overshoot * u * u;
+}
 
 function makeStop(
   hour: number,
@@ -299,6 +362,9 @@ export class SceneManager {
   private currentGridDepth: number;
   private currentTimeOfDay: TimeOfDay = 'day';
   private currentTimeHour = 12;
+  private cycleTimeHour = 12;
+  private cycleSyncAccum = 0;
+  private hasInitializedScene = false;
   private previewRenderer: ModelPreviewRenderer | null = null;
   private renderedItems = new Map<string, RenderedItemEntry>();
   private instancedFloorItems = new Map<string, InstancedFloorItemRecord>();
@@ -310,12 +376,18 @@ export class SceneManager {
   private glowPoolTexture: THREE.CanvasTexture | null = null;
   private beamGradientTexture: THREE.CanvasTexture | null = null;
 
-  // Pre-filtered hot-loop lists (rebuilt only in syncFromState)
+  // Double-door visitor-open tracking & connected door partner spans
+  private visitorOpenDoors = new Set<string>();
+  private doorPartnerGroups = new Map<string, string[]>();
+
+  // Pre-filtered hot-loop lists (rebuilt only on state/animation changes)
   private wallEntries: RenderedItemEntry[] = [];
   private mountedEntries: RenderedItemEntry[] = [];
   private spinnerEntries: RenderedItemEntry[] = [];
   private bassPulseEntries: RenderedItemEntry[] = [];
   private bouncingEntries: RenderedItemEntry[] = [];
+  private animatingEntries: RenderedItemEntry[] = [];
+  private animatingDoors: RenderedItemEntry[] = [];
 
   // Enclosed-room & cutaway cache + reusable scratch objects
   private enclosedCells: boolean[][] = [];
@@ -365,6 +437,7 @@ export class SceneManager {
 
   private selectionOutlinesGroup = new THREE.Group();
   private selectionOutlinePool: THREE.LineSegments[] = [];
+  private activeSelectionUids: string[] = [];
   private hoverOutline: THREE.LineSegments;
   private hoverOutlineUid: string | null = null;
   private eraseHoverOutline: THREE.LineSegments;
@@ -434,6 +507,7 @@ export class SceneManager {
     this.currentTimeHour = normalizeHour(
       initialState.timeHour ?? defaultHourForTimeOfDay(this.currentTimeOfDay),
     );
+    this.cycleTimeHour = this.currentTimeHour;
     this.isoCamera.setPanLimit(initialState.gridWidth, initialState.gridDepth);
 
     // Warm indoor/diorama lighting with soft on-demand shadows
@@ -459,6 +533,7 @@ export class SceneManager {
     this.currentGridWidth = initialState.gridWidth;
     this.currentGridDepth = initialState.gridDepth;
     this._gridVisual = new GridVisual(initialState.gridWidth, initialState.gridDepth);
+    this.configureGridVisual(this._gridVisual);
     this._gridVisual.setGridVisible(store.isEditMode() || store.isGridVisible());
     this.scene.add(this._gridVisual.group);
 
@@ -494,7 +569,8 @@ export class SceneManager {
       this.applyAtmosphere(initView, initWeather, this.currentTimeOfDay, this.currentTimeHour);
     }
 
-    this.syncFromState(initialState);
+    this.syncFromState(initialState, 'load');
+    this.hasInitializedScene = true;
 
     store.on('houseChanged', ({ state, reason }) => this.syncFromState(state, reason));
     store.on('selectionChanged', ({ selectedUids }) => this.updateSelectionHighlights(selectedUids));
@@ -514,7 +590,7 @@ export class SceneManager {
     });
     store.on('itemInteracted', ({ item }) => {
       const def = this.data.itemsById.get(item.itemId);
-      if (!def?.interaction) return;
+      if (!def?.interaction || isDoorDef(def)) return;
       const entry = this.renderedItems.get(item.uid);
       if (entry) {
         entry.bounceTime = 0.001;
@@ -532,9 +608,103 @@ export class SceneManager {
     this.startLoop();
   }
 
+  /**
+   * Enforces strict Y-layering and depth-bias separation on `GridVisual` so the
+   * shadow build plane (`y = 0.001`), floor tiles (`[0.004..0.024]`), and toggleable
+   * grid overlay (`y = 0.028..0.033`) NEVER z-fight against each other or backdrop terrain.
+   */
+  private configureGridVisual(gv: GridVisual): void {
+    const planeMat = gv.groundPlane.material;
+    if (!Array.isArray(planeMat)) {
+      planeMat.depthWrite = false;
+      planeMat.polygonOffset = true;
+      planeMat.polygonOffsetFactor = -1;
+      planeMat.polygonOffsetUnits = -1;
+    }
+
+    const overlay = gv.group.getObjectByName('BuildableGridOverlay');
+    if (overlay) {
+      // GridVisual constructs lines at y = 0.005 (wash 0.003, ticks 0.006, border 0.008);
+      // lifting the overlay group by +0.025 places grid lines cleanly at y = 0.030 above floor tiles!
+      overlay.position.y = 0.025;
+      overlay.traverse((obj) => {
+        if (
+          obj instanceof THREE.Mesh ||
+          obj instanceof THREE.LineSegments ||
+          obj instanceof THREE.LineLoop
+        ) {
+          const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+          for (const m of mats) {
+            if (!m) continue;
+            m.depthWrite = false;
+            m.polygonOffset = true;
+            m.polygonOffsetFactor = -1;
+            m.polygonOffsetUnits = -1;
+          }
+          obj.renderOrder = 1;
+        }
+      });
+      overlay.updateMatrix();
+    }
+  }
+
   /** Marks the directional shadow map dirty so it re-renders on the next frame. */
   markShadowsDirty(): void {
     this.renderer.shadowMap.needsUpdate = true;
+  }
+
+  /**
+   * Opens or closes a structural door (and any connected double-door partner leaves)
+   * smoothly when visitors walk through, without snapping or rebuilding meshes.
+   */
+  setDoorVisitorOpen(uid: string, open: boolean): void {
+    const had = this.visitorOpenDoors.has(uid);
+    if (open) {
+      if (had) return;
+      this.visitorOpenDoors.add(uid);
+    } else {
+      if (!had) return;
+      this.visitorOpenDoors.delete(uid);
+    }
+
+    const groupUids = this.doorPartnerGroups.get(uid) ?? [uid];
+    for (let i = 0; i < groupUids.length; i++) {
+      const entry = this.renderedItems.get(groupUids[i]);
+      if (!entry || !entry.doorPivot) continue;
+      entry.doorTargetOpen = this.isDoorEffectivelyOpen(entry) ? 1 : 0;
+      if (
+        Math.abs(entry.doorOpenProgress - entry.doorTargetOpen) > 0.001 &&
+        !this.animatingDoors.includes(entry)
+      ) {
+        entry.doorPivot.matrixAutoUpdate = true;
+        this.animatingDoors.push(entry);
+        this.markShadowsDirty();
+      }
+    }
+  }
+
+  private isDoorEffectivelyOpen(entry: RenderedItemEntry): boolean {
+    if (entry.item.active) return true;
+    if (this.visitorOpenDoors.has(entry.uid)) return true;
+    const partners = this.doorPartnerGroups.get(entry.uid);
+    if (partners) {
+      for (let i = 0; i < partners.length; i++) {
+        if (this.visitorOpenDoors.has(partners[i])) return true;
+      }
+    }
+    return false;
+  }
+
+  private applyDoorPivotTransform(entry: RenderedItemEntry): void {
+    const pivot = entry.doorPivot;
+    if (!pivot) return;
+    const p = entry.doorOpenProgress;
+    if (entry.doorIsSliding) {
+      pivot.position.x = entry.doorBaseX + entry.doorSlideSign * entry.doorSlideDistance * p;
+    } else {
+      pivot.rotation.y = entry.doorSwingSign * Math.PI * 0.44 * p;
+    }
+    pivot.updateMatrix();
   }
 
   private syncGridVisibility(): void {
@@ -559,8 +729,11 @@ export class SceneManager {
       color,
       transparent: opacity < 1,
       opacity,
+      depthWrite: false,
     });
-    return new THREE.LineSegments(edges, mat);
+    const segs = new THREE.LineSegments(edges, mat);
+    segs.renderOrder = 5;
+    return segs;
   }
 
   private getGlowPoolTexture(): THREE.CanvasTexture {
@@ -747,6 +920,7 @@ export class SceneManager {
       const prev = this.renderedItems.get(this.movingHiddenUid);
       if (prev) {
         prev.group.visible = true;
+        prev.group.updateMatrix();
         this.markShadowsDirty();
       } else if (this.instancedFloorItems.has(this.movingHiddenUid)) {
         this.setInstancedFloorTileVisible(this.movingHiddenUid, true);
@@ -767,12 +941,13 @@ export class SceneManager {
   private computeItemWorldPosition(
     item: PlacedItem,
     state: HouseState,
-  ): { x: number; y: number; z: number; rotY: number } | null {
+  ): { x: number; y: number; z: number; rotY: number; scaleZ: number } | null {
     const def = this.data.itemsById.get(item.itemId);
     if (!def) return null;
 
     if (def.layer === 'wall') {
-      const mountOffset = def.wallKind === 'mounted' ? WALL_THICKNESS / 2 + 0.01 : 0;
+      const isStructure = def.wallKind === 'structure';
+      const mountOffset = def.wallKind === 'mounted' ? WALL_THICKNESS / 2 + 0.012 : 0;
       const t = wallEdgeToWorldTransform(
         item.x,
         item.z,
@@ -781,7 +956,16 @@ export class SceneManager {
         state.gridDepth,
         mountOffset,
       );
-      return { x: t.wx, y: item.y, z: t.wz, rotY: t.rotY };
+      // Deterministic micro-offset & slight thickness inset on EW (rot % 2 === 1) structural walls
+      // completely eliminates coplanar corner z-fighting where perpendicular walls meet!
+      const isEwStructure = isStructure && item.rotation % 2 === 1;
+      return {
+        x: t.wx,
+        y: item.y + (isEwStructure ? EW_WALL_Y_OFFSET : 0),
+        z: t.wz,
+        rotY: t.rotY,
+        scaleZ: isEwStructure ? EW_WALL_SCALE_Z : 1,
+      };
     }
 
     const eff = getEffectiveFootprint(def, item.rotation);
@@ -798,7 +982,159 @@ export class SceneManager {
       y: item.y,
       z: center.wz,
       rotY: -item.rotation * (Math.PI / 2),
+      scaleZ: 1,
     };
+  }
+
+  /**
+   * Detects adjacent collinear structural doors (forming double/multi-doors) and matching
+   * side-by-side beds (`bed_cozy`, `bed_daybed`, `bed_canopy`) so their inner jambs/rails
+   * converge seamlessly and double-door leaves swing together symmetrically.
+   */
+  private computeMergeMetadata(state: HouseState): {
+    mergeSides: Map<string, MergeSide>;
+    doorPartnerGroups: Map<string, string[]>;
+  } {
+    const mergeSides = new Map<string, MergeSide>();
+    const doorPartnerGroups = new Map<string, string[]>();
+
+    const doorByEdgeKey = new Map<string, PlacedItem>();
+    const doors: Array<{ item: PlacedItem; edgeKey: string }> = [];
+    const bedBySlotKey = new Map<string, PlacedItem>();
+    const beds: Array<{ item: PlacedItem; def: FurnitureItemDef }> = [];
+
+    for (let i = 0; i < state.items.length; i++) {
+      const item = state.items[i];
+      const def = this.data.itemsById.get(item.itemId);
+      if (!def) continue;
+
+      if (isDoorDef(def)) {
+        const edgeKey = canonicalWallEdgeKey(item.x, item.z, item.rotation);
+        doorByEdgeKey.set(edgeKey, item);
+        doors.push({ item, edgeKey });
+      } else if (MERGEABLE_BED_IDS.has(item.itemId)) {
+        bedBySlotKey.set(`${item.itemId}:${item.rotation}:${item.x}:${item.z}`, item);
+        beds.push({ item, def });
+      }
+    }
+
+    // 1. Adjacent collinear doors
+    for (let i = 0; i < doors.length; i++) {
+      const { item, edgeKey } = doors[i];
+      const parsed = parseCanonicalWallEdgeKey(edgeKey);
+      const t = wallEdgeToWorldTransform(
+        item.x,
+        item.z,
+        item.rotation,
+        state.gridWidth,
+        state.gridDepth,
+        0,
+      );
+      // Local +X in world/grid coordinates: (cos(rotY), -sin(rotY))
+      const dx = Math.round(Math.cos(t.rotY));
+      const dz = Math.round(-Math.sin(t.rotY));
+
+      const plusKey =
+        parsed.axis === 'H'
+          ? `H:${parsed.ex + dx}:${parsed.ez}`
+          : `V:${parsed.ex}:${parsed.ez + dz}`;
+      const minusKey =
+        parsed.axis === 'H'
+          ? `H:${parsed.ex - dx}:${parsed.ez}`
+          : `V:${parsed.ex}:${parsed.ez - dz}`;
+
+      const hasPlus = doorByEdgeKey.has(plusKey);
+      const hasMinus = doorByEdgeKey.has(minusKey);
+
+      if (hasPlus && hasMinus) {
+        mergeSides.set(item.uid, 'middle');
+      } else if (hasPlus) {
+        mergeSides.set(item.uid, 'left');
+      } else if (hasMinus) {
+        mergeSides.set(item.uid, 'right');
+      }
+    }
+
+    // Group connected spans of collinear doors so visitor door opening swings all partner leaves
+    const visitedDoorKeys = new Set<string>();
+    for (let i = 0; i < doors.length; i++) {
+      const { edgeKey } = doors[i];
+      if (visitedDoorKeys.has(edgeKey)) continue;
+
+      const parsed = parseCanonicalWallEdgeKey(edgeKey);
+      const groupUids: string[] = [];
+      const queue: Array<{ ex: number; ez: number }> = [{ ex: parsed.ex, ez: parsed.ez }];
+      visitedDoorKeys.add(edgeKey);
+
+      while (queue.length > 0) {
+        const cur = queue.pop()!;
+        const k = `${parsed.axis}:${cur.ex}:${cur.ez}`;
+        const doorItem = doorByEdgeKey.get(k);
+        if (doorItem) groupUids.push(doorItem.uid);
+
+        const neighbors =
+          parsed.axis === 'H'
+            ? [
+                { ex: cur.ex - 1, ez: cur.ez },
+                { ex: cur.ex + 1, ez: cur.ez },
+              ]
+            : [
+                { ex: cur.ex, ez: cur.ez - 1 },
+                { ex: cur.ex, ez: cur.ez + 1 },
+              ];
+        for (const nb of neighbors) {
+          const nk = `${parsed.axis}:${nb.ex}:${nb.ez}`;
+          if (!visitedDoorKeys.has(nk) && doorByEdgeKey.has(nk)) {
+            visitedDoorKeys.add(nk);
+            queue.push(nb);
+          }
+        }
+      }
+
+      for (let g = 0; g < groupUids.length; g++) {
+        doorPartnerGroups.set(groupUids[g], groupUids);
+      }
+    }
+
+    // 2. Adjacent matching beds touching along their local ±X side edges
+    for (let i = 0; i < beds.length; i++) {
+      const { item, def } = beds[i];
+      const eff = getEffectiveFootprint(def, item.rotation);
+      const rotY = -item.rotation * (Math.PI / 2);
+      const dx = Math.round(Math.cos(rotY));
+      const dz = Math.round(-Math.sin(rotY));
+      const stepX = dx * eff.w;
+      const stepZ = dz * eff.d;
+
+      const plusKey = `${item.itemId}:${item.rotation}:${item.x + stepX}:${item.z + stepZ}`;
+      const minusKey = `${item.itemId}:${item.rotation}:${item.x - stepX}:${item.z - stepZ}`;
+      const hasPlus = bedBySlotKey.has(plusKey);
+      const hasMinus = bedBySlotKey.has(minusKey);
+
+      if (hasPlus && hasMinus) {
+        mergeSides.set(item.uid, 'middle');
+      } else if (hasPlus) {
+        mergeSides.set(item.uid, 'left');
+      } else if (hasMinus) {
+        mergeSides.set(item.uid, 'right');
+      }
+    }
+
+    return { mergeSides, doorPartnerGroups };
+  }
+
+  /** Applies subtle depth polygonOffset on EW structural walls so corners never shimmer. */
+  private applyWallCornerPolygonOffset(group: THREE.Group, enable: boolean): void {
+    group.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) {
+        if (!m) continue;
+        m.polygonOffset = enable;
+        m.polygonOffsetFactor = enable ? 1 : 0;
+        m.polygonOffsetUnits = enable ? 1 : 0;
+      }
+    });
   }
 
   private clearDynamicLights(): void {
@@ -915,7 +1251,7 @@ export class SceneManager {
           item.itemId === 'laser_bar'
             ? ['#ff7bc6', '#6cf0e6', '#b996ff']
             : ['#ff95cc', '#82eee6', '#ffe38d'];
-        const floorDropY = 0.036 - ly;
+        const floorDropY = 0.042 - ly;
 
         for (let b = 0; b < 3; b++) {
           const angle = (b / 3) * Math.PI * 2;
@@ -959,6 +1295,9 @@ export class SceneManager {
             opacity: spotOp,
             blending: THREE.AdditiveBlending,
             depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2,
           });
           spotMats.push(spotMat);
 
@@ -1017,8 +1356,8 @@ export class SceneManager {
               : 0.82;
         const poolY =
           def.layer === 'surface'
-            ? transform.y + 0.012 - ly
-            : 0.032 - ly;
+            ? transform.y + 0.014 - ly
+            : 0.038 - ly;
         basePoolOpacity = item.itemId === 'scented_candle' ? 0.34 : 0.42;
         const poolGeo = new THREE.CircleGeometry(poolRadius, 18);
         poolGeo.rotateX(-Math.PI / 2);
@@ -1029,6 +1368,9 @@ export class SceneManager {
           opacity: Math.min(0.68, basePoolOpacity * poolBoost),
           blending: THREE.AdditiveBlending,
           depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
         });
         const pool = new THREE.Mesh(poolGeo, poolMat);
         pool.position.set(0, poolY, 0);
@@ -1223,10 +1565,14 @@ export class SceneManager {
     return true;
   }
 
-  private freezeStaticSubtree(group: THREE.Group, spinTargets: THREE.Object3D[], dynamicGroup: boolean): void {
+  private freezeStaticSubtree(
+    group: THREE.Group,
+    dynamicSubtrees: THREE.Object3D[],
+    dynamicGroup: boolean,
+  ): void {
     group.traverse((obj) => {
       if (obj === group) return;
-      if (isDescendantOfAny(obj, spinTargets)) {
+      if (isDescendantOfAny(obj, dynamicSubtrees)) {
         obj.matrixAutoUpdate = true;
       } else {
         obj.updateMatrix();
@@ -1266,6 +1612,12 @@ export class SceneManager {
     }
 
     let shadowsDirty = false;
+    const allowMotionAnim =
+      this.hasInitializedScene &&
+      reason !== 'load' &&
+      reason !== 'resize' &&
+      reason !== 'undo' &&
+      reason !== 'redo';
 
     if (state.gridWidth !== this.currentGridWidth || state.gridDepth !== this.currentGridDepth) {
       const prevColor = this._gridVisual.getYardColor();
@@ -1273,6 +1625,7 @@ export class SceneManager {
       this.scene.remove(this._gridVisual.group);
       this._gridVisual.dispose();
       this._gridVisual = new GridVisual(state.gridWidth, state.gridDepth);
+      this.configureGridVisual(this._gridVisual);
       this._gridVisual.setYardColor(prevColor);
       this._gridVisual.setYardVisible(prevVisible);
       this._gridVisual.setGridVisible(this.store.isEditMode() || this.store.isGridVisible());
@@ -1283,6 +1636,9 @@ export class SceneManager {
       this.updateShadowFrustum(state.gridWidth, state.gridDepth);
       shadowsDirty = true;
     }
+
+    const { mergeSides, doorPartnerGroups } = this.computeMergeMetadata(state);
+    this.doorPartnerGroups = doorPartnerGroups;
 
     const nextIds = new Set<string>();
     const regularIds = new Set<string>();
@@ -1300,6 +1656,16 @@ export class SceneManager {
         regularIds.add(item.uid);
         regularItems.push({ item, def });
       }
+    }
+
+    // Prune stale visitor-open door UIDs and stale movingHiddenUid
+    for (const vUid of this.visitorOpenDoors) {
+      if (!regularIds.has(vUid)) {
+        this.visitorOpenDoors.delete(vUid);
+      }
+    }
+    if (this.movingHiddenUid && !nextIds.has(this.movingHiddenUid)) {
+      this.movingHiddenUid = null;
     }
 
     // Remove deleted or newly-instanced items from individual groups
@@ -1321,11 +1687,18 @@ export class SceneManager {
     for (let i = 0; i < regularItems.length; i++) {
       const { item, def } = regularItems[i];
       const existing = this.renderedItems.get(item.uid);
+      const isDoor = isDoorDef(def);
+      const nextMergeSide = mergeSides.get(item.uid);
+
+      // Structural doors animate their DoorPivot smoothly instead of rebuilding when toggled!
+      const activeChangedNeedsRebuild = !isDoor && existing?.item.active !== item.active;
       const needsRebuild =
         !existing ||
         existing.item.itemId !== item.itemId ||
         existing.item.variantId !== item.variantId ||
-        existing.item.active !== item.active;
+        existing.mergeSide !== nextMergeSide ||
+        activeChangedNeedsRebuild;
+
       const movedOrRotated =
         !existing ||
         existing.item.x !== item.x ||
@@ -1333,12 +1706,30 @@ export class SceneManager {
         existing.item.z !== item.z ||
         existing.item.rotation !== item.rotation;
 
-      if (needsRebuild || movedOrRotated) {
+      if (needsRebuild || movedOrRotated || existing.item.active !== item.active) {
         shadowsDirty = true;
       }
 
+      const transform = this.computeItemWorldPosition(item, state);
+      const baseX = transform?.x ?? 0;
+      const baseY = transform?.y ?? 0;
+      const baseZ = transform?.z ?? 0;
+      const baseRotY = transform?.rotY ?? 0;
+      const baseScaleZ = transform?.scaleZ ?? 1;
+
+      const prevVisX = existing ? existing.group.position.x : baseX;
+      const prevVisY = existing ? existing.baseY : baseY;
+      const prevVisZ = existing ? existing.group.position.z : baseZ;
+      const prevVisRotY = existing ? existing.group.rotation.y : baseRotY;
+
       let group: THREE.Group;
       let spinTargets: THREE.Object3D[];
+      let doorPivot: THREE.Object3D | null = existing?.doorPivot ?? null;
+      let doorBaseX = existing?.doorBaseX ?? 0;
+      let doorSwingSign = existing?.doorSwingSign ?? -1;
+      let doorIsSliding = existing?.doorIsSliding ?? false;
+      let doorSlideSign = existing?.doorSlideSign ?? -1;
+      let doorSlideDistance = existing?.doorSlideDistance ?? 0.36;
       const bounceTime = existing?.bounceTime ?? 0;
 
       if (needsRebuild) {
@@ -1347,46 +1738,175 @@ export class SceneManager {
           this.disposeGroup(existing.group);
         }
         group = this.assetLoader.createPlaceholderMesh(def, item.variantId, {
-          active: item.active,
+          active: isDoor ? false : item.active,
+          mergeSide: nextMergeSide,
         });
         spinTargets = [];
+        doorPivot = null;
         group.userData.itemUid = item.uid;
         group.traverse((child) => {
           child.userData.itemUid = item.uid;
           if (child.name === 'SpinTarget') {
             spinTargets.push(child);
+          } else if (child.name === 'DoorPivot') {
+            doorPivot = child;
           }
         });
-        if (item.uid === this.movingHiddenUid) {
-          group.visible = false;
+
+        if (isDoor && doorPivot) {
+          const dp = doorPivot as THREE.Object3D;
+          doorBaseX = dp.position.x;
+          doorIsSliding = Boolean(dp.userData.isSliding) || def.id === 'door_sliding';
+          doorSwingSign =
+            typeof dp.userData.swingSign === 'number'
+              ? dp.userData.swingSign
+              : nextMergeSide === 'right'
+                ? 1
+                : -1;
+          doorSlideSign =
+            typeof dp.userData.slideSign === 'number'
+              ? dp.userData.slideSign
+              : nextMergeSide === 'right'
+                ? 1
+                : -1;
+          doorSlideDistance =
+            typeof dp.userData.slideDistance === 'number'
+              ? dp.userData.slideDistance
+              : nextMergeSide
+                ? 0.62
+                : 0.36;
         }
+
         this.itemsRoot.add(group);
       } else {
         group = existing.group;
         spinTargets = existing.spinTargets;
       }
 
-      const isDynamicGroup = Boolean(item.active && BASS_PULSE_IDS.has(item.itemId));
-      const transform = this.computeItemWorldPosition(item, state);
-      if (transform) {
-        group.position.set(transform.x, transform.y, transform.z);
-        group.rotation.set(0, transform.rotY, 0);
-      }
-      if (!isDynamicGroup && bounceTime === 0) {
-        group.scale.set(1, 1, 1);
-      }
-      this.freezeStaticSubtree(group, spinTargets, isDynamicGroup || bounceTime > 0);
+      // Enforce visibility cleanliness (never leave an item accidentally hidden)
+      group.visible = item.uid !== this.movingHiddenUid;
 
-      this.renderedItems.set(item.uid, {
+      // Apply or clear corner polygonOffset for EW vs NS structural walls
+      if (def.layer === 'wall' && def.wallKind === 'structure') {
+        const isEw = item.rotation % 2 === 1;
+        if (needsRebuild || existing.item.rotation % 2 !== item.rotation % 2) {
+          this.applyWallCornerPolygonOffset(group, isEw);
+        }
+      }
+
+      const isDynamicGroup = Boolean(item.active && BASS_PULSE_IDS.has(item.itemId));
+
+      // Determine juicy placement / move / rotate animation state
+      let placeAnimTime = existing && !needsRebuild ? existing.placeAnimTime : -1;
+      let transformAnimTime = existing && !needsRebuild ? existing.transformAnimTime : -1;
+      let transformAnimDuration = existing ? existing.transformAnimDuration : ROTATE_ANIM_DURATION;
+      let fromX = existing ? existing.fromX : baseX;
+      let fromY = existing ? existing.fromY : baseY;
+      let fromZ = existing ? existing.fromZ : baseZ;
+      let fromRotY = existing ? existing.fromRotY : baseRotY;
+      let hopHeight = existing ? existing.hopHeight : 0.11;
+      let isPureRotationAnim = existing ? existing.isPureRotationAnim : false;
+
+      if (!existing && allowMotionAnim && group.visible) {
+        // Brand-new item: drop from +0.28 (or +0.16 for ceiling) with elastic squash-stretch!
+        placeAnimTime = 0;
+        transformAnimTime = -1;
+        const dropStart = def.layer === 'ceiling' ? 0.16 : 0.28;
+        group.position.set(baseX, baseY + dropStart, baseZ);
+        group.rotation.set(0, baseRotY, 0);
+        group.scale.set(0.94, 1.06, 0.94 * baseScaleZ);
+      } else if (existing && allowMotionAnim && movedOrRotated && group.visible) {
+        const posChanged =
+          Math.hypot(baseX - prevVisX, baseZ - prevVisZ) > 0.01 ||
+          Math.abs(baseY - prevVisY) > 0.01;
+        const rotChanged = Math.abs(shortestAngleDelta(prevVisRotY, baseRotY)) > 0.01;
+        if (posChanged || rotChanged) {
+          placeAnimTime = -1;
+          transformAnimTime = 0;
+          transformAnimDuration = posChanged ? MOVE_ANIM_DURATION : ROTATE_ANIM_DURATION;
+          fromX = prevVisX;
+          fromY = prevVisY;
+          fromZ = prevVisZ;
+          fromRotY = prevVisRotY;
+          hopHeight = def.layer === 'ceiling' ? 0.06 : 0.11;
+          isPureRotationAnim = !posChanged && rotChanged;
+          group.position.set(fromX, fromY, fromZ);
+          group.rotation.set(0, fromRotY, 0);
+          group.scale.set(1, 1, baseScaleZ);
+        } else {
+          group.position.set(baseX, baseY, baseZ);
+          group.rotation.set(0, baseRotY, 0);
+          if (!isDynamicGroup && bounceTime === 0) {
+            group.scale.set(1, 1, baseScaleZ);
+          }
+        }
+      } else {
+        if (!allowMotionAnim) {
+          placeAnimTime = -1;
+          transformAnimTime = -1;
+        }
+        if (placeAnimTime < 0 && transformAnimTime < 0) {
+          group.position.set(baseX, baseY, baseZ);
+          group.rotation.set(0, baseRotY, 0);
+          if (!isDynamicGroup && bounceTime === 0) {
+            group.scale.set(1, 1, baseScaleZ);
+          }
+        }
+      }
+
+      const dynamicSubtrees = doorPivot ? [...spinTargets, doorPivot] : spinTargets;
+      const keepDynamicMatrix =
+        isDynamicGroup || bounceTime > 0 || placeAnimTime >= 0 || transformAnimTime >= 0;
+      this.freezeStaticSubtree(group, dynamicSubtrees, keepDynamicMatrix);
+
+      const entry: RenderedItemEntry = {
         uid: item.uid,
         item: { ...item },
+        def,
         group,
+        mergeSide: nextMergeSide,
+        baseX,
+        baseY,
+        baseZ,
+        baseRotY,
+        baseScaleZ,
+        placeAnimTime,
+        transformAnimTime,
+        transformAnimDuration,
+        fromX,
+        fromY,
+        fromZ,
+        fromRotY,
+        hopHeight,
+        isPureRotationAnim,
         bounceTime,
         wallOpacity: existing && !needsRebuild ? existing.wallOpacity : 1,
-        wallOpacityInitialized: Boolean(existing && !needsRebuild && existing.wallOpacityInitialized),
+        wallOpacityInitialized: Boolean(
+          existing && !needsRebuild && existing.wallOpacityInitialized,
+        ),
         spinTargets,
+        doorPivot,
+        doorBaseX,
+        doorOpenProgress: existing ? existing.doorOpenProgress : 0,
+        doorTargetOpen: 0,
+        doorSwingSign,
+        doorIsSliding,
+        doorSlideSign,
+        doorSlideDistance,
         isDynamicGroup,
-      });
+      };
+
+      // Sync smooth door open state (snap on initial creation/load, lerp on toggle!)
+      if (isDoor && entry.doorPivot) {
+        const targetOpen = this.isDoorEffectivelyOpen(entry) ? 1 : 0;
+        entry.doorTargetOpen = targetOpen;
+        if (!existing || !allowMotionAnim) {
+          entry.doorOpenProgress = targetOpen;
+        }
+        this.applyDoorPivotTransform(entry);
+      }
+
+      this.renderedItems.set(item.uid, entry);
     }
 
     // Rebuild pre-filtered hot-loop lists once per state change
@@ -1394,11 +1914,12 @@ export class SceneManager {
     this.mountedEntries = [];
     this.spinnerEntries = [];
     this.bassPulseEntries = [];
-    this.bouncingEntries = this.bouncingEntries.filter((e) => regularIds.has(e.uid) && e.bounceTime > 0);
+    this.bouncingEntries = [];
+    this.animatingEntries = [];
+    this.animatingDoors = [];
 
     for (const entry of this.renderedItems.values()) {
-      const def = this.data.itemsById.get(entry.item.itemId);
-      if (!def) continue;
+      const def = entry.def;
       if (def.layer === 'wall' && def.wallKind === 'structure') {
         this.wallEntries.push(entry);
       } else if (def.layer === 'wall' && def.wallKind === 'mounted') {
@@ -1410,8 +1931,17 @@ export class SceneManager {
       if (entry.isDynamicGroup) {
         this.bassPulseEntries.push(entry);
       }
-      if (entry.bounceTime > 0 && !this.bouncingEntries.includes(entry)) {
+      if (entry.bounceTime > 0) {
         this.bouncingEntries.push(entry);
+      }
+      if (entry.placeAnimTime >= 0 || entry.transformAnimTime >= 0) {
+        this.animatingEntries.push(entry);
+      }
+      if (
+        entry.doorPivot &&
+        Math.abs(entry.doorOpenProgress - entry.doorTargetOpen) > 0.001
+      ) {
+        this.animatingDoors.push(entry);
       }
     }
 
@@ -1582,8 +2112,9 @@ export class SceneManager {
 
     const halfW = W / 2;
     const halfD = D / 2;
-    const y = CEILING_HEIGHT;
-    const yEdge = CEILING_HEIGHT + 0.006;
+    // Lifted +0.008 above wall tops (2.600) so translucent ceiling NEVER z-fights with wall crowns
+    const y = CEILING_HEIGHT + 0.008;
+    const yEdge = CEILING_HEIGHT + 0.014;
 
     const positions: number[] = [];
     const normals: number[] = [];
@@ -1625,6 +2156,9 @@ export class SceneManager {
       metalness: 0.02,
       side: THREE.DoubleSide,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: 1,
+      polygonOffsetUnits: 1,
     });
     const ceilingMesh = new THREE.Mesh(geo, mat);
     ceilingMesh.name = 'EnclosedCeilingMesh';
@@ -1642,6 +2176,7 @@ export class SceneManager {
         color: '#D5C9BA',
         transparent: true,
         opacity: 0.48,
+        depthWrite: false,
       });
       const cornice = new THREE.LineSegments(lineGeo, lineMat);
       cornice.name = 'EnclosedCeilingCornice';
@@ -1913,6 +2448,7 @@ export class SceneManager {
   }
 
   updateSelectionHighlights(selectedUids: string[]): void {
+    this.activeSelectionUids = selectedUids;
     let activeCount = 0;
     for (const uid of selectedUids) {
       let outline = this.selectionOutlinePool[activeCount];
@@ -1982,7 +2518,153 @@ export class SceneManager {
   }
 
   /**
-   * Detects active visitor motion or animated bouncing/pulsing shadow casters so the
+   * Advances juicy placement drop/squash-stretch and move/rotate glide+hop animations,
+   * cleanly refreezing static matrices and refreshing shadows once settled.
+   */
+  private updateItemAnimations(dt: number): void {
+    if (this.animatingEntries.length === 0) return;
+
+    let anySelectedAnimated = false;
+    for (let i = this.animatingEntries.length - 1; i >= 0; i--) {
+      const entry = this.animatingEntries[i];
+      if (this.activeSelectionUids.includes(entry.uid)) {
+        anySelectedAnimated = true;
+      }
+
+      if (entry.placeAnimTime >= 0) {
+        entry.placeAnimTime += dt;
+        const t = Math.min(1, entry.placeAnimTime / PLACE_ANIM_DURATION);
+        if (t >= 1) {
+          entry.placeAnimTime = -1;
+          entry.group.position.set(entry.baseX, entry.baseY, entry.baseZ);
+          entry.group.rotation.set(0, entry.baseRotY, 0);
+          entry.group.scale.set(1, 1, entry.baseScaleZ);
+          entry.group.updateMatrix();
+          entry.group.updateMatrixWorld(true);
+          if (!entry.isDynamicGroup && entry.bounceTime === 0 && entry.transformAnimTime < 0) {
+            entry.group.matrixAutoUpdate = false;
+          }
+          const last = this.animatingEntries.pop()!;
+          if (i < this.animatingEntries.length) this.animatingEntries[i] = last;
+          this.markShadowsDirty();
+        } else {
+          const dropStart = entry.def.layer === 'ceiling' ? 0.16 : 0.28;
+          const dropT = Math.min(1, t / 0.45);
+          const dropY = dropStart * (1 - easeOutCubic(dropT));
+          entry.group.position.set(entry.baseX, entry.baseY + dropY, entry.baseZ);
+          entry.group.rotation.set(0, entry.baseRotY, 0);
+
+          // Elastic overshoot squash-stretch: air (0.94, 1.06) -> squash (1.08, 0.84) -> rebound (0.96, 1.07) -> rest (1, 1)
+          let sxz: number;
+          let sy: number;
+          if (t < 0.42) {
+            const p = smoothstep(0, 0.42, t);
+            sxz = THREE.MathUtils.lerp(0.94, 1.08, p);
+            sy = THREE.MathUtils.lerp(1.06, 0.84, p);
+          } else if (t < 0.72) {
+            const p = smoothstep(0.42, 0.72, t);
+            sxz = THREE.MathUtils.lerp(1.08, 0.96, p);
+            sy = THREE.MathUtils.lerp(0.84, 1.07, p);
+          } else {
+            const p = smoothstep(0.72, 1.0, t);
+            sxz = THREE.MathUtils.lerp(0.96, 1.0, p);
+            sy = THREE.MathUtils.lerp(1.07, 1.0, p);
+          }
+          entry.group.scale.set(sxz, sy, sxz * entry.baseScaleZ);
+        }
+      } else if (entry.transformAnimTime >= 0) {
+        entry.transformAnimTime += dt;
+        const t = Math.min(1, entry.transformAnimTime / entry.transformAnimDuration);
+        if (t >= 1) {
+          entry.transformAnimTime = -1;
+          entry.group.position.set(entry.baseX, entry.baseY, entry.baseZ);
+          entry.group.rotation.set(0, entry.baseRotY, 0);
+          entry.group.scale.set(1, 1, entry.baseScaleZ);
+          entry.group.updateMatrix();
+          entry.group.updateMatrixWorld(true);
+          if (!entry.isDynamicGroup && entry.bounceTime === 0) {
+            entry.group.matrixAutoUpdate = false;
+          }
+          const last = this.animatingEntries.pop()!;
+          if (i < this.animatingEntries.length) this.animatingEntries[i] = last;
+          this.markShadowsDirty();
+        } else {
+          const moveEased = easeOutCubic(t);
+          const rotEased = entry.isPureRotationAnim ? easeOutBackSoft(t, 0.55) : moveEased;
+          const hop = Math.sin(t * Math.PI) * entry.hopHeight;
+          const curX = THREE.MathUtils.lerp(entry.fromX, entry.baseX, moveEased);
+          const curY = THREE.MathUtils.lerp(entry.fromY, entry.baseY, moveEased) + hop;
+          const curZ = THREE.MathUtils.lerp(entry.fromZ, entry.baseZ, moveEased);
+          const yawDelta = shortestAngleDelta(entry.fromRotY, entry.baseRotY);
+
+          entry.group.position.set(curX, curY, curZ);
+          entry.group.rotation.set(0, entry.fromRotY + yawDelta * rotEased, 0);
+          entry.group.scale.set(1, 1, entry.baseScaleZ);
+        }
+      } else {
+        const last = this.animatingEntries.pop()!;
+        if (i < this.animatingEntries.length) this.animatingEntries[i] = last;
+      }
+    }
+
+    if (anySelectedAnimated && this.activeSelectionUids.length > 0) {
+      this.updateSelectionHighlights(this.activeSelectionUids);
+    }
+  }
+
+  /** Smoothly lerps swinging and sliding DoorPivots for manual clicks and passing visitors. */
+  private updateDoorAnimations(dt: number): void {
+    if (this.animatingDoors.length === 0) return;
+    const smooth = 1 - Math.exp(-11 * dt);
+    for (let i = this.animatingDoors.length - 1; i >= 0; i--) {
+      const entry = this.animatingDoors[i];
+      if (!entry.doorPivot) {
+        const last = this.animatingDoors.pop()!;
+        if (i < this.animatingDoors.length) this.animatingDoors[i] = last;
+        continue;
+      }
+      const next = THREE.MathUtils.lerp(entry.doorOpenProgress, entry.doorTargetOpen, smooth);
+      if (Math.abs(next - entry.doorTargetOpen) < 0.003) {
+        entry.doorOpenProgress = entry.doorTargetOpen;
+        this.applyDoorPivotTransform(entry);
+        entry.doorPivot.updateMatrixWorld(true);
+        const last = this.animatingDoors.pop()!;
+        if (i < this.animatingDoors.length) this.animatingDoors[i] = last;
+        this.markShadowsDirty();
+      } else {
+        entry.doorOpenProgress = next;
+        this.applyDoorPivotTransform(entry);
+      }
+    }
+  }
+
+  /** Advances the smooth dynamic Day/Night cycle when `store.isTimeCycleRunning()` is enabled. */
+  private updateRunningTimeCycle(dt: number): void {
+    if (!this.store.isTimeCycleRunning()) {
+      this.cycleTimeHour = this.currentTimeHour;
+      this.cycleSyncAccum = 0;
+      return;
+    }
+
+    const storeHour = this.store.getTimeHour();
+    const hourDiff = Math.min(
+      Math.abs(this.cycleTimeHour - storeHour),
+      24 - Math.abs(this.cycleTimeHour - storeHour),
+    );
+    if (hourDiff > 0.08) {
+      this.cycleTimeHour = storeHour;
+    }
+
+    this.cycleTimeHour = (this.cycleTimeHour + dt * TIME_CYCLE_HOURS_PER_SEC) % 24;
+    this.cycleSyncAccum += dt;
+    if (this.cycleSyncAccum >= TIME_CYCLE_SYNC_INTERVAL) {
+      this.cycleSyncAccum = 0;
+      this.store.setTimeHour(this.cycleTimeHour, { fromCycle: true, recordHistory: false });
+    }
+  }
+
+  /**
+   * Detects active visitor motion or animated bouncing/pulsing/sliding shadow casters so the
    * on-demand shadow map refreshes at ~15 Hz during motion and 0 Hz when completely idle.
    */
   private updateDynamicShadowSchedule(dt: number): void {
@@ -2007,6 +2689,7 @@ export class SceneManager {
         const body = v.children[0];
         checksum +=
           v.position.x * 3.1 +
+          v.position.y * 4.7 +
           v.position.z * 7.3 +
           v.rotation.y * 1.9 +
           v.scale.x * 5.7 +
@@ -2027,7 +2710,11 @@ export class SceneManager {
     }
 
     const hasDynamicShadowMotion =
-      visitorsMoving || this.bouncingEntries.length > 0 || this.bassPulseEntries.length > 0;
+      visitorsMoving ||
+      this.bouncingEntries.length > 0 ||
+      this.bassPulseEntries.length > 0 ||
+      this.animatingEntries.length > 0 ||
+      this.animatingDoors.length > 0;
 
     if (hasDynamicShadowMotion) {
       this.dynamicShadowAccum += dt;
@@ -2047,8 +2734,11 @@ export class SceneManager {
       this.lastTime = now;
       this.elapsedTime += dt;
 
+      this.updateRunningTimeCycle(dt);
       this.isoCamera.update(dt);
       this.updateWallTranslucency(dt, false);
+      this.updateItemAnimations(dt);
+      this.updateDoorAnimations(dt);
 
       // Animate rotating light projections and warm lamp flicker
       if (this.activeLightRigs.length > 0) {
@@ -2097,8 +2787,8 @@ export class SceneManager {
         const pulseY = 1 + (pulse - 1) * 0.5;
         for (let i = 0; i < this.bassPulseEntries.length; i++) {
           const entry = this.bassPulseEntries[i];
-          if (entry.bounceTime === 0) {
-            entry.group.scale.set(pulse, pulseY, pulse);
+          if (entry.bounceTime === 0 && entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
+            entry.group.scale.set(pulse, pulseY, pulse * entry.baseScaleZ);
           }
         }
       }
@@ -2110,21 +2800,24 @@ export class SceneManager {
         const duration = 0.24;
         if (entry.bounceTime >= duration) {
           entry.bounceTime = 0;
-          entry.group.scale.set(1, 1, 1);
-          entry.group.updateMatrix();
-          if (!entry.isDynamicGroup) {
-            entry.group.matrixAutoUpdate = false;
+          if (entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
+            entry.group.scale.set(1, 1, entry.baseScaleZ);
+            entry.group.updateMatrix();
+            entry.group.updateMatrixWorld(true);
+            if (!entry.isDynamicGroup) {
+              entry.group.matrixAutoUpdate = false;
+            }
           }
           const last = this.bouncingEntries.pop()!;
           if (i < this.bouncingEntries.length) {
             this.bouncingEntries[i] = last;
           }
           this.markShadowsDirty();
-        } else {
+        } else if (entry.placeAnimTime < 0 && entry.transformAnimTime < 0) {
           const t = entry.bounceTime / duration;
           const s = 1 + Math.sin(t * Math.PI) * 0.06;
           const invSqrt = 1 / Math.sqrt(s);
-          entry.group.scale.set(invSqrt, s, invSqrt);
+          entry.group.scale.set(invSqrt, s, invSqrt * entry.baseScaleZ);
         }
       }
 
@@ -2156,11 +2849,15 @@ export class SceneManager {
       this.disposeGroup(entry.group);
     }
     this.renderedItems.clear();
+    this.visitorOpenDoors.clear();
+    this.doorPartnerGroups.clear();
     this.wallEntries = [];
     this.mountedEntries = [];
     this.spinnerEntries = [];
     this.bassPulseEntries = [];
     this.bouncingEntries = [];
+    this.animatingEntries = [];
+    this.animatingDoors = [];
     for (const outline of this.selectionOutlinePool) {
       outline.geometry.dispose();
       (outline.material as THREE.Material).dispose();

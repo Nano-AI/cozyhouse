@@ -116,25 +116,28 @@ function buildCatTree(ctx: ModelContext): void {
   const cubZ = 0.02;
   const cubBase = 0.58;
   const cubH = 0.38;
-  // Floor & roof
+  // Floor & roof (walls fit strictly between floor top 0.616 and roof bottom 0.940)
   ctx.box(0.46, 0.036, 0.44, primary, cubX, cubBase + 0.018, cubZ, { roughness: 0.92 });
   ctx.box(0.48, 0.040, 0.46, shade(primary, 0.08), cubX, cubBase + cubH, cubZ, { roughness: 0.92 });
-  // Back, left, right walls
-  ctx.box(0.44, cubH, 0.036, shade(primary, -0.08), cubX, cubBase + cubH / 2, cubZ - 0.20, {
+  const wallH = 0.324;
+  const wallY = cubBase + 0.036 + wallH / 2;
+  // Left & right side walls (inset inside floor perimeter)
+  ctx.box(0.034, wallH, 0.416, primary, cubX - 0.205, wallY, cubZ, { roughness: 0.92 });
+  ctx.box(0.034, wallH, 0.416, primary, cubX + 0.205, wallY, cubZ, { roughness: 0.92 });
+  // Back wall strictly between side walls
+  ctx.box(0.376, wallH, 0.034, shade(primary, -0.08), cubX, wallY, cubZ - 0.191, {
     roughness: 0.92,
   });
-  ctx.box(0.036, cubH, 0.42, primary, cubX - 0.21, cubBase + cubH / 2, cubZ, { roughness: 0.92 });
-  ctx.box(0.036, cubH, 0.42, primary, cubX + 0.21, cubBase + cubH / 2, cubZ, { roughness: 0.92 });
-  // Dark cozy interior recess
-  ctx.box(0.36, cubH - 0.06, 0.04, '#433B36', cubX, cubBase + cubH / 2, cubZ - 0.16);
-  // Front wall frame around cute cubby entrance opening
-  ctx.box(0.11, cubH, 0.036, primary, cubX - 0.165, cubBase + cubH / 2, cubZ + 0.20, {
+  // Dark cozy interior recess strictly proud of back wall
+  ctx.box(0.34, wallH - 0.04, 0.032, '#433B36', cubX, wallY, cubZ - 0.152);
+  // Front wall frame around cute cubby entrance opening (strictly between side walls)
+  ctx.box(0.092, wallH, 0.034, primary, cubX - 0.142, wallY, cubZ + 0.191, {
     roughness: 0.92,
   });
-  ctx.box(0.11, cubH, 0.036, primary, cubX + 0.165, cubBase + cubH / 2, cubZ + 0.20, {
+  ctx.box(0.092, wallH, 0.034, primary, cubX + 0.142, wallY, cubZ + 0.191, {
     roughness: 0.92,
   });
-  ctx.box(0.24, 0.10, 0.036, primary, cubX, cubBase + cubH - 0.05, cubZ + 0.20, {
+  ctx.box(0.192, 0.088, 0.034, primary, cubX, cubBase + 0.036 + wallH - 0.044, cubZ + 0.191, {
     roughness: 0.92,
   });
 
@@ -188,18 +191,18 @@ function buildCatCondoTower(ctx: ModelContext): void {
     doorGroup.rotation.y = t.doorRotY;
     ctx.group.add(doorGroup);
 
-    // Recessed dark arch interior
-    ctx.box(0.18, 0.17, 0.06, caveDark, 0, -0.02, 0.278, { parent: doorGroup });
-    ctx.cyl(0.09, 0.09, 0.06, 10, caveDark, 0, 0.065, 0.278, {
+    // Recessed dark arch interior (non-coplanar depths so arch cap & box never Z-fight)
+    ctx.box(0.18, 0.17, 0.056, caveDark, 0, -0.02, 0.278, { parent: doorGroup });
+    ctx.cyl(0.09, 0.09, 0.046, 10, caveDark, 0, 0.065, 0.276, {
       rotX: Math.PI / 2,
       parent: doorGroup,
     });
     // Wood arch trim sill
-    ctx.box(0.22, 0.024, 0.04, accent, 0, -0.105, 0.296, { parent: doorGroup });
+    ctx.box(0.22, 0.024, 0.036, accent, 0, -0.105, 0.300, { parent: doorGroup });
 
     // Subtle interior cushion peek inside upper & bottom caves
     if (i !== 1) {
-      ctx.box(0.14, 0.026, 0.05, '#F7F1E7', 0, -0.088, 0.282, { parent: doorGroup });
+      ctx.box(0.14, 0.026, 0.040, '#F7F1E7', 0, -0.088, 0.292, { parent: doorGroup });
     }
   }
 
@@ -518,13 +521,13 @@ function buildPetBowls(ctx: ModelContext): void {
     rotX: Math.PI / 2,
     roughness: 0.26,
   });
-  ctx.cyl(0.098, 0.092, 0.022, 12, '#8AD8F0', rx, baseY + 0.124, 0, {
+  ctx.cyl(0.098, 0.092, 0.026, 12, '#8AD8F0', rx, baseY + 0.129, 0, {
     opacity: 0.74,
     roughness: 0.10,
     metalness: 0.08,
   });
   // Subtle crisp white water shimmer highlight
-  ctx.box(0.044, 0.005, 0.014, '#FFFFFF', rx - 0.022, baseY + 0.138, 0.024, {
+  ctx.box(0.044, 0.005, 0.014, '#FFFFFF', rx - 0.022, baseY + 0.146, 0.024, {
     rotY: 0.42,
     castShadow: false,
   });
@@ -617,16 +620,16 @@ function buildLitterBox(ctx: ModelContext): void {
   ctx.box(0.18, 0.018, 0.10, '#6B727E', 0, baseY + 0.432, -0.08, { roughness: 0.6 });
   ctx.box(0.14, 0.020, 0.024, shade(primary, -0.14), 0, baseY + 0.440, 0.06);
 
-  // Arched front entryway (+Z) with recessed dark cavity & translucent flap
+  // Arched front entryway (+Z) with strictly layered depths to prevent Z-fighting
   const doorZ = 0.252;
   ctx.box(0.26, 0.19, 0.032, accent, 0, baseY + 0.195, doorZ);
-  ctx.cyl(0.13, 0.13, 0.032, 12, accent, 0, baseY + 0.285, doorZ, { rotX: Math.PI / 2 });
-  ctx.box(0.21, 0.17, 0.038, '#3B3633', 0, baseY + 0.190, doorZ + 0.004);
-  ctx.cyl(0.105, 0.105, 0.038, 12, '#3B3633', 0, baseY + 0.275, doorZ + 0.004, {
+  ctx.cyl(0.13, 0.13, 0.022, 12, accent, 0, baseY + 0.285, doorZ - 0.001, { rotX: Math.PI / 2 });
+  ctx.box(0.21, 0.17, 0.024, '#3B3633', 0, baseY + 0.190, doorZ + 0.022);
+  ctx.cyl(0.105, 0.105, 0.020, 12, '#3B3633', 0, baseY + 0.275, doorZ + 0.022, {
     rotX: Math.PI / 2,
   });
   // Swinging semi-translucent cat flap
-  ctx.box(0.195, 0.19, 0.012, '#F7F3EC', 0, baseY + 0.225, doorZ + 0.024, {
+  ctx.box(0.195, 0.19, 0.012, '#F7F3EC', 0, baseY + 0.225, doorZ + 0.040, {
     opacity: 0.46,
     rotX: 0.10,
     roughness: 0.2,
@@ -651,19 +654,19 @@ function buildCatWallShelf(ctx: ModelContext): void {
   // Soft plush carpeted pad on top
   ctx.box(0.68, 0.028, 0.27, '#F6F0E5', 0, 0.068, 0.175, { roughness: 0.94 });
 
-  // Cute subtle cat-ear wood trim accents along back edge (kept strictly z >= 0)
-  ctx.box(0.70, 0.032, 0.030, shade(primary, -0.08), 0, 0.064, 0.016);
+  // Cute subtle cat-ear wood trim accents along back edge (offset from shelf back z = 0)
+  ctx.box(0.70, 0.032, 0.028, shade(primary, -0.08), 0, 0.070, 0.022);
   for (const sx of [-0.26, 0.26]) {
-    ctx.cone(0.022, 0.046, 4, primary, sx, 0.096, 0.032, { rotY: Math.PI / 4 });
+    ctx.cone(0.022, 0.046, 4, primary, sx, 0.098, 0.032, { rotY: Math.PI / 4 });
   }
 
-  // Two sleek angled triangular brackets underneath
+  // Two sleek angled triangular brackets strictly underneath shelf
   for (const sx of [-0.24, 0.24]) {
-    ctx.box(0.034, 0.14, 0.026, bracketWood, sx, -0.052, 0.015, { roughness: 0.78 });
+    ctx.box(0.034, 0.136, 0.026, bracketWood, sx, -0.058, 0.020, { roughness: 0.78 });
     addSegment(
       ctx,
       new THREE.Vector3(sx, -0.098, 0.036),
-      new THREE.Vector3(sx, 0.012, 0.24),
+      new THREE.Vector3(sx, 0.010, 0.24),
       0.014,
       bracketWood,
       6,
@@ -786,9 +789,9 @@ function buildWindowHammock(ctx: ModelContext): void {
     );
   }
 
-  // Slung cozy fabric hammock sling with a gentle comfortable middle dip
+  // Slung cozy fabric hammock sling with a gentle comfortable middle dip (non-coplanar widths)
   ctx.box(0.54, 0.022, 0.11, primary, 0, -0.086, 0.085, { rotX: 0.18, roughness: 0.92 });
-  ctx.box(0.54, 0.022, 0.13, shade(primary, 0.05), 0, -0.102, 0.195, { roughness: 0.94 });
+  ctx.box(0.528, 0.022, 0.13, shade(primary, 0.05), 0, -0.104, 0.195, { roughness: 0.94 });
   ctx.box(0.54, 0.022, 0.11, primary, 0, -0.086, 0.305, { rotX: -0.18, roughness: 0.92 });
 
   // Soft rolled chin-rest fleece edge along front rail
@@ -1218,11 +1221,11 @@ function buildCatLoaf(ctx: ModelContext): void {
 
   // Ultra-content happy half-moon squint eyes (^ ^)
   for (const sx of [-0.036, 0.036]) {
-    ctx.box(0.018, 0.006, 0.008, '#362E32', sx - 0.006, 0.012, 0.079, {
+    ctx.box(0.017, 0.006, 0.007, '#362E32', sx - 0.006, 0.012, 0.079, {
       rotZ: 0.45,
       parent: head,
     });
-    ctx.box(0.018, 0.006, 0.008, '#362E32', sx + 0.006, 0.012, 0.079, {
+    ctx.box(0.017, 0.006, 0.007, '#362E32', sx + 0.006, 0.012, 0.083, {
       rotZ: -0.45,
       parent: head,
     });

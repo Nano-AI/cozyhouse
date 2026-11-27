@@ -32,14 +32,14 @@ function buildFallbackModel(ctx: ModelContext): void {
   const h = Math.max(0.06, def.height);
 
   if (def.layer === 'floor' && def.subLayer === 'tile') {
-    ctx.box(fw - 0.01, FLOOR_BASE_Y, fd - 0.01, primary, 0, FLOOR_BASE_Y / 2, 0, {
+    ctx.box(fw - 0.004, 0.02, fd - 0.004, primary, 0, 0.014, 0, {
       castShadow: false,
     });
     return;
   }
 
   if (def.layer === 'floor' && def.subLayer === 'rug') {
-    ctx.box(fw - 0.1, 0.016, fd - 0.1, primary, 0, 0.028 + 0.008, 0, { castShadow: false });
+    ctx.box(fw - 0.1, 0.016, fd - 0.1, primary, 0, 0.032 + 0.008, 0, { castShadow: false });
     return;
   }
 
@@ -427,4 +427,4 @@ export function buildFurnitureModel(
 }
 
 export { FLOOR_BASE_Y, createModelContext } from './ModelKit';
-export type { ModelBuildOptions, ModelContext, TabModelBuilder } from './ModelKit';
+export type { MergeSide, ModelBuildOptions, ModelContext, TabModelBuilder } from './ModelKit';

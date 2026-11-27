@@ -348,9 +348,12 @@ export class GridVisual {
       opacity: 0.16,
       transparent: true,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
     });
     this.groundPlane = new THREE.Mesh(planeGeo, planeMat);
-    this.groundPlane.position.y = 0.001;
+    this.groundPlane.position.y = 0.002;
     this.groundPlane.receiveShadow = true;
     this.groundPlane.name = 'BuildPlane';
     this.group.add(this.groundPlane);
@@ -362,20 +365,23 @@ export class GridVisual {
     const halfW = gridWidth / 2;
     const halfD = gridDepth / 2;
 
-    // Subtle tinted translucent build zone wash so buildable tiles read clearly on any terrain
+    // Subtle tinted translucent build zone wash (SceneManager lifts BuildableGridOverlay by +0.025 -> y = 0.028..0.033)
     const washGeo = new THREE.PlaneGeometry(gridWidth, gridDepth);
     washGeo.rotateX(-Math.PI / 2);
     const washMat = new THREE.MeshBasicMaterial({
       color: 0xfffaf0,
       transparent: true,
-      opacity: 0.14,
+      opacity: 0.12,
       depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
     });
     const wash = new THREE.Mesh(washGeo, washMat);
     wash.position.y = 0.003;
     this.gridOverlay.add(wash);
 
-    // Interior grid lines
+    // Interior grid lines (lifted by SceneManager +0.025 -> y = 0.030)
     const linePoints: number[] = [];
     const yLine = 0.005;
     for (let i = 0; i <= gridWidth; i++) {
@@ -393,6 +399,7 @@ export class GridVisual {
       color: 0x6f685e,
       transparent: true,
       opacity: 0.34,
+      depthWrite: false,
     });
     this.gridOverlay.add(new THREE.LineSegments(lineGeo, lineMat));
 
@@ -418,6 +425,7 @@ export class GridVisual {
       color: 0xffffff,
       transparent: true,
       opacity: 0.58,
+      depthWrite: false,
     });
     this.gridOverlay.add(new THREE.LineSegments(tickGeo, tickMat));
 
@@ -433,6 +441,7 @@ export class GridVisual {
       color: 0xf5ece0,
       transparent: true,
       opacity: 0.85,
+      depthWrite: false,
     });
     this.gridOverlay.add(new THREE.LineLoop(borderGeo, borderMat));
 

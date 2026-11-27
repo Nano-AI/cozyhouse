@@ -2,13 +2,18 @@ import {
   DEFAULT_TIME_HOUR,
   timeHourToBucket,
   timeOfDayToDefaultHour,
+  type FurnitureItemDef,
   type GameDataBundle,
   type HouseState,
   type PlacedItem,
   type RotationQuarter,
   type TimeOfDay,
 } from '../data/schemas';
-import { getEffectiveFootprint } from '../engine/GridSystem';
+import {
+  canonicalWallEdgeKey,
+  getEffectiveFootprint,
+  parseCanonicalWallEdgeKey,
+} from '../engine/GridSystem';
 
 export type InteractionMode = 'select' | 'place' | 'move' | 'bulk-select' | 'erase';
 export type EraseFilter = 'all' | 'floor' | 'wall' | 'furniture';
@@ -48,6 +53,8 @@ export interface StoreEventMap {
   editModeChanged: { editMode: boolean };
   gridVisibilityChanged: { visible: boolean };
   wallViewChanged: { mode: WallViewMode; showCeiling: boolean };
+  houseOpenChanged: { open: boolean };
+  timeCycleChanged: { running: boolean };
   itemInteracted: { item: PlacedItem };
   toast: { message: string; tone?: 'info' | 'success' | 'error' };
 }
@@ -94,6 +101,8 @@ export class HouseStore {
   private gridVisible = false;
   private wallViewMode: WallViewMode = 'auto';
   private showCeiling = true;
+  private houseOpen = true;
+  private timeCycleRunning = false;
   private selectedUids: string[] = [];
   private mode: InteractionMode = 'select';
   private placementItemId: string | null = null;
@@ -112,6 +121,8 @@ export class HouseStore {
     editModeChanged: new Set(),
     gridVisibilityChanged: new Set(),
     wallViewChanged: new Set(),
+    houseOpenChanged: new Set(),
+    timeCycleChanged: new Set(),
     itemInteracted: new Set(),
     toast: new Set(),
   };
@@ -218,6 +229,97 @@ export class HouseStore {
     if (this.showCeiling === next) return;
     this.showCeiling = next;
     this.emit('wallViewChanged', { mode: this.wallViewMode, showCeiling: this.showCeiling });
+  }
+
+  isHouseOpen(): boolean {
+    return this.houseOpen;
+  }
+
+  setHouseOpen(open: boolean): void {
+    const next = Boolean(open);
+    if (this.houseOpen === next) return;
+    this.houseOpen = next;
+    this.emit('houseOpenChanged', { open: this.houseOpen });
+  }
+
+  toggleHouseOpen(): boolean {
+    this.setHouseOpen(!this.houseOpen);
+    return this.houseOpen;
+  }
+
+  isTimeCycleRunning(): boolean {
+    return this.timeCycleRunning;
+  }
+
+  setTimeCycleRunning(running: boolean): void {
+    const next = Boolean(running);
+    if (this.timeCycleRunning === next) return;
+    this.timeCycleRunning = next;
+    this.emit('timeCycleChanged', { running: this.timeCycleRunning });
+  }
+
+  private isStructuralDoorDef(def: FurnitureItemDef | undefined): boolean {
+    return Boolean(
+      def &&
+        def.layer === 'wall' &&
+        def.wallKind === 'structure' &&
+        (def.tags.includes('door') || def.id.startsWith('door_')),
+    );
+  }
+
+  private isControllableLightDef(def: FurnitureItemDef | undefined): boolean {
+    if (!def || !def.interaction) return false;
+    if (def.interaction.type !== 'toggle' && def.interaction.type !== 'spin') return false;
+    if (def.tags.includes('light')) return true;
+    const id = def.id;
+    return (
+      id.includes('lamp') ||
+      id.includes('light') ||
+      id.includes('sconce') ||
+      id.includes('lantern') ||
+      id.includes('candle') ||
+      id.includes('neon') ||
+      id.includes('disco') ||
+      id.includes('spotlight') ||
+      id.includes('uplight') ||
+      id.includes('laser')
+    );
+  }
+
+  private collectLinkedDoubleDoorUids(door: PlacedItem): Set<string> {
+    const doorEdges = new Map<
+      string,
+      { uid: string; axis: 'H' | 'V'; ex: number; ez: number }
+    >();
+    for (const it of this.state.items) {
+      const itDef = this.data.itemsById.get(it.itemId);
+      if (!this.isStructuralDoorDef(itDef)) continue;
+      const parsed = parseCanonicalWallEdgeKey(canonicalWallEdgeKey(it.x, it.z, it.rotation));
+      doorEdges.set(it.uid, { uid: it.uid, ...parsed });
+    }
+
+    const start = doorEdges.get(door.uid);
+    const linked = new Set<string>();
+    if (!start) return linked;
+
+    const visited = new Set<string>([door.uid]);
+    const queue = [start];
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      for (const cand of doorEdges.values()) {
+        if (visited.has(cand.uid) || cand.axis !== cur.axis) continue;
+        const adjacent =
+          cur.axis === 'H'
+            ? cand.ez === cur.ez && Math.abs(cand.ex - cur.ex) === 1
+            : cand.ex === cur.ex && Math.abs(cand.ez - cur.ez) === 1;
+        if (adjacent) {
+          visited.add(cand.uid);
+          linked.add(cand.uid);
+          queue.push(cand);
+        }
+      }
+    }
+    return linked;
   }
 
   getItem(uid: string): PlacedItem | undefined {
@@ -727,16 +829,25 @@ export class HouseStore {
     if (!def?.interaction) return null;
 
     const isMusicHub = MUSIC_PARTY_HUBS.has(existing.itemId);
+    const isStructuralDoor = this.isStructuralDoorDef(def);
     const nextActive =
       isMusicHub || def.interaction.type === 'toggle' || def.interaction.type === 'spin'
         ? !existing.active
         : existing.active;
+
+    const linkedDoorUids = isStructuralDoor
+      ? this.collectLinkedDoubleDoorUids(existing)
+      : new Set<string>();
 
     const updated: PlacedItem = { ...existing, active: nextActive };
     let syncedCount = 0;
 
     const nextItems = this.state.items.map((it) => {
       if (it.uid === uid) return updated;
+
+      if (linkedDoorUids.has(it.uid)) {
+        return { ...it, active: nextActive };
+      }
 
       if (isMusicHub && MUSIC_PARTY_LINKED.has(it.itemId)) {
         syncedCount += 1;
@@ -797,9 +908,16 @@ export class HouseStore {
       : DEFAULT_TIME_HOUR;
   }
 
-  setTimeHour(hour: number, options?: { recordHistory?: boolean }): void {
+  setTimeHour(hour: number, options?: { recordHistory?: boolean; fromCycle?: boolean }): void {
     if (!Number.isFinite(hour)) return;
-    const clamped = Math.round(Math.max(0, Math.min(24, hour)) * 100) / 100;
+    if (!options?.fromCycle && this.timeCycleRunning) {
+      this.timeCycleRunning = false;
+      this.emit('timeCycleChanged', { running: false });
+    }
+    const normalized = options?.fromCycle
+      ? ((hour % 24) + 24) % 24
+      : Math.max(0, Math.min(24, hour));
+    const clamped = Math.round(normalized * 100) / 100;
     if (Math.abs(clamped - this.getTimeHour()) < 0.001) return;
     if (options?.recordHistory === true) {
       this.pushHistory();
@@ -810,6 +928,10 @@ export class HouseStore {
   }
 
   setTimeOfDay(timeOfDay: TimeOfDay): void {
+    if (this.timeCycleRunning) {
+      this.timeCycleRunning = false;
+      this.emit('timeCycleChanged', { running: false });
+    }
     const nextHour = timeOfDayToDefaultHour(timeOfDay);
     const current = this.state.timeOfDay ?? 'day';
     if (current === timeOfDay && Math.abs(this.getTimeHour() - nextHour) < 0.01) return;
@@ -818,17 +940,22 @@ export class HouseStore {
     this.emit('houseChanged', { state: this.state, reason: 'timeOfDay' });
   }
 
-  setAllLights(on: boolean): number {
-    const nextActive = Boolean(on);
+  areAnyLightsActive(): boolean {
+    for (const it of this.state.items) {
+      if (!it.active) continue;
+      if (this.isControllableLightDef(this.data.itemsById.get(it.itemId))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  setAllLightsActive(active: boolean): number {
+    const nextActive = Boolean(active);
     const matching = new Set<string>();
     for (const it of this.state.items) {
       const def = this.data.itemsById.get(it.itemId);
-      if (
-        def &&
-        def.interaction?.type === 'toggle' &&
-        def.tags.includes('light') &&
-        Boolean(it.active) !== nextActive
-      ) {
+      if (this.isControllableLightDef(def) && Boolean(it.active) !== nextActive) {
         matching.add(it.uid);
       }
     }
@@ -841,8 +968,12 @@ export class HouseStore {
         matching.has(it.uid) ? { ...it, active: nextActive } : it,
       ),
     };
-    this.emitMutation('lights');
+    this.emitMutation('interact');
     return matching.size;
+  }
+
+  setAllLights(on: boolean): number {
+    return this.setAllLightsActive(on);
   }
 
   setSceneryView(viewId: string): void {

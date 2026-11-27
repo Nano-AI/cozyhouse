@@ -11,26 +11,6 @@ export type IconName =
   | 'party'
   | 'decor'
   | 'pets'
-  // Subcategories
-  | 'bed'
-  | 'sofa'
-  | 'desk'
-  | 'storage'
-  | 'table'
-  | 'counter'
-  | 'appliance'
-  | 'dining'
-  | 'kettle'
-  | 'coffee'
-  | 'dj'
-  | 'light'
-  | 'sparkles'
-  | 'plant'
-  | 'art'
-  | 'mirror'
-  | 'plushie'
-  | 'cat'
-  | 'toy'
   // HUD & Tool Actions
   | 'undo'
   | 'redo'
@@ -57,27 +37,60 @@ export type IconName =
   | 'copy'
   | 'download'
   | 'upload'
-  | 'sun'
-  | 'sunrise'
-  | 'sunset'
-  | 'moon'
-  | 'cloudRain'
-  | 'snow'
-  | 'fog'
-  | 'thunder'
   | 'close'
   | 'check'
   | 'back';
 
+export type StorybookIconName =
+  // Time of Day (5)
+  | 'time_running'
+  | 'time_dawn'
+  | 'time_day'
+  | 'time_dusk'
+  | 'time_night'
+  // Weather (5)
+  | 'weather_clear'
+  | 'weather_rain'
+  | 'weather_fog'
+  | 'weather_thunderstorm'
+  | 'weather_snow'
+  // Locations (6)
+  | 'loc_suburbs'
+  | 'loc_city'
+  | 'loc_beach'
+  | 'loc_forest'
+  | 'loc_mountains'
+  | 'loc_countryside'
+  // Lights (2)
+  | 'bulb_on'
+  | 'bulb_off'
+  // Room Types (15)
+  | 'room_cafe'
+  | 'room_live_in_cafe'
+  | 'room_cat_cafe'
+  | 'room_bar'
+  | 'room_book_cafe'
+  | 'room_party_pad'
+  | 'room_smoothie_bar'
+  | 'room_diner'
+  | 'room_cat_sanctuary'
+  | 'room_night_lounge'
+  | 'room_plant_haven'
+  | 'room_music_lounge'
+  | 'room_reading_nook'
+  | 'room_home_kitchen'
+  | 'room_home'
+  | 'room_custom';
+
+const INK = '#2D2620';
+
 const ICON_PATHS: Record<IconName, string> = {
-  // Brand & Modes
   brand:
     '<path d="M3 10.2 12 3l9 7.2"/><path d="M5.5 9.2V20h13V9.2"/><path d="M9.8 20v-5.5h4.4V20"/>',
   live: '<polygon points="7,4.5 19,12 7,19.5"/>',
   build:
     '<path d="m14.8 4.2 5 5-9.8 9.8-5.6 1 1-5.6 9.4-10.2z"/><path d="m12.8 6.2 5 5"/>',
 
-  // 7 Catalog Tabs
   basics:
     '<rect x="3" y="3" width="18" height="18" rx="2.5"/><path d="M3 12h18M12 3v18"/>',
   living:
@@ -93,29 +106,6 @@ const ICON_PATHS: Record<IconName, string> = {
   pets:
     '<circle cx="7.5" cy="8.2" r="1.7"/><circle cx="12" cy="6.2" r="1.7"/><circle cx="16.5" cy="8.2" r="1.7"/><circle cx="18.2" cy="12.5" r="1.5"/><path d="M12 11.5c-2.6 0-5 2.1-5 4.6 0 1.4 1.1 2.4 2.5 2.4 1 0 1.8-.4 2.5-.4s1.5.4 2.5.4c1.4 0 2.5-1 2.5-2.4 0-2.5-2.4-4.6-5-4.6z"/>',
 
-  // Subcategories
-  bed: '<path d="M3 18v-8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v8"/><path d="M3 14h18M6 11h4.5M13.5 11H18"/>',
-  sofa: '<path d="M4 13v-3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v3"/><rect x="3" y="13" width="18" height="5" rx="1.8"/><path d="M6 18v2M18 18v2"/>',
-  desk: '<path d="M3 8h18M5 8v11M19 8v11M14 8v6h5"/>',
-  storage: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 3v18M9.5 11v2M14.5 11v2"/>',
-  table: '<path d="M3 9h18M5.5 9v10M18.5 9v10M5.5 14h13"/>',
-  counter: '<rect x="3" y="7" width="18" height="13" rx="1.5"/><path d="M3 11h18M12 11v9"/>',
-  appliance: '<rect x="5" y="3" width="14" height="18" rx="2"/><path d="M5 10h14M9 6.5h1M9 13.5v3"/>',
-  dining: '<path d="M4 11h16M7 11v8M17 11v8M9 7h6"/>',
-  kettle: '<path d="M6 10a5.5 5.5 0 0 1 11 0v7.5H6V10z"/><path d="M17 11h2.2a1.8 1.8 0 0 1 0 3.6H17M9 4.5h5"/>',
-  coffee: '<path d="M5 9h11v5.5A4.5 4.5 0 0 1 11.5 19h-2A4.5 4.5 0 0 1 5 14.5V9z"/><path d="M16 10.5h2a2 2 0 0 1 0 4h-2"/>',
-  dj: '<rect x="3" y="7" width="18" height="11" rx="2"/><circle cx="8.5" cy="12.5" r="2.6"/><circle cx="15.5" cy="12.5" r="2.6"/>',
-  light: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.7.5 1 1.2 1 2.1h5c0-.9.3-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
-  sparkles:
-    '<path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 16l.8 2.2 2.2.8-2.2.8L19 22l-.8-2.2-2.2-.8 2.2-.8.8-2.2z"/>',
-  plant: '<path d="M12 21V11"/><path d="M12 13c-4 0-7-2.5-7-6.5 4 0 7 2.5 7 6.5z"/><path d="M12 11c4 0 7-2.5 7-6.5-4 0-7 2.5-7 6.5z"/>',
-  art: '<rect x="4" y="4" width="16" height="16" rx="2"/><circle cx="9.2" cy="9.2" r="1.4"/><path d="m20 15.5-4.5-4.5-6.5 6.5"/>',
-  mirror: '<path d="M7 19V10a5 5 0 0 1 10 0v9z"/><path d="M5 19h14"/>',
-  plushie: '<circle cx="8" cy="7.5" r="2.2"/><circle cx="16" cy="7.5" r="2.2"/><circle cx="12" cy="13.5" r="5.5"/>',
-  cat: '<path d="M5.5 19v-6.5L4 6.5l4.2 2.3a7.2 7.2 0 0 1 7.6 0L20 6.5l-1.5 6v6.5"/><circle cx="9.5" cy="13.2" r=".8" fill="currentColor"/><circle cx="14.5" cy="13.2" r=".8" fill="currentColor"/>',
-  toy: '<circle cx="12" cy="12" r="7"/><path d="M7.5 7.5c3 2.5 6 6.5 9 9M16.5 7.5c-3 2.5-6 6.5-9 9"/>',
-
-  // HUD & Tool Actions
   undo: '<path d="M9 7 4.5 11.5 9 16"/><path d="M5 11.5h9a5 5 0 1 1 0 10h-2.5"/>',
   redo: '<path d="m15 7 4.5 4.5L15 16"/><path d="M19 11.5h-9a5 5 0 1 0 0 10h2.5"/>',
   rotLeft: '<path d="M6.5 8A7 7 0 1 1 5.2 14.5"/><path d="M6.5 3.5V8H11"/>',
@@ -149,26 +139,275 @@ const ICON_PATHS: Record<IconName, string> = {
   copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5v-9A1.5 1.5 0 0 1 4.5 3h9A1.5 1.5 0 0 1 15 4.5V5"/>',
   download: '<path d="M12 4v11M7.5 11.2 12 15.8l4.5-4.6M4.5 19.5h15"/>',
   upload: '<path d="M12 16V5M7.5 8.8 12 4.2l4.5 4.6M4.5 19.5h15"/>',
-  sun: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.5M12 19v2.5M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M2.5 12H5M19 12h2.5M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/>',
-  sunrise:
-    '<path d="M12 5v4M5.5 11.5l1.8 1.8M18.5 11.5l-1.8 1.8M3 18h18M7.5 18a4.5 4.5 0 0 1 9 0"/>',
-  sunset:
-    '<path d="M12 9v4M5.5 11.5l1.8 1.8M18.5 11.5l-1.8 1.8M3 18h18M7.5 18a4.5 4.5 0 0 1 9 0"/>',
-  moon: '<path d="M19.2 14.5A7.5 7.5 0 1 1 9.5 4.8a6 6 0 0 0 9.7 9.7z"/>',
-  cloudRain:
-    '<path d="M6.5 15.5h11a3.8 3.8 0 0 0 .5-7.6A5.2 5.2 0 0 0 7.8 6.5a4 4 0 0 0-1.3 9z"/><path d="m8.5 18.5-1 2.2M12.5 18.5l-1 2.2M16.5 18.5l-1 2.2"/>',
-  snow: '<path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/>',
-  fog: '<path d="M4 9h16M3 13.5h18M6 18h12"/>',
-  thunder:
-    '<path d="M6.5 14.5h11a3.8 3.8 0 0 0 .5-7.6A5.2 5.2 0 0 0 7.8 5.5a4 4 0 0 0-1.3 9z"/><path d="m13 13-3 5h3l-1.5 4"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   back: '<path d="m14.5 6-6 6 6 6"/>',
 };
 
+/**
+ * Illustrated two-tone storybook SVG icons: soft pastel fills + crisp dark-ink strokes.
+ */
+const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
+  // ── Time of Day (5) ──
+  time_running: `
+    <circle cx="9.2" cy="11.5" r="4.2" fill="#FFD966" stroke="${INK}" stroke-width="1.8"/>
+    <path d="M9.2 4.6v1.3M4.3 6.6l.9.9M2.8 11.5h1.3M4.3 16.4l.9-.9M9.2 17.1v1.3" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M18.8 14.8a5.2 5.2 0 0 1-5.8-7.4 5.5 5.5 0 1 0 5.8 7.4z" fill="#FCE59B" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="18.6" cy="7.2" r="1.05" fill="#FFD966" stroke="${INK}" stroke-width="1.1"/>
+  `,
+  time_dawn: `
+    <path d="M5.5 16.5a6.5 6.5 0 0 1 13 0z" fill="#F8B4BA" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M12 5.4v2.1M6.6 8.2l1.4 1.4M17.4 8.2l-1.4 1.4" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M3 16.5h18M6.5 19.6h11" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  time_day: `
+    <circle cx="12" cy="12" r="4.8" fill="#FFD966" stroke="${INK}" stroke-width="1.8"/>
+    <path d="M12 3.3v2.1M12 18.6v2.1M3.3 12h2.1M18.6 12h2.1M5.9 5.9l1.5 1.5M16.6 16.6l1.5 1.5M18.1 5.9l-1.5 1.5M7.4 16.6l-1.5 1.5" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  time_dusk: `
+    <path d="M5.5 15.8a6.5 6.5 0 0 1 13 0z" fill="#F6B88D" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M12 6.8v2M7.2 9.4l1.3 1.1M16.8 9.4l-1.3 1.1" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M3 15.8h18" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M6.8 18.8c1.5.9 3.2.9 5.2 0 2-.9 3.7-.9 5.2 0" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+  `,
+  time_night: `
+    <path d="M18.6 14.5A6.8 6.8 0 0 1 9.5 5.4a7.1 7.1 0 1 0 9.1 9.1z" fill="#FCE59B" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M16.8 5.2v2.4M15.6 6.4h2.4" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+    <circle cx="19.6" cy="9.6" r="1.05" fill="#FFD966" stroke="${INK}" stroke-width="1.1"/>
+  `,
+
+  // ── Weather (5) ──
+  weather_clear: `
+    <circle cx="12" cy="12" r="5" fill="#FFD966" stroke="${INK}" stroke-width="1.8"/>
+    <path d="M12 3.2v2M12 18.8v2M3.2 12h2M18.8 12h2M5.8 5.8l1.4 1.4M16.8 16.8l1.4 1.4M18.2 5.8l-1.4 1.4M7.2 16.8l-1.4 1.4" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  weather_rain: `
+    <path d="M6.8 14.8h10.8a3.6 3.6 0 0 0 .5-7.1A5 5 0 0 0 8.2 6.5a3.9 3.9 0 0 0-1.4 8.3z" fill="#CBE3F8" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M8.5 17.5l-1 2.7M12.5 17.5l-1 2.7M16.5 17.5l-1 2.7" stroke="#4B8AC7" stroke-width="2" stroke-linecap="round"/>
+  `,
+  weather_fog: `
+    <path d="M7.2 12.2h10a3.2 3.2 0 0 0 .4-6.3 4.5 4.5 0 0 0-8.6-1 3.4 3.4 0 0 0-1.8 7.3z" fill="#E1E7EB" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M4.2 15.6h15.6M6 18.8h12" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  weather_thunderstorm: `
+    <path d="M6.6 13.8h11a3.5 3.5 0 0 0 .5-7 4.9 4.9 0 0 0-9.7-1A3.7 3.7 0 0 0 6.6 13.8z" fill="#B8C3D9" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <polygon points="13.2,11.6 9.5,16.8 12.3,16.8 10.8,21.2 15.6,15.2 12.7,15.2" fill="#FFD966" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>
+  `,
+  weather_snow: `
+    <circle cx="12" cy="12" r="2.6" fill="#C7E6FA" stroke="${INK}" stroke-width="1.6"/>
+    <path d="M12 3.5v5.9M12 14.6v5.9M4.6 7.8l5.1 2.9M14.3 13.3l5.1 2.9M19.4 7.8l-5.1 2.9M9.7 13.3l-5.1 2.9" stroke="${INK}" stroke-width="1.75" stroke-linecap="round"/>
+    <circle cx="12" cy="4.2" r="1.1" fill="#A9D7F5"/>
+    <circle cx="12" cy="19.8" r="1.1" fill="#A9D7F5"/>
+  `,
+
+  // ── Locations / Window Views (6) ──
+  loc_suburbs: `
+    <path d="M3.5 19.5h17" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <rect x="4.8" y="11" width="9.8" height="8.5" rx="1" fill="#FCF3E3" stroke="${INK}" stroke-width="1.7"/>
+    <polygon points="3.6,11.4 9.7,6 15.8,11.4" fill="#F0A590" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <rect x="8.2" y="14.4" width="3" height="5.1" rx="0.6" fill="#D5A680" stroke="${INK}" stroke-width="1.4"/>
+    <circle cx="18.2" cy="13.2" r="3.1" fill="#A7D3AD" stroke="${INK}" stroke-width="1.6"/>
+    <path d="M18.2 16.3v3.2" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+  `,
+  loc_city: `
+    <rect x="3.8" y="10.2" width="5.2" height="9.8" rx="0.8" fill="#F2C7B8" stroke="${INK}" stroke-width="1.7"/>
+    <rect x="9" y="4.5" width="6.2" height="15.5" rx="0.8" fill="#B8D2EC" stroke="${INK}" stroke-width="1.7"/>
+    <rect x="15.2" y="8.4" width="5" height="11.6" rx="0.8" fill="#D1C4EA" stroke="${INK}" stroke-width="1.7"/>
+    <path d="M11 7.6h2.2M11 10.6h2.2M11 13.6h2.2M5.8 13.2h1.2M17.2 11.4h1.1M17.2 14.4h1.1" stroke="#FFF3B0" stroke-width="1.6" stroke-linecap="round"/>
+    <path d="M2.5 20h19" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  loc_beach: `
+    <circle cx="17.8" cy="6.6" r="2.4" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
+    <polygon points="11.2,6.4 11.2,14 6,14" fill="#F4A896" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>
+    <polygon points="11.2,8 15.2,14 11.2,14" fill="#FFFDF8" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M5 14.4h11l-1.4 2.8H6.4z" fill="#E3B387" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>
+    <path d="M3 18.8c2.2-1.2 4.2-1.2 6.2 0s4 1.2 6 0 3.8-1.2 5.8 0" fill="none" stroke="#4D9AC4" stroke-width="2" stroke-linecap="round"/>
+  `,
+  loc_forest: `
+    <polygon points="8.5,5.2 4.2,12.5 12.8,12.5" fill="#9BCAA3" stroke="${INK}" stroke-width="1.65" stroke-linejoin="round"/>
+    <polygon points="8.5,9.5 3.6,17 13.4,17" fill="#7FB88C" stroke="${INK}" stroke-width="1.65" stroke-linejoin="round"/>
+    <polygon points="16.4,7.4 12.6,14 20.2,14" fill="#B2D9B4" stroke="${INK}" stroke-width="1.65" stroke-linejoin="round"/>
+    <polygon points="16.4,11.2 12.2,17.5 20.6,17.5" fill="#8DC398" stroke="${INK}" stroke-width="1.65" stroke-linejoin="round"/>
+    <path d="M8.5 17v2.8M16.4 17.5v2.3M3 19.8h18" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  loc_mountains: `
+    <polygon points="3,19.2 9.8,6.5 16.6,19.2" fill="#BFCFE3" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <polygon points="9.8,6.5 7.4,11 9.8,9.8 12.2,11" fill="#FFFDF8" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <polygon points="11.5,19.2 16.5,9.8 21.5,19.2" fill="#D5DFEC" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <polygon points="16.5,9.8 14.8,13 16.5,12.1 18.2,13" fill="#FFFDF8" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <circle cx="5.6" cy="6.6" r="1.9" fill="#FFD966" stroke="${INK}" stroke-width="1.4"/>
+  `,
+  loc_countryside: `
+    <path d="M2.5 19.5Q8.5 13.5 15 17.2Q18.8 15 21.5 19.5z" fill="#C9DDA2" stroke="${INK}" stroke-width="1.6" stroke-linejoin="round"/>
+    <rect x="6.5" y="10.8" width="7.8" height="7.6" rx="0.8" fill="#EB9C8E" stroke="${INK}" stroke-width="1.65"/>
+    <polygon points="5.5,11.2 10.4,6.4 15.3,11.2" fill="#D97A6C" stroke="${INK}" stroke-width="1.65" stroke-linejoin="round"/>
+    <path d="M8.8 18.4v-4.2h3.2v4.2M8.8 14.2l3.2 4.2" stroke="${INK}" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="18.2" cy="7.4" r="2.2" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
+  `,
+
+  // ── Lights Switch (2) ──
+  bulb_on: `
+    <path d="M9.4 17.2h5.2M10.2 20h3.6" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M12 5.4a5.2 5.2 0 0 0-3.1 9.4c.7.6 1 1.3 1 2.3h4.2c0-1 .3-1.7 1-2.3A5.2 5.2 0 0 0 12 5.4z" fill="#FFD966" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M12 2.2v1.3M4.4 6.2l1.2.8M19.6 6.2l-1.2.8M3.2 11.4h1.5M19.3 11.4h1.5" stroke="#D99422" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  bulb_off: `
+    <path d="M9.4 17.2h5.2M10.2 20h3.6" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M12 5.4a5.2 5.2 0 0 0-3.1 9.4c.7.6 1 1.3 1 2.3h4.2c0-1 .3-1.7 1-2.3A5.2 5.2 0 0 0 12 5.4z" fill="#EFE7D8" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+  `,
+
+  // ── Room Types (Illustrated Pastel + Ink) ──
+  room_cafe: `
+    <path d="M4.8 10h11v5.2a4.4 4.4 0 0 1-4.4 4.4H9.2a4.4 4.4 0 0 1-4.4-4.4V10z" fill="#E6C2A3" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M15.8 11.3h1.9a2.2 2.2 0 0 1 0 4.4h-1.9" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M8 5.2c0 1.2 1 1.4 1 2.5M12 5.2c0 1.2 1 1.4 1 2.5" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+  `,
+  room_live_in_cafe: `
+    <polygon points="3.5,9.5 12,3.6 20.5,9.5" fill="#EDAA96" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M6.4 11h8.8v4.8a3.6 3.6 0 0 1-3.6 3.6H10a3.6 3.6 0 0 1-3.6-3.6V11z" fill="#E6C2A3" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M15.2 12.2h1.6a1.8 1.8 0 0 1 0 3.6h-1.6" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+  `,
+  room_cat_cafe: `
+    <path d="M5.5 10.6 6.8 6.5 9.8 9a6.4 6.4 0 0 1 4.4 0l3-2.5 1.3 4.1" fill="#F5C0CD" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M5.4 10.6h13.2v4.6a4.4 4.4 0 0 1-4.4 4.4H9.8a4.4 4.4 0 0 1-4.4-4.4v-4.6z" fill="#F5C0CD" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <circle cx="9.6" cy="14" r="1" fill="${INK}"/><circle cx="14.4" cy="14" r="1" fill="${INK}"/>
+  `,
+  room_bar: `
+    <polygon points="5.2,6.2 18.8,6.2 12,13.6" fill="#D5C2EE" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M12 13.6v6M8.5 19.6h7" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="16.8" cy="5.8" r="2.2" fill="#FFD966" stroke="${INK}" stroke-width="1.4"/>
+  `,
+  room_book_cafe: `
+    <path d="M3.5 7.5c2.8-.9 5.8-.9 8.5.8 2.7-1.7 5.7-1.7 8.5-.8v11c-2.8-.9-5.8-.9-8.5.8-2.7-1.7-5.7-1.7-8.5-.8v-11z" fill="#C4DCF0" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M12 8.3v11" stroke="${INK}" stroke-width="1.6"/>
+  `,
+  room_party_pad: `
+    <path d="M12 3v3" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <circle cx="12" cy="12.5" r="6.4" fill="#D8C4F2" stroke="${INK}" stroke-width="1.8"/>
+    <path d="M6 12.5h12M12 6.1v12.8M8.5 7.3c1 3.4 1 7 0 10.4M15.5 7.3c-1 3.4-1 7 0 10.4" fill="none" stroke="${INK}" stroke-width="1.2"/>
+    <circle cx="18.8" cy="6.4" r="1.4" fill="#FFD966" stroke="${INK}" stroke-width="1.1"/>
+  `,
+  room_smoothie_bar: `
+    <path d="M7.4 9.6h9.2l-1.2 10H8.6l-1.2-10z" fill="#F6C59C" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M6.4 9.6a5.6 5.6 0 0 1 11.2 0z" fill="#FBE5D1" stroke="${INK}" stroke-width="1.7"/>
+    <path d="M12.2 9.6V4.2l3.4-.9" fill="none" stroke="${INK}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  `,
+  room_diner: `
+    <path d="M4.5 15a7.5 7.5 0 0 1 15 0z" fill="#F0B1A6" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="12" cy="6.8" r="1.5" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
+    <path d="M3 18h18" stroke="${INK}" stroke-width="2" stroke-linecap="round"/>
+  `,
+  room_cat_sanctuary: `
+    <path d="M5 12.5 6.4 6.5 10 9.4a6.4 6.4 0 0 1 4 0l3.6-2.9 1.4 6a6.8 6.8 0 0 1-14 0z" fill="#F6C2CE" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <path d="M8.8 13.8c.5.6 1.3.6 1.8 0M13.4 13.8c.5.6 1.3.6 1.8 0" fill="none" stroke="${INK}" stroke-width="1.6" stroke-linecap="round"/>
+  `,
+  room_night_lounge: `
+    <path d="M17.5 14.5A6.2 6.2 0 0 1 9.5 6a6.4 6.4 0 1 0 8 8.5z" fill="#B5C0E8" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <circle cx="17.8" cy="7" r="1.8" fill="#FFD966" stroke="${INK}" stroke-width="1.3"/>
+  `,
+  room_plant_haven: `
+    <path d="M8 14h8l-1.1 5.6H9.1L8 14z" fill="#E39D85" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+    <path d="M12 14V7.5M12 12c-3.8 0-6.2-2.2-6.2-5.4 3.5 0 6.2 2 6.2 5.4zM12 10.6c3.8 0 6.2-2.2 6.2-5.4-3.5 0-6.2 2-6.2 5.4z" fill="#9ECDA7" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+  `,
+  room_music_lounge: `
+    <circle cx="12" cy="12" r="7.6" fill="#C9BCE8" stroke="${INK}" stroke-width="1.8"/>
+    <circle cx="12" cy="12" r="2.7" fill="#F2A794" stroke="${INK}" stroke-width="1.6"/>
+  `,
+  room_reading_nook: `
+    <rect x="4.5" y="13.5" width="15" height="5" rx="1.2" fill="#BBD5ED" stroke="${INK}" stroke-width="1.7"/>
+    <rect x="6" y="8" width="12.5" height="5.2" rx="1.2" fill="#F4C7B7" stroke="${INK}" stroke-width="1.7"/>
+    <path d="M8.5 10.6h5.5M7.5 16h6.5" stroke="${INK}" stroke-width="1.4" stroke-linecap="round"/>
+  `,
+  room_home_kitchen: `
+    <rect x="5" y="10.2" width="14" height="8.2" rx="2.5" fill="#F5DC93" stroke="${INK}" stroke-width="1.8"/>
+    <path d="M3.5 11.8h1.5M19 11.8h1.5M9.5 6.4v2M14.5 6.4v2" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+  `,
+  room_home: `
+    <rect x="5.4" y="10.6" width="13.2" height="9" rx="1.2" fill="#FCF0DE" stroke="${INK}" stroke-width="1.8"/>
+    <polygon points="3.5,11.2 12,4.4 20.5,11.2" fill="#EBAA93" stroke="${INK}" stroke-width="1.8" stroke-linejoin="round"/>
+    <rect x="9.8" y="13.8" width="4.4" height="5.8" rx="0.8" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
+  `,
+  room_custom: `
+    <polygon points="12,4.2 14.3,9.2 19.8,9.8 15.6,13.5 16.8,19 12,16.1 7.2,19 8.4,13.5 4.2,9.8 9.7,9.2" fill="#FFD966" stroke="${INK}" stroke-width="1.7" stroke-linejoin="round"/>
+  `,
+};
+
+export function getRoomStorybookIconName(roomId: string): StorybookIconName {
+  switch (roomId) {
+    case 'live_in_cafe':
+      return 'room_live_in_cafe';
+    case 'cat_cafe':
+      return 'room_cat_cafe';
+    case 'live_in_bar':
+    case 'bar':
+      return 'room_bar';
+    case 'book_cafe':
+      return 'room_book_cafe';
+    case 'party_pad':
+      return 'room_party_pad';
+    case 'smoothie_bar':
+      return 'room_smoothie_bar';
+    case 'diner':
+    case 'neighborhood_diner':
+      return 'room_diner';
+    case 'cafe':
+      return 'room_cafe';
+    case 'cat_sanctuary':
+      return 'room_cat_sanctuary';
+    case 'night_lounge':
+      return 'room_night_lounge';
+    case 'plant_haven':
+      return 'room_plant_haven';
+    case 'music_lounge':
+      return 'room_music_lounge';
+    case 'reading_nook':
+      return 'room_reading_nook';
+    case 'home_kitchen':
+      return 'room_home_kitchen';
+    case 'home':
+    case 'cozy_room':
+    case 'cozy_lounge':
+      return 'room_home';
+    default:
+      return 'room_custom';
+  }
+}
+
+export function getLocationStorybookIconName(viewId: string): StorybookIconName {
+  switch (viewId) {
+    case 'city':
+      return 'loc_city';
+    case 'beach':
+      return 'loc_beach';
+    case 'forest':
+      return 'loc_forest';
+    case 'mountains':
+      return 'loc_mountains';
+    case 'countryside':
+      return 'loc_countryside';
+    default:
+      return 'loc_suburbs';
+  }
+}
+
+export function getWeatherStorybookIconName(weatherId: string): StorybookIconName {
+  switch (weatherId) {
+    case 'rain':
+      return 'weather_rain';
+    case 'fog':
+      return 'weather_fog';
+    case 'thunderstorm':
+      return 'weather_thunderstorm';
+    case 'snow':
+      return 'weather_snow';
+    default:
+      return 'weather_clear';
+  }
+}
+
 export function getIcon(name: IconName, size = 16): string {
   const path = ICON_PATHS[name];
-  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
 }
 
 export function createIconEl(name: IconName, size = 16): HTMLSpanElement {
@@ -178,5 +417,19 @@ export function createIconEl(name: IconName, size = 16): HTMLSpanElement {
   span.style.height = `${size}px`;
   span.setAttribute('aria-hidden', 'true');
   span.innerHTML = getIcon(name, size);
+  return span;
+}
+
+export function getStorybookIcon(name: StorybookIconName, size = 22): string {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" aria-hidden="true">${STORYBOOK_SHAPES[name]}</svg>`;
+}
+
+export function createStorybookIconEl(name: StorybookIconName, size = 22): HTMLSpanElement {
+  const span = document.createElement('span');
+  span.className = 'sb-icon';
+  span.style.width = `${size}px`;
+  span.style.height = `${size}px`;
+  span.setAttribute('aria-hidden', 'true');
+  span.innerHTML = getStorybookIcon(name, size);
   return span;
 }

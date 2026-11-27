@@ -297,7 +297,7 @@ export function createSkyDome(
   group.matrixAutoUpdate = false;
   group.updateMatrix();
 
-  const geo = new THREE.SphereGeometry(84, 24, 16);
+  const geo = new THREE.SphereGeometry(118, 24, 16);
   const skyUniforms = {
     uTopColor: { value: new THREE.Color(view.skyTop) },
     uMidColor: { value: new THREE.Color(view.skyTop) },
@@ -605,6 +605,7 @@ export function createLinearCloudField(
 
   const instancedClouds = new THREE.InstancedMesh(puffGeo, cloudMat, totalPuffs);
   instancedClouds.name = 'LinearCloudInstances';
+  instancedClouds.renderOrder = 2;
   instancedClouds.frustumCulled = false;
   instancedClouds.matrixAutoUpdate = false;
   instancedClouds.updateMatrix();

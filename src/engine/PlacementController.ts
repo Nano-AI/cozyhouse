@@ -55,8 +55,19 @@ export class PlacementController {
   private ghostGroup: THREE.Group | null = null;
   private ghostGuideRing: THREE.LineLoop;
   private wallEdgeGuideBar: THREE.Mesh;
-  private lastGhostKey = '';
+  private lastGhostItemKey = '';
+  private lastGhostColor = '';
+  private ghostVisualRotY = 0;
+  private ghostTargetRotY = 0;
+  private ghostBaseY = 0;
+  private ghostHopProgress = 1;
   private currentTarget: ResolvedPlacementTarget | null = null;
+  private lastPointerClientX: number | null = null;
+  private lastPointerClientY: number | null = null;
+  private lastCanvasPointerClientX: number | null = null;
+  private lastCanvasPointerClientY: number | null = null;
+  private lastHoverCoord: { gx: number; gz: number } | null = null;
+  private unsubTickHook: (() => void) | null = null;
 
   // Pointer gesture tracking
   private isPointerDown = false;
@@ -103,16 +114,75 @@ export class PlacementController {
     this.wallEdgeGuideBar.visible = false;
     this.sceneManager.overlayRoot.add(this.wallEdgeGuideBar);
 
-    this.store.on('modeChanged', ({ mode }) => {
-      this.cancelPendingHover();
-      this.clearGhost();
-      this.hideMarquee();
-      this.sceneManager.setHoverOutlineUid(null);
-      this.sceneManager.setEraseHoverUid(null);
-      this.sceneManager.setMovingHiddenUid(mode === 'move' ? this.store.getSelectedUid() : null);
-      this.onHoverHint?.(null);
-      this.onHoverItem?.(null);
-    });
+    this.store.on(
+      'modeChanged',
+      ({ mode, placementItemId, placementVariantId, placementRotation }) => {
+        this.cancelPendingHover();
+        this.hideMarquee();
+        this.sceneManager.setHoverOutlineUid(null);
+        this.sceneManager.setEraseHoverUid(null);
+        this.sceneManager.setMovingHiddenUid(mode === 'move' ? this.store.getSelectedUid() : null);
+        this.onHoverItem?.(null);
+
+        if ((mode === 'place' || mode === 'move') && placementItemId) {
+          const def = this.store.data.itemsById.get(placementItemId);
+          const variantId = placementVariantId ?? def?.variants[0]?.id;
+          if (def && variantId) {
+            const movingUid =
+              mode === 'move' ? (this.store.getSelectedUid() ?? undefined) : undefined;
+            const nextItemKey = `${def.id}__${variantId}`;
+            const isSameGhostItem =
+              this.ghostGroup !== null && this.lastGhostItemKey === nextItemKey;
+
+            if (!isSameGhostItem) {
+              this.clearGhost();
+            }
+
+            let target: ResolvedPlacementTarget | null = null;
+            const px = this.lastCanvasPointerClientX ?? this.lastPointerClientX;
+            const py = this.lastCanvasPointerClientY ?? this.lastPointerClientY;
+            if (px !== null && py !== null) {
+              this.updatePointerNdc(px, py);
+              target = this.resolvePlacementTarget(def, placementRotation, movingUid);
+            }
+            if (!target) {
+              const fallbackCoord =
+                this.lastHoverCoord ??
+                (movingUid
+                  ? (() => {
+                      const sel = this.store.getItem(movingUid);
+                      return sel ? { gx: sel.x, gz: sel.z } : null;
+                    })()
+                  : null);
+              if (fallbackCoord) {
+                target = this.resolveTargetAtGridCoord(
+                  def,
+                  fallbackCoord.gx,
+                  fallbackCoord.gz,
+                  placementRotation,
+                  movingUid,
+                );
+              }
+            }
+
+            if (target) {
+              this.currentTarget = target;
+              this.lastHoverCoord = { gx: target.x, gz: target.z };
+              this.renderGhost(def, variantId, target, isSameGhostItem);
+            } else if (isSameGhostItem && this.ghostGroup) {
+              this.ghostTargetRotY = -placementRotation * (Math.PI / 2);
+              this.ghostHopProgress = 0;
+            } else {
+              this.onHoverHint?.(null);
+            }
+            return;
+          }
+        }
+
+        this.clearGhost();
+        this.onHoverHint?.(null);
+      },
+    );
 
     this.store.on('editModeChanged', ({ editMode }) => {
       if (!editMode) {
@@ -127,7 +197,35 @@ export class PlacementController {
       }
     });
 
+    this.unsubTickHook = this.sceneManager.addTickHook((dt) => this.update(dt));
     this.bindEvents();
+  }
+
+  private update(dt: number): void {
+    if (!this.ghostGroup || !this.ghostGroup.visible) return;
+    const clampedDt = Math.min(Math.max(dt, 0), 0.05);
+
+    // Smooth shortest-angle spring rotation toward target quarter turn
+    const diff = Math.atan2(
+      Math.sin(this.ghostTargetRotY - this.ghostVisualRotY),
+      Math.cos(this.ghostTargetRotY - this.ghostVisualRotY),
+    );
+    if (Math.abs(diff) > 0.0008) {
+      const factor = 1 - Math.exp(-18 * clampedDt);
+      this.ghostVisualRotY += diff * factor;
+    } else {
+      this.ghostVisualRotY = this.ghostTargetRotY;
+    }
+    this.ghostGroup.rotation.y = this.ghostVisualRotY;
+
+    // Playful +0.08 Y settle hop on rotation
+    if (this.ghostHopProgress < 1) {
+      this.ghostHopProgress = Math.min(1, this.ghostHopProgress + clampedDt / 0.18);
+      const hop = Math.sin(this.ghostHopProgress * Math.PI) * 0.08;
+      this.ghostGroup.position.y = this.ghostBaseY + hop;
+    } else if (this.ghostGroup.position.y !== this.ghostBaseY) {
+      this.ghostGroup.position.y = this.ghostBaseY;
+    }
   }
 
   private createCeilingDropRing(): THREE.LineLoop {
@@ -143,11 +241,12 @@ export class PlacementController {
   }
 
   private createWallEdgeGuideBar(): THREE.Mesh {
-    const geo = new THREE.BoxGeometry(1.0, 0.06, 0.14);
+    const geo = new THREE.BoxGeometry(1.0, 0.032, 0.14);
     const mat = new THREE.MeshBasicMaterial({
       color: VALID_GHOST_COLOR,
       transparent: true,
       opacity: 0.9,
+      depthWrite: false,
     });
     return new THREE.Mesh(geo, mat);
   }
@@ -630,16 +729,140 @@ export class PlacementController {
     };
   }
 
+  private resolveTargetAtGridCoord(
+    def: FurnitureItemDef,
+    gx: number,
+    gz: number,
+    preferredRotation: RotationQuarter,
+    movingUid?: string,
+  ): ResolvedPlacementTarget {
+    const state = this.store.getState();
+    const ignoreUids = movingUid ? new Set([movingUid]) : undefined;
+
+    if (def.layer === 'wall' && def.wallKind === 'structure') {
+      const x = THREE.MathUtils.clamp(gx, 0, state.gridWidth - 1);
+      const z = THREE.MathUtils.clamp(gz, 0, state.gridDepth - 1);
+      const check = validatePlacement(
+        state,
+        this.store.data,
+        { itemId: def.id, x, y: 0, z, rotation: preferredRotation },
+        ignoreUids,
+      );
+      return {
+        x,
+        y: 0,
+        z,
+        rotation: preferredRotation,
+        valid: check.valid,
+        reason: check.reason,
+      };
+    }
+
+    if (def.layer === 'surface') {
+      const prevParent = this.currentTarget?.parentUid;
+      if (prevParent) {
+        const support = this.store.getItem(prevParent);
+        const sDef = support ? this.store.data.itemsById.get(support.itemId) : undefined;
+        if (support && sDef && sDef.surfaceHeight !== undefined) {
+          const eff = getEffectiveFootprint(def, preferredRotation);
+          const sEff = getEffectiveFootprint(sDef, support.rotation);
+          const tx = THREE.MathUtils.clamp(gx, support.x, support.x + Math.max(0, sEff.w - eff.w));
+          const tz = THREE.MathUtils.clamp(gz, support.z, support.z + Math.max(0, sEff.d - eff.d));
+          const y = sDef.surfaceHeight;
+          const check = validatePlacement(
+            state,
+            this.store.data,
+            { itemId: def.id, x: tx, y, z: tz, rotation: preferredRotation, parentUid: support.uid },
+            ignoreUids,
+          );
+          return {
+            x: tx,
+            y,
+            z: tz,
+            rotation: preferredRotation,
+            parentUid: support.uid,
+            valid: check.valid,
+            reason: check.reason,
+          };
+        }
+      }
+      const x = THREE.MathUtils.clamp(gx, 0, state.gridWidth - 1);
+      const z = THREE.MathUtils.clamp(gz, 0, state.gridDepth - 1);
+      return {
+        x,
+        y: 0.25,
+        z,
+        rotation: preferredRotation,
+        valid: false,
+        reason: 'Place on a counter, table, or shelf',
+      };
+    }
+
+    if (def.layer === 'wall' && def.wallKind === 'mounted') {
+      const prevParent = this.currentTarget?.parentUid;
+      const y = def.mountHeight ?? 1.5;
+      if (prevParent) {
+        const wall = this.store.getItem(prevParent);
+        if (wall) {
+          const check = validatePlacement(
+            state,
+            this.store.data,
+            { itemId: def.id, x: wall.x, y, z: wall.z, rotation: wall.rotation, parentUid: wall.uid },
+            ignoreUids,
+          );
+          return {
+            x: wall.x,
+            y,
+            z: wall.z,
+            rotation: wall.rotation,
+            parentUid: wall.uid,
+            valid: check.valid,
+            reason: check.reason,
+          };
+        }
+      }
+      return {
+        x: THREE.MathUtils.clamp(gx, 0, state.gridWidth - 1),
+        y,
+        z: THREE.MathUtils.clamp(gz, 0, state.gridDepth - 1),
+        rotation: preferredRotation,
+        valid: false,
+        reason: 'Hover a wall to mount',
+      };
+    }
+
+    const eff = getEffectiveFootprint(def, preferredRotation);
+    const tx = THREE.MathUtils.clamp(gx, 0, Math.max(0, state.gridWidth - eff.w));
+    const tz = THREE.MathUtils.clamp(gz, 0, Math.max(0, state.gridDepth - eff.d));
+    const y = def.layer === 'ceiling' ? CEILING_HEIGHT : 0;
+    const check = validatePlacement(
+      state,
+      this.store.data,
+      { itemId: def.id, x: tx, y, z: tz, rotation: preferredRotation },
+      ignoreUids,
+    );
+    return {
+      x: tx,
+      y,
+      z: tz,
+      rotation: preferredRotation,
+      valid: check.valid,
+      reason: check.reason,
+    };
+  }
+
   private renderGhost(
     def: FurnitureItemDef,
     variantId: string,
     target: ResolvedPlacementTarget,
+    triggerRotateHop = false,
   ): void {
     const state = this.store.getState();
     const ghostColor = target.valid ? VALID_GHOST_COLOR : INVALID_GHOST_COLOR;
-    const key = `${def.id}__${variantId}__${ghostColor}`;
+    const itemKey = `${def.id}__${variantId}`;
+    let freshlyCreated = false;
 
-    if (!this.ghostGroup || this.lastGhostKey !== key) {
+    if (!this.ghostGroup || this.lastGhostItemKey !== itemKey) {
       this.clearGhost();
       this.ghostGroup = this.sceneManager.assetLoader.createPlaceholderMesh(def, variantId, {
         ghost: true,
@@ -647,8 +870,24 @@ export class PlacementController {
         hideLabel: true,
       });
       this.sceneManager.overlayRoot.add(this.ghostGroup);
-      this.lastGhostKey = key;
+      this.lastGhostItemKey = itemKey;
+      this.lastGhostColor = ghostColor;
+      freshlyCreated = true;
+    } else if (this.lastGhostColor !== ghostColor) {
+      this.lastGhostColor = ghostColor;
+      this.ghostGroup.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of mats) {
+          if ('color' in m && m.color instanceof THREE.Color) {
+            m.color.set(ghostColor);
+          }
+        }
+      });
     }
+
+    let nextTargetRotY = 0;
+    this.ghostBaseY = target.y;
 
     if (def.layer === 'wall') {
       const mountOffset = def.wallKind === 'mounted' ? WALL_THICKNESS / 2 + 0.01 : 0;
@@ -660,13 +899,14 @@ export class PlacementController {
         state.gridDepth,
         mountOffset,
       );
-      this.ghostGroup.position.set(t.wx, target.y, t.wz);
-      this.ghostGroup.rotation.set(0, t.rotY, 0);
+      nextTargetRotY = t.rotY;
+      this.ghostGroup.position.x = t.wx;
+      this.ghostGroup.position.z = t.wz;
       this.ghostGuideRing.visible = false;
 
       if (def.wallKind === 'structure') {
         this.wallEdgeGuideBar.visible = true;
-        this.wallEdgeGuideBar.position.set(t.wx, 0.04, t.wz);
+        this.wallEdgeGuideBar.position.set(t.wx, 0.048, t.wz);
         this.wallEdgeGuideBar.rotation.set(0, t.rotY, 0);
         (this.wallEdgeGuideBar.material as THREE.MeshBasicMaterial).color.set(ghostColor);
       } else {
@@ -676,8 +916,9 @@ export class PlacementController {
       this.wallEdgeGuideBar.visible = false;
       const eff = getEffectiveFootprint(def, target.rotation);
       const c = tileToWorldCenter(target.x, target.z, eff.w, eff.d, state.gridWidth, state.gridDepth);
-      this.ghostGroup.position.set(c.wx, target.y, c.wz);
-      this.ghostGroup.rotation.set(0, -target.rotation * (Math.PI / 2), 0);
+      nextTargetRotY = -target.rotation * (Math.PI / 2);
+      this.ghostGroup.position.x = c.wx;
+      this.ghostGroup.position.z = c.wz;
 
       if (def.layer === 'ceiling') {
         this.ghostGuideRing.visible = true;
@@ -686,6 +927,29 @@ export class PlacementController {
       } else {
         this.ghostGuideRing.visible = false;
       }
+    }
+
+    const angleChanged =
+      Math.abs(
+        Math.atan2(
+          Math.sin(nextTargetRotY - this.ghostTargetRotY),
+          Math.cos(nextTargetRotY - this.ghostTargetRotY),
+        ),
+      ) > 0.01;
+
+    this.ghostTargetRotY = nextTargetRotY;
+    if (freshlyCreated) {
+      this.ghostVisualRotY = nextTargetRotY;
+      this.ghostGroup.rotation.set(0, nextTargetRotY, 0);
+      this.ghostHopProgress = 1;
+      this.ghostGroup.position.y = this.ghostBaseY;
+    } else {
+      if (triggerRotateHop || angleChanged) {
+        this.ghostHopProgress = 0;
+      }
+      const hop =
+        this.ghostHopProgress < 1 ? Math.sin(this.ghostHopProgress * Math.PI) * 0.08 : 0;
+      this.ghostGroup.position.y = this.ghostBaseY + hop;
     }
 
     this.onHoverHint?.(target.valid ? null : (target.reason ?? 'Cannot place here'));
@@ -709,7 +973,9 @@ export class PlacementController {
     }
     this.ghostGuideRing.visible = false;
     this.wallEdgeGuideBar.visible = false;
-    this.lastGhostKey = '';
+    this.lastGhostItemKey = '';
+    this.lastGhostColor = '';
+    this.ghostHopProgress = 1;
     this.currentTarget = null;
   }
 
@@ -836,22 +1102,48 @@ export class PlacementController {
     const nextRot = (((selected.rotation + 1) % 4) as RotationQuarter);
     const children = this.store.getChildren(selected.uid);
     const ignore = new Set([selected.uid, ...children.map((c) => c.uid)]);
-    const check = validatePlacement(
-      this.store.getState(),
-      this.store.data,
-      {
-        itemId: selected.itemId,
-        x: selected.x,
-        y: selected.y,
-        z: selected.z,
-        rotation: nextRot,
-        parentUid: selected.parentUid,
-      },
-      ignore,
-    );
+    const kickOffsets: ReadonlyArray<readonly [number, number]> = [
+      [0, 0],
+      [-1, 0],
+      [0, -1],
+      [1, 0],
+      [0, 1],
+    ];
 
-    if (!check.valid) {
-      this.store.notify(check.reason ?? 'Not enough space to rotate here.', 'error');
+    let chosenX = selected.x;
+    let chosenZ = selected.z;
+    let firstFailReason: string | undefined;
+    let foundValid = false;
+
+    for (const [dx, dz] of kickOffsets) {
+      const tx = selected.x + dx;
+      const tz = selected.z + dz;
+      const check = validatePlacement(
+        this.store.getState(),
+        this.store.data,
+        {
+          itemId: selected.itemId,
+          x: tx,
+          y: selected.y,
+          z: tz,
+          rotation: nextRot,
+          parentUid: selected.parentUid,
+        },
+        ignore,
+      );
+      if (check.valid) {
+        chosenX = tx;
+        chosenZ = tz;
+        foundValid = true;
+        break;
+      }
+      if (firstFailReason === undefined) {
+        firstFailReason = check.reason;
+      }
+    }
+
+    if (!foundValid) {
+      this.store.notify(firstFailReason ?? 'Not enough space to rotate here.', 'error');
       return false;
     }
 
@@ -860,9 +1152,9 @@ export class PlacementController {
     );
     if (surfaceChildren.length === 0) {
       return this.store.moveItem(selected.uid, {
-        x: selected.x,
+        x: chosenX,
         y: selected.y,
-        z: selected.z,
+        z: chosenZ,
         rotation: nextRot,
         parentUid: selected.parentUid,
       });
@@ -874,8 +1166,8 @@ export class PlacementController {
       const rotPos = this.rotateChildOnParent(
         selected,
         def,
-        selected.x,
-        selected.z,
+        chosenX,
+        chosenZ,
         nextRot,
         child,
         cDef,
@@ -885,9 +1177,9 @@ export class PlacementController {
 
     this.store.beginBatch();
     const moved = this.store.moveItem(selected.uid, {
-      x: selected.x,
+      x: chosenX,
       y: selected.y,
-      z: selected.z,
+      z: chosenZ,
       rotation: nextRot,
       parentUid: selected.parentUid,
     });
@@ -939,6 +1231,10 @@ export class PlacementController {
     this.didDrag = false;
     this.pointerDownPos = { x: e.clientX, y: e.clientY };
     this.lastPointerPos = { x: e.clientX, y: e.clientY };
+    this.lastPointerClientX = e.clientX;
+    this.lastPointerClientY = e.clientY;
+    this.lastCanvasPointerClientX = e.clientX;
+    this.lastCanvasPointerClientY = e.clientY;
     this.updatePointerNdc(e.clientX, e.clientY);
 
     // Live Mode: drag always pans smoothly; clean click interacts only with interactive items
@@ -1026,6 +1322,12 @@ export class PlacementController {
       return;
     }
 
+    this.lastPointerClientX = e.clientX;
+    this.lastPointerClientY = e.clientY;
+    if (e.target === this.canvas) {
+      this.lastCanvasPointerClientX = e.clientX;
+      this.lastCanvasPointerClientY = e.clientY;
+    }
     this.updatePointerNdc(e.clientX, e.clientY);
 
     if (this.isPointerDown) {
@@ -1161,6 +1463,9 @@ export class PlacementController {
       const movingUid = modeState.mode === 'move' ? (this.store.getSelectedUid() ?? undefined) : undefined;
       const target = this.resolvePlacementTarget(def, modeState.placementRotation, movingUid);
       this.currentTarget = target;
+      if (target) {
+        this.lastHoverCoord = { gx: target.x, gz: target.z };
+      }
       const variantId = modeState.placementVariantId ?? def.variants[0].id;
       if (target) {
         this.renderGhost(def, variantId, target);
@@ -1421,6 +1726,8 @@ export class PlacementController {
   };
 
   dispose(): void {
+    this.unsubTickHook?.();
+    this.unsubTickHook = null;
     this.cancelPendingHover();
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.canvas.removeEventListener('pointerleave', this.handleCanvasLeave);

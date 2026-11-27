@@ -9,8 +9,14 @@ import type {
   VisitorMood,
 } from '../data/schemas';
 import { DialogueEngine } from '../dialogue/DialogueEngine';
+import {
+  getEffectiveFootprint,
+  tileToWorldCenter,
+  wallEdgeToWorldTransform,
+} from '../engine/GridSystem';
 import type { SceneManager } from '../engine/SceneManager';
 import type { HouseStore } from '../state/houseStore';
+import { ArrivalTransportManager, type BiomeRoute } from './ArrivalTransport';
 import {
   type GridCoord,
   type NavGrid,
@@ -56,6 +62,8 @@ export interface ActiveVisitorSnapshot {
   moodScore?: number;
   interests?: string[];
   matchedInterests?: string[];
+  dislikes?: string[];
+  matchedDislikes?: string[];
   thought?: string;
   activity?: string;
   lastLine?: string;
@@ -64,7 +72,35 @@ export interface ActiveVisitorSnapshot {
   z: number;
 }
 
-type VisitorPhase = 'entering' | 'walking' | 'using' | 'idle' | 'leaving';
+type VisitorPhase =
+  | 'arriving_transport'
+  | 'entering'
+  | 'walking'
+  | 'mounting_seat'
+  | 'using'
+  | 'dismounting_seat'
+  | 'idle'
+  | 'leaving'
+  | 'waiting_pickup';
+
+interface LocalSeatSlot {
+  x: number;
+  z: number;
+  seatY: number;
+  /** Facing yaw in item-local space (0 = +Z front). */
+  localYaw?: number;
+}
+
+interface SeatAnchor {
+  wx: number;
+  wy: number;
+  wz: number;
+  facingYaw: number;
+  returnX: number;
+  returnZ: number;
+  itemUid: string;
+  slotIndex: number;
+}
 
 interface RoomAffinity {
   likedScore: number;
@@ -82,14 +118,17 @@ interface ActiveVisitorRuntime {
   variantIndex: VisitorVariantIndex;
   persona: VisitorPersonaInfo;
   mesh: VisitorMesh;
+  isAutonomous: boolean;
   mood: VisitorMood;
   moodScore: number;
   matchedInterests: string[];
+  matchedDislikes: string[];
   thought: string;
   phase: VisitorPhase;
   pose: VisitorPose;
   activity: string;
   worldX: number;
+  worldY: number;
   worldZ: number;
   velX: number;
   velZ: number;
@@ -100,9 +139,14 @@ interface ActiveVisitorRuntime {
   currentTile: GridCoord;
   path: WorldPoint[];
   pathTiles: GridCoord[];
+  exteriorPath: WorldPoint[];
   targetItemUid: string | null;
   targetTile: GridCoord | null;
   faceTarget: WorldPoint | null;
+  seatAnchor: SeatAnchor | null;
+  seatBlend: number;
+  pendingRoute: BiomeRoute | null;
+  departureRoute: BiomeRoute | null;
   useTimer: number;
   idleTimer: number;
   speechCooldown: number;
@@ -127,6 +171,58 @@ const AVOIDANCE_RADIUS = 1.08;
 const MAX_SEPARATION_SPEED = 0.85;
 const SPAWN_POP_DURATION = 0.28;
 const LEAVE_POP_DURATION = 0.34;
+const SEAT_MOUNT_DURATION = 0.32;
+const SEAT_DISMOUNT_DURATION = 0.28;
+const DOOR_TRIGGER_RADIUS = 1.3;
+const DOOR_HOLD_SECONDS = 1.0;
+const MAX_AUTONOMOUS_VISITORS = 4;
+
+/**
+ * Per-item local seat slots (before item.rotation; +Z is item front).
+ */
+const SEAT_SLOTS_BY_ITEM_ID: Record<string, LocalSeatSlot[]> = {
+  sofa_plush: [
+    { x: -0.45, z: 0.06, seatY: 0.44 },
+    { x: 0.45, z: 0.06, seatY: 0.44 },
+  ],
+  sofa_sectional: [
+    { x: -0.55, z: 0.12, seatY: 0.44 },
+    { x: 0.25, z: 0.12, seatY: 0.44 },
+    { x: 0.55, z: -0.45, seatY: 0.44, localYaw: -Math.PI / 2 },
+  ],
+  loveseat_tufted: [
+    { x: -0.38, z: 0.05, seatY: 0.44 },
+    { x: 0.38, z: 0.05, seatY: 0.44 },
+  ],
+  cafe_booth: [
+    { x: -0.38, z: 0.05, seatY: 0.44 },
+    { x: 0.38, z: 0.05, seatY: 0.44 },
+  ],
+  armchair_plush: [{ x: 0, z: 0.04, seatY: 0.44 }],
+  dining_chair: [{ x: 0, z: 0.04, seatY: 0.44 }],
+  chair_office: [{ x: 0, z: 0.04, seatY: 0.44 }],
+  bar_stool: [{ x: 0, z: 0.0, seatY: 0.62 }],
+  diner_stool: [{ x: 0, z: 0.0, seatY: 0.58 }],
+  beanbag_puff: [{ x: 0, z: 0.0, seatY: 0.30 }],
+  bed_cozy: [
+    { x: -0.42, z: 0.25, seatY: 0.46 },
+    { x: 0.42, z: 0.25, seatY: 0.46 },
+  ],
+  bed_canopy: [
+    { x: -0.42, z: 0.25, seatY: 0.46 },
+    { x: 0.42, z: 0.25, seatY: 0.46 },
+  ],
+  bed_daybed: [
+    { x: -0.35, z: 0.25, seatY: 0.46 },
+    { x: 0.35, z: 0.25, seatY: 0.46 },
+  ],
+};
+
+const DISLIKE_EMOTES: Array<{ id: string; glyph: string; label: string; color: string }> = [
+  { id: 'thumbsDown', glyph: '👎', label: 'Dislike', color: '#F4C3C2' },
+  { id: 'unimpressed', glyph: '😒', label: 'Unimpressed', color: '#E5D4E8' },
+  { id: 'grimace', glyph: '😖', label: 'Not my vibe', color: '#F5CDB6' },
+];
 
 const FALLBACK_PERSONAS: Record<string, [VisitorPersonaInfo, VisitorPersonaInfo, VisitorPersonaInfo]> = {
   bookworm: [
@@ -208,7 +304,7 @@ const TAG_FRIENDLY_LABELS: Record<string, string> = {
   diner: 'diner vibes',
   art: 'wall art',
   home: 'homey comforts',
-  sleep: 'a cozy bed',
+  sleep: 'beds',
 };
 
 let visitorSeq = 1;
@@ -256,10 +352,23 @@ function resolvePersona(def: VisitorDefWithPersonas, variantIndex: VisitorVarian
   };
 }
 
+function getSeatSlotsForItem(def: FurnitureItemDef): LocalSeatSlot[] | null {
+  if (SEAT_SLOTS_BY_ITEM_ID[def.id]) {
+    return SEAT_SLOTS_BY_ITEM_ID[def.id];
+  }
+  if (def.layer === 'floor' && def.subLayer === 'object' && def.tags.includes('seating') && !def.tags.includes('surface')) {
+    return [{ x: 0, z: 0.04, seatY: 0.44 }];
+  }
+  return null;
+}
+
 /**
- * Manages invited visitors: 30 stylish gender-diverse figurines (10 personalities × 3 variants),
- * smooth damped collision-free pathfinding, furniture interactions, mood meters & contextual
- * thoughts for the Visitor Status Panel, emoji-only 3D emotion bubbles, and gibberish voice playback.
+ * Manages invited & autonomous visitors:
+ * - 30 gender-diverse stylized figurines (10 personalities × 3 variants) with 2-segment knee legs
+ * - True seated mounting ON couches, chairs, bar stools, beanbags & beds (with multi-slot support)
+ * - Automatic proximity front-door opening & closing (`sceneManager.setDoorVisitorOpen`) + latch audio
+ * - Open/Closed autonomous guest arrival loop with likes & dislikes reactions (`👎` / `😒` / `😖`)
+ * - Biome-specific arrival & departure transports (Suburbs car, Beach boat, City elevator, outdoor trails)
  */
 export class VisitorModule {
   readonly store: HouseStore;
@@ -269,15 +378,19 @@ export class VisitorModule {
 
   private readonly dialogueEngine: DialogueEngine;
   private readonly visitorsRoot = new THREE.Group();
+  private readonly transport: ArrivalTransportManager;
   private audioModule: AudioModule | null;
 
   private navGrid: NavGrid;
   private active: ActiveVisitorRuntime[] = [];
   private changeListeners = new Set<() => void>();
   private itemTriggerCooldowns = new Map<string, number>();
+  private doorHoldTimers = new Map<string, number>();
   private variantCounters = new Map<string, number>();
   private unsubscribeHouse: () => void;
+  private unsubscribeOpen: (() => void) | null = null;
   private spawnCounter = 0;
+  private autonomousSpawnTimer = 2.5;
 
   constructor(
     store: HouseStore,
@@ -294,8 +407,38 @@ export class VisitorModule {
     this.visitorsRoot.name = 'VisitorsRoot';
     this.sceneManager.scene.add(this.visitorsRoot);
 
-    this.navGrid = buildNavGrid(store.getState(), store.data);
+    const initialState = store.getState();
+    this.navGrid = buildNavGrid(initialState, store.data);
+    this.transport = new ArrivalTransportManager(this.sceneManager.scene);
+    this.transport.syncEnvironment(
+      initialState.sceneryViewId,
+      initialState.gridWidth,
+      initialState.gridDepth,
+    );
+
     this.unsubscribeHouse = store.on('houseChanged', () => this.handleHouseChanged());
+
+    // Subscribe to Open/Closed toggle on HouseStore (compatible with @catalog's houseOpenChanged event)
+    const openableStore = store as unknown as {
+      on?: (ev: string, fn: (payload: { open: boolean }) => void) => () => void;
+    };
+    if (typeof openableStore.on === 'function') {
+      this.unsubscribeOpen = openableStore.on('houseOpenChanged', ({ open }) => {
+        this.handleHouseOpenChanged(open);
+      });
+    }
+  }
+
+  private isHouseOpen(): boolean {
+    const s = this.store as unknown as { isHouseOpen?: () => boolean };
+    return typeof s.isHouseOpen === 'function' ? s.isHouseOpen() : true;
+  }
+
+  private setDoorVisitorOpenSafe(uid: string, open: boolean): void {
+    const sm = this.sceneManager as unknown as {
+      setDoorVisitorOpen?: (doorUid: string, isOpen: boolean) => void;
+    };
+    sm.setDoorVisitorOpen?.(uid, open);
   }
 
   setAudioModule(audio: AudioModule | null): void {
@@ -319,31 +462,72 @@ export class VisitorModule {
     return (count % 3) as VisitorVariantIndex;
   }
 
+  private handleHouseOpenChanged(open: boolean): void {
+    if (open) {
+      this.autonomousSpawnTimer = Math.min(this.autonomousSpawnTimer, 2.2);
+      return;
+    }
+
+    // House closed: stop spawning and gently nudge existing autonomous visitors home
+    let changed = false;
+    for (const v of this.active) {
+      if (!v.isAutonomous) continue;
+      if (v.phase === 'leaving' || v.phase === 'waiting_pickup') continue;
+      v.dismissedVoluntarily = true;
+      this.beginLeaving(v, 'House closed — heading home', true);
+      v.thought = "Looks like they're closing up — see you next time!";
+      changed = true;
+    }
+    if (changed) {
+      this.emitChange();
+    }
+  }
+
   invite(visitorId: string): ActiveVisitorSnapshot | null {
+    return this.spawnVisitorInternal(visitorId, false);
+  }
+
+  private spawnVisitorInternal(
+    visitorId: string,
+    isAutonomous: boolean,
+  ): ActiveVisitorSnapshot | null {
     const def = this.store.data.visitorsById.get(visitorId) as VisitorDefWithPersonas | undefined;
     if (!def) return null;
 
     const state = this.store.getState();
     this.navGrid = buildNavGrid(state, this.store.data);
+    this.transport.syncEnvironment(state.sceneryViewId, state.gridWidth, state.gridDepth);
 
-    const occupiedWorld = this.active.map((v) => ({ wx: v.worldX, wz: v.worldZ }));
-    const spawn = pickSpawnLocation(this.navGrid, this.spawnCounter++, occupiedWorld);
+    const slotIdx = this.spawnCounter++;
+    const route = this.transport.computeRoute(slotIdx);
     const variantIndex = this.nextVariantFor(visitorId);
     const persona = resolvePersona(def, variantIndex);
     const mesh = new VisitorMesh(def, variantIndex);
 
-    const startX = spawn.spawnWorld.wx;
-    const startZ = spawn.spawnWorld.wz;
+    const usesDeferredVehicle = route.kind === 'car' || route.kind === 'boat' || route.kind === 'elevator';
+    const startX = route.stopPoint.wx;
+    const startZ = route.stopPoint.wz;
 
     mesh.root.position.set(startX, 0, startZ);
-    // Clean opaque scale-in pop (zero transparency inside-out artifacts!)
     mesh.setScalePop(0.05);
+    mesh.root.visible = !usesDeferredVehicle;
     this.visitorsRoot.add(mesh.root);
 
     const affinity = this.evaluateRoomAffinity(def, state);
     const initialMood: VisitorMood =
-      affinity.netScore >= 2.4 && affinity.dislikedScore < 1.5 ? 'happy' : 'neutral';
-    const initialScore = this.computeMoodScore(initialMood, affinity.netScore, def.patienceSeconds, def.patienceSeconds, false);
+      affinity.dislikedScore >= 2.0 && affinity.netScore < 1.5
+        ? 'neutral'
+        : affinity.netScore >= 2.4 && affinity.dislikedScore < 1.5
+          ? 'happy'
+          : 'neutral';
+    const initialScore = this.computeMoodScore(
+      initialMood,
+      affinity.netScore,
+      def.patienceSeconds,
+      def.patienceSeconds,
+      false,
+      affinity.presentDislikedTags.length > 0,
+    );
 
     const runtime: ActiveVisitorRuntime = {
       instanceId: nextVisitorInstanceId(),
@@ -351,14 +535,19 @@ export class VisitorModule {
       variantIndex,
       persona,
       mesh,
+      isAutonomous,
       mood: initialMood,
       moodScore: initialScore,
       matchedInterests: affinity.matchedInterests,
-      thought: `Stepping inside to check out the space!`,
-      phase: 'entering',
+      matchedDislikes: affinity.presentDislikedTags,
+      thought: usesDeferredVehicle
+        ? `${route.arrivalLabel} to visit!`
+        : 'Walking up the path to check this place out!',
+      phase: usesDeferredVehicle ? 'arriving_transport' : 'entering',
       pose: 'walk',
-      activity: 'Arriving',
+      activity: route.arrivalLabel,
       worldX: startX,
+      worldY: 0,
       worldZ: startZ,
       velX: 0,
       velZ: 0,
@@ -366,19 +555,24 @@ export class VisitorModule {
       smoothVelZ: 0,
       rotY: 0,
       targetYaw: 0,
-      currentTile: { ...spawn.startTile },
+      currentTile: { ...route.lotEdgeTile },
       path: [],
       pathTiles: [],
+      exteriorPath: [...route.approachWaypoints],
       targetItemUid: null,
-      targetTile: spawn.firstGoal ?? null,
+      targetTile: null,
       faceTarget: null,
+      seatAnchor: null,
+      seatBlend: 0,
+      pendingRoute: route,
+      departureRoute: null,
       useTimer: 0,
       idleTimer: 0.35,
-      speechCooldown: 0.65,
+      speechCooldown: usesDeferredVehicle ? 2.4 : 1.5,
       hasSpokenInitial: false,
       interactionBoost: 0,
       patienceRemaining: def.patienceSeconds,
-      spawnPopTimer: 0.001,
+      spawnPopTimer: usesDeferredVehicle ? 0 : 0.001,
       leavingPopTimer: 0,
       stuckExitTimer: 0,
       blockedProgressTimer: 0,
@@ -388,41 +582,105 @@ export class VisitorModule {
       dismissedVoluntarily: false,
     };
 
-    if (spawn.firstGoal) {
-      const entryPath = this.computePathAvoidingVisitors(runtime, spawn.firstGoal);
-      if (entryPath && entryPath.length > 0) {
-        runtime.pathTiles = entryPath;
-        runtime.path = entryPath.map((t) =>
-          tileCenterToWorld(t.x, t.z, state.gridWidth, state.gridDepth),
-        );
-      } else {
-        const firstWorld = tileCenterToWorld(
-          spawn.firstGoal.x,
-          spawn.firstGoal.z,
-          state.gridWidth,
-          state.gridDepth,
-        );
-        runtime.path = [firstWorld];
-        runtime.pathTiles = [spawn.firstGoal];
-      }
-      const nextPt = runtime.path[0];
-      if (nextPt) {
-        runtime.rotY = Math.atan2(nextPt.wx - startX, nextPt.wz - startZ);
-        runtime.targetYaw = runtime.rotY;
-        mesh.root.rotation.y = runtime.rotY;
-      }
+    // Plan the interior route from lotEdgeTile cleanly through the front door!
+    this.planDoorEntryPath(runtime, route.lotEdgeTile);
+
+    if (runtime.exteriorPath.length > 0) {
+      const nextPt = runtime.exteriorPath[0];
+      runtime.rotY = Math.atan2(nextPt.wx - startX, nextPt.wz - startZ);
+      runtime.targetYaw = runtime.rotY;
+      mesh.root.rotation.y = runtime.rotY;
     }
 
-    runtime.thought = this.buildContextualThought(runtime, affinity);
-
     this.active.push(runtime);
+
+    if (usesDeferredVehicle) {
+      this.transport.dispatchArrival(route, () => {
+        // Guard if visitor was dismissed or disposed while vehicle was driving in
+        if (!this.active.includes(runtime)) return;
+        if (runtime.phase !== 'arriving_transport') return;
+        runtime.phase = 'entering';
+        runtime.mesh.root.visible = true;
+        runtime.spawnPopTimer = 0.001;
+        runtime.activity = 'Walking to the door';
+        runtime.thought = this.buildContextualThought(
+          runtime,
+          this.evaluateRoomAffinity(runtime.def, this.store.getState()),
+        );
+        this.emitChange();
+      });
+    } else {
+      this.transport.dispatchArrival(route, () => {});
+    }
+
     this.emitChange();
     return this.toSnapshot(runtime);
   }
 
+  /**
+   * Builds the grid path from the biome lot entry tile straight to & through the front door
+   * so visitors walk naturally from the walkway/pier/elevator right through the placed door!
+   */
+  private planDoorEntryPath(v: ActiveVisitorRuntime, lotEntryTile: GridCoord): void {
+    const state = this.store.getState();
+    const safeEntry = this.navGrid.walkable[lotEntryTile.x]?.[lotEntryTile.z]
+      ? lotEntryTile
+      : findNearestWalkableTile(
+          this.navGrid,
+          lotEntryTile.x + 0.5 - state.gridWidth / 2,
+          lotEntryTile.z + 0.5 - state.gridDepth / 2,
+        );
+
+    v.currentTile = safeEntry;
+
+    // Find best reachable door to enter through
+    const reachableFromEntry = computeReachableDistances(this.navGrid, safeEntry);
+    let bestDoor = null;
+    let bestDoorDist = Infinity;
+
+    for (const door of this.navGrid.doors) {
+      if (!inGridBounds(door.insideTile.x, door.insideTile.z, state.gridWidth, state.gridDepth)) continue;
+      if (!this.navGrid.walkable[door.insideTile.x][door.insideTile.z]) continue;
+      const inIdx = tileIndex(door.insideTile.x, door.insideTile.z, state.gridDepth);
+      const d = reachableFromEntry.get(inIdx);
+      if (d !== undefined && d < bestDoorDist) {
+        bestDoorDist = d;
+        bestDoor = door;
+      }
+    }
+
+    if (bestDoor) {
+      const pathTiles = findGridPath(this.navGrid, safeEntry, bestDoor.insideTile);
+      if (pathTiles && pathTiles.length > 0) {
+        v.pathTiles = pathTiles;
+        v.targetTile = bestDoor.insideTile;
+        v.path = pathTiles.map((t) =>
+          tileCenterToWorld(t.x, t.z, state.gridWidth, state.gridDepth),
+        );
+        return;
+      }
+    }
+
+    // Fallback when no door is reachable from lot edge: walk onto safeEntry (or door directly)
+    const fallbackSpawn = pickSpawnLocation(this.navGrid, this.spawnCounter);
+    if (fallbackSpawn.firstGoal) {
+      const p = findGridPath(this.navGrid, safeEntry, fallbackSpawn.firstGoal);
+      if (p && p.length > 0) {
+        v.pathTiles = p;
+        v.targetTile = fallbackSpawn.firstGoal;
+        v.path = p.map((t) => tileCenterToWorld(t.x, t.z, state.gridWidth, state.gridDepth));
+        return;
+      }
+    }
+
+    v.pathTiles = [safeEntry];
+    v.targetTile = safeEntry;
+    v.path = [tileCenterToWorld(safeEntry.x, safeEntry.z, state.gridWidth, state.gridDepth)];
+  }
+
   dismiss(instanceId: string): void {
     const visitor = this.active.find((v) => v.instanceId === instanceId);
-    if (!visitor || visitor.phase === 'leaving') return;
+    if (!visitor || visitor.phase === 'leaving' || visitor.phase === 'waiting_pickup') return;
     visitor.dismissedVoluntarily = true;
     this.beginLeaving(visitor, 'Headed home');
   }
@@ -430,7 +688,7 @@ export class VisitorModule {
   dismissAll(): void {
     let changed = false;
     for (const visitor of this.active) {
-      if (visitor.phase !== 'leaving') {
+      if (visitor.phase !== 'leaving' && visitor.phase !== 'waiting_pickup') {
         visitor.dismissedVoluntarily = true;
         this.beginLeaving(visitor, 'Headed home', true);
         changed = true;
@@ -462,9 +720,10 @@ export class VisitorModule {
       moodScore: v.moodScore,
       interests: [...v.def.likedTags],
       matchedInterests: [...v.matchedInterests],
+      dislikes: [...v.def.dislikedTags],
+      matchedDislikes: [...v.matchedDislikes],
       thought: v.thought,
       activity: v.activity,
-      // Never expose Greek/invented text — 3D uses emoji bubbles and panel uses `thought`!
       lastLine: undefined,
       lastEmote: v.lastEmote,
       x: Number(gx.toFixed(2)),
@@ -477,6 +736,7 @@ export class VisitorModule {
     const depth = this.navGrid.depth;
     for (const other of this.active) {
       if (other.instanceId === excludeInstanceId) continue;
+      if (other.phase === 'arriving_transport') continue;
       if (inGridBounds(other.currentTile.x, other.currentTile.z, this.navGrid.width, depth)) {
         reserved.add(tileIndex(other.currentTile.x, other.currentTile.z, depth));
       }
@@ -496,12 +756,72 @@ export class VisitorModule {
     for (const other of this.active) {
       if (other.instanceId === excludeInstanceId) continue;
       if (other.phase === 'using' || other.phase === 'idle') {
+        // Visitors seated ON furniture don't block floor tiles!
+        if (other.seatAnchor) continue;
         if (inGridBounds(other.currentTile.x, other.currentTile.z, this.navGrid.width, depth)) {
           occupied.add(tileIndex(other.currentTile.x, other.currentTile.z, depth));
         }
       }
     }
     return occupied;
+  }
+
+  private isSeatSlotTaken(itemUid: string, slotIndex: number, excludeInstanceId: string): boolean {
+    for (const other of this.active) {
+      if (other.instanceId === excludeInstanceId) continue;
+      if (other.seatAnchor && other.seatAnchor.itemUid === itemUid && other.seatAnchor.slotIndex === slotIndex) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Computes world position & outward facing yaw for an available seat slot on a placed seating/bed item.
+   */
+  private resolveAvailableSeatAnchor(
+    item: PlacedItem,
+    def: FurnitureItemDef,
+    returnX: number,
+    returnZ: number,
+    visitorInstanceId: string,
+  ): SeatAnchor | null {
+    const slots = getSeatSlotsForItem(def);
+    if (!slots || slots.length === 0) return null;
+
+    const state = this.store.getState();
+    const eff = getEffectiveFootprint(def, item.rotation);
+    const center = tileToWorldCenter(item.x, item.z, eff.w, eff.d, state.gridWidth, state.gridDepth);
+    const rotY = -item.rotation * (Math.PI / 2);
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+
+    // Pick the closest unoccupied seat slot to the visitor's approach point
+    let bestAnchor: SeatAnchor | null = null;
+    let bestDist = Infinity;
+
+    for (let i = 0; i < slots.length; i++) {
+      if (this.isSeatSlotTaken(item.uid, i, visitorInstanceId)) continue;
+      const slot = slots[i];
+      const wx = center.wx + slot.x * cos + slot.z * sin;
+      const wz = center.wz - slot.x * sin + slot.z * cos;
+      const d = Math.hypot(wx - returnX, wz - returnZ);
+      if (d < bestDist) {
+        bestDist = d;
+        bestAnchor = {
+          wx,
+          wy: item.y + slot.seatY,
+          wz,
+          facingYaw: rotY + (slot.localYaw ?? 0),
+          returnX,
+          returnZ,
+          itemUid: item.uid,
+          slotIndex: i,
+        };
+      }
+    }
+
+    return bestAnchor;
   }
 
   private computePathAvoidingVisitors(
@@ -537,17 +857,71 @@ export class VisitorModule {
   private handleHouseChanged(): void {
     const state = this.store.getState();
     this.navGrid = buildNavGrid(state, this.store.data);
+    this.transport.syncEnvironment(state.sceneryViewId, state.gridWidth, state.gridDepth);
 
     let changed = false;
     for (const v of this.active) {
+      if (v.phase === 'arriving_transport') {
+        const nextRoute = this.transport.computeRoute(this.spawnCounter);
+        v.pendingRoute = nextRoute;
+        v.exteriorPath = [...nextRoute.approachWaypoints];
+        this.planDoorEntryPath(v, nextRoute.lotEdgeTile);
+        continue;
+      }
+
+      // If seated on an item that was deleted or moved, safely stand back up on nearest walkable tile!
+      if (v.seatAnchor) {
+        const seatItem = this.store.getItem(v.seatAnchor.itemUid);
+        const seatDef = seatItem ? this.store.data.itemsById.get(seatItem.itemId) : undefined;
+        let stillValid = false;
+        if (seatItem && seatDef) {
+          const eff = getEffectiveFootprint(seatDef, seatItem.rotation);
+          const center = tileToWorldCenter(seatItem.x, seatItem.z, eff.w, eff.d, state.gridWidth, state.gridDepth);
+          const slots = getSeatSlotsForItem(seatDef);
+          const slot = slots?.[v.seatAnchor.slotIndex];
+          if (slot) {
+            const rotY = -seatItem.rotation * (Math.PI / 2);
+            const expectedWx = center.wx + slot.x * Math.cos(rotY) + slot.z * Math.sin(rotY);
+            const expectedWz = center.wz - slot.x * Math.sin(rotY) + slot.z * Math.cos(rotY);
+            stillValid = Math.hypot(expectedWx - v.seatAnchor.wx, expectedWz - v.seatAnchor.wz) < 0.08;
+          }
+        }
+        if (!stillValid) {
+          const safeTile = findNearestWalkableTile(this.navGrid, v.seatAnchor.returnX, v.seatAnchor.returnZ);
+          const safeWorld = tileCenterToWorld(safeTile.x, safeTile.z, state.gridWidth, state.gridDepth);
+          v.seatAnchor = null;
+          v.seatBlend = 0;
+          v.worldX = safeWorld.wx;
+          v.worldY = 0;
+          v.worldZ = safeWorld.wz;
+          v.currentTile = safeTile;
+          v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+          v.targetItemUid = null;
+          v.phase = 'idle';
+          v.pose = 'idle';
+          v.idleTimer = 0.25;
+          v.activity = 'Looking around';
+          changed = true;
+        }
+      }
+
+      // Only nudge non-seated visitors that are inside the lot and stranded on a blocked tile
+      const isOnExteriorTrail =
+        (v.phase === 'entering' && v.exteriorPath.length > 0) ||
+        (v.phase === 'leaving' && v.path.length === 0 && v.exteriorPath.length > 0) ||
+        v.phase === 'waiting_pickup';
+
       if (
-        !inGridBounds(v.currentTile.x, v.currentTile.z, state.gridWidth, state.gridDepth) ||
-        !this.navGrid.walkable[v.currentTile.x][v.currentTile.z]
+        !v.seatAnchor &&
+        !isOnExteriorTrail &&
+        (!inGridBounds(v.currentTile.x, v.currentTile.z, state.gridWidth, state.gridDepth) ||
+          !this.navGrid.walkable[v.currentTile.x][v.currentTile.z])
       ) {
         const safeTile = findNearestWalkableTile(this.navGrid, v.worldX, v.worldZ);
         const safeWorld = tileCenterToWorld(safeTile.x, safeTile.z, state.gridWidth, state.gridDepth);
         v.currentTile = safeTile;
         v.worldX = safeWorld.wx;
+        v.worldY = 0;
         v.worldZ = safeWorld.wz;
         v.mesh.root.position.set(v.worldX, 0, v.worldZ);
       }
@@ -576,11 +950,13 @@ export class VisitorModule {
           v.pathTiles = [];
           v.targetItemUid = null;
           v.targetTile = null;
-          v.phase = 'idle';
-          v.pose = 'idle';
-          v.idleTimer = 0.25;
-          v.activity = 'Looking around';
-          changed = true;
+          if (v.phase === 'walking') {
+            v.phase = 'idle';
+            v.pose = 'idle';
+            v.idleTimer = 0.25;
+            v.activity = 'Looking around';
+            changed = true;
+          }
         } else {
           v.pathTiles = newPath;
           v.path = newPath.map((t) =>
@@ -657,13 +1033,15 @@ export class VisitorModule {
     patienceRemaining: number,
     patienceTotal: number,
     dismissedVoluntarily: boolean,
+    hasDislikes: boolean,
   ): number {
     switch (mood) {
       case 'leaving':
-        return dismissedVoluntarily ? 22 : 6;
+        return dismissedVoluntarily ? 22 : 5;
       case 'bored': {
         const ratio = patienceTotal > 0 ? clamp01(patienceRemaining / patienceTotal) : 0;
-        return Math.round(10 + ratio * 24);
+        const cap = hasDislikes ? 18 : 24;
+        return Math.round(8 + ratio * cap);
       }
       case 'neutral':
         return Math.round(38 + clamp01((effectiveScore - 0.8) / 1.6) * 18);
@@ -679,26 +1057,34 @@ export class VisitorModule {
     affinity: RoomAffinity,
     activeItemDef?: FurnitureItemDef,
   ): string {
-    if (v.phase === 'leaving' || v.mood === 'leaving') {
+    if (v.phase === 'leaving' || v.phase === 'waiting_pickup' || v.mood === 'leaving') {
       if (v.dismissedVoluntarily) {
         return 'Had a lovely visit — waving goodbye for now!';
       }
       if (affinity.presentDislikedTags.length > 0) {
-        const bad = TAG_FRIENDLY_LABELS[affinity.presentDislikedTags[0]] ?? affinity.presentDislikedTags[0];
-        return `Too much ${bad} for me right now — heading home.`;
+        const badTag = affinity.presentDislikedTags[0];
+        if (badTag === 'party') return 'Too noisy for my taste — heading home!';
+        if (badTag === 'sleep') return 'Way too sleepy in here — finding somewhere livelier!';
+        const bad = TAG_FRIENDLY_LABELS[badTag] ?? badTag;
+        return `Needs fewer ${bad} — not really my vibe here.`;
       }
       const wanted = affinity.missingInterests[0];
       if (wanted) {
         const label = TAG_FRIENDLY_LABELS[wanted] ?? wanted;
         return `Couldn't find any ${label} — heading home for now.`;
       }
-      return 'Getting a little sleepy, might head home soon.';
+      return 'Getting a little sleepy, heading home now.';
     }
 
-    // Active interaction thoughts when using furniture
-    if (v.phase === 'using' && activeItemDef) {
+    if ((v.phase === 'using' || v.phase === 'mounting_seat') && activeItemDef) {
       const tags = activeItemDef.tags;
       const name = activeItemDef.name;
+      const dislikedHit = v.def.dislikedTags.find((t) => tags.includes(t));
+      if (dislikedHit) {
+        if (dislikedHit === 'party') return `Ugh, this ${name} is way too loud for me…`;
+        if (dislikedHit === 'sleep') return `A ${name}? I came to party, not nap!`;
+        return `Not really vibing with this ${name}…`;
+      }
       if (tags.includes('cat') || tags.includes('pet')) {
         return `Best day ever — hanging out with the ${name}!`;
       }
@@ -724,15 +1110,18 @@ export class VisitorModule {
         return 'Taking a calm moment to enjoy the window view.';
       }
       if (tags.includes('seating') || tags.includes('sleep') || tags.includes('plushie')) {
-        return `Settling right in — this ${name} is super comfy!`;
+        return `Settling right onto this ${name} — super comfy!`;
       }
       return `Checking out the ${name} — nice touch!`;
     }
 
     if (v.mood === 'bored') {
       if (affinity.presentDislikedTags.length > 0) {
-        const bad = TAG_FRIENDLY_LABELS[affinity.presentDislikedTags[0]] ?? affinity.presentDislikedTags[0];
-        return `Hmm, a bit too much ${bad} for my taste…`;
+        const badTag = affinity.presentDislikedTags[0];
+        if (badTag === 'party') return 'Too noisy for my taste… not really my vibe here.';
+        if (badTag === 'sleep') return 'Too sleepy in here — needs way more energy!';
+        const bad = TAG_FRIENDLY_LABELS[badTag] ?? badTag;
+        return `Needs fewer ${bad} — not really my vibe here…`;
       }
       const wanted = affinity.missingInterests[0];
       if (wanted) {
@@ -751,8 +1140,8 @@ export class VisitorModule {
     if (v.mood === 'happy') {
       return `Really enjoying the ${favLabel} and warm atmosphere!`;
     }
-    if (v.phase === 'entering') {
-      return 'Just arrived — excited to see what this place is like!';
+    if (v.phase === 'entering' || v.phase === 'arriving_transport') {
+      return 'Just arriving — excited to see what this place is like!';
     }
     return 'Looking around and taking in the room details…';
   }
@@ -762,7 +1151,9 @@ export class VisitorModule {
     dt: number,
     suppressSpeak = false,
   ): boolean {
-    if (v.phase === 'leaving') return false;
+    if (v.phase === 'leaving' || v.phase === 'waiting_pickup' || v.phase === 'arriving_transport') {
+      return false;
+    }
 
     const state = this.store.getState();
     const affinity = this.evaluateRoomAffinity(v.def, state);
@@ -794,8 +1185,12 @@ export class VisitorModule {
     const prevMood = v.mood;
     const prevMatchedKey = v.matchedInterests.join(',');
     const nextMatchedKey = affinity.matchedInterests.join(',');
-    if (prevMatchedKey !== nextMatchedKey) {
+    const prevDislikedKey = v.matchedDislikes.join(',');
+    const nextDislikedKey = affinity.presentDislikedTags.join(',');
+
+    if (prevMatchedKey !== nextMatchedKey || prevDislikedKey !== nextDislikedKey) {
       v.matchedInterests = affinity.matchedInterests;
+      v.matchedDislikes = affinity.presentDislikedTags;
       stateChanged = true;
     }
 
@@ -803,16 +1198,21 @@ export class VisitorModule {
       v.mood = targetMood;
       stateChanged = true;
       if (!suppressSpeak && v.hasSpokenInitial && (targetMood === 'delighted' || targetMood === 'bored')) {
-        this.speak(v);
+        this.speak(v, targetMood === 'bored' && affinity.presentDislikedTags.length > 0);
       }
     }
 
     if (v.mood === 'bored') {
+      // Mismatched / disliked rooms visibly drain patience faster so visitors express dislike & depart
       const drainScale =
-        affinity.dislikedScore > 0 ? 3.2 : affinity.likedScore === 0 ? 2.8 : 1.3;
+        affinity.dislikedScore > 0 ? 3.8 : affinity.likedScore === 0 ? 2.8 : 1.3;
       v.patienceRemaining = Math.max(0, v.patienceRemaining - dt * drainScale);
       if (v.patienceRemaining <= 0) {
-        this.beginLeaving(v, 'Bored — heading home');
+        const leaveLabel =
+          affinity.presentDislikedTags.length > 0
+            ? 'Not their vibe — heading out'
+            : 'Bored — heading home';
+        this.beginLeaving(v, leaveLabel);
         return true;
       }
     } else {
@@ -828,13 +1228,14 @@ export class VisitorModule {
       v.patienceRemaining,
       v.def.patienceSeconds,
       v.dismissedVoluntarily,
+      affinity.presentDislikedTags.length > 0,
     );
     if (Math.abs(nextScore - v.moodScore) >= 4 || targetMood !== prevMood) {
       v.moodScore = nextScore;
       stateChanged = true;
     }
 
-    if (targetMood !== prevMood || prevMatchedKey !== nextMatchedKey) {
+    if (targetMood !== prevMood || prevMatchedKey !== nextMatchedKey || prevDislikedKey !== nextDislikedKey) {
       const activeItem = v.targetItemUid ? this.store.getItem(v.targetItemUid) : undefined;
       const activeDef = activeItem ? this.store.data.itemsById.get(activeItem.itemId) : undefined;
       v.thought = this.buildContextualThought(v, affinity, activeDef);
@@ -848,11 +1249,31 @@ export class VisitorModule {
     activityLabel: string,
     quietEmit = false,
   ): void {
-    if (v.phase === 'leaving') return;
+    if (v.phase === 'leaving' || v.phase === 'waiting_pickup') return;
+
+    // If still riding in on arrival vehicle, remove immediately
+    if (v.phase === 'arriving_transport') {
+      v.phase = 'leaving';
+      v.mood = 'leaving';
+      v.leavingPopTimer = LEAVE_POP_DURATION;
+      if (!quietEmit) this.emitChange();
+      return;
+    }
+
+    // If currently sitting ON a couch/chair, snap smoothly down to return tile first
+    if (v.seatAnchor) {
+      v.worldX = v.seatAnchor.returnX;
+      v.worldY = 0;
+      v.worldZ = v.seatAnchor.returnZ;
+      v.seatAnchor = null;
+      v.seatBlend = 0;
+      v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+    }
+
     const affinity = this.evaluateRoomAffinity(v.def, this.store.getState());
     v.phase = 'leaving';
     v.mood = 'leaving';
-    v.moodScore = v.dismissedVoluntarily ? 22 : 6;
+    v.moodScore = v.dismissedVoluntarily ? 22 : 5;
     v.pose = 'walk';
     v.activity = activityLabel;
     v.thought = this.buildContextualThought(v, affinity);
@@ -862,7 +1283,8 @@ export class VisitorModule {
     v.leavingPopTimer = 0;
     v.blockedProgressTimer = 0;
 
-    this.speak(v);
+    const showDislikeEmote = !v.dismissedVoluntarily && affinity.presentDislikedTags.length > 0;
+    this.speak(v, showDislikeEmote);
     this.replanExitPath(v);
 
     if (!quietEmit) {
@@ -870,8 +1292,36 @@ export class VisitorModule {
     }
   }
 
+  /**
+   * Routes leaving visitors cleanly out through the nearest reachable placed door,
+   * across the yard to the biome exit edge, and along the exterior exit route to their ride/trail!
+   */
   private replanExitPath(v: ActiveVisitorRuntime): void {
     const state = this.store.getState();
+    const depRoute = this.transport.computeRoute(this.spawnCounter++);
+    v.departureRoute = depRoute;
+
+    const safeLotExit = this.navGrid.walkable[depRoute.lotEdgeTile.x]?.[depRoute.lotEdgeTile.z]
+      ? depRoute.lotEdgeTile
+      : findNearestWalkableTile(
+          this.navGrid,
+          depRoute.lotEdgeTile.x + 0.5 - state.gridWidth / 2,
+          depRoute.lotEdgeTile.z + 0.5 - state.gridDepth / 2,
+        );
+
+    // Path directly to safeLotExit (which naturally routes THROUGH any openable door if indoors!)
+    const directToExit = this.computePathAvoidingVisitors(v, safeLotExit);
+    if (directToExit && directToExit.length > 0) {
+      v.pathTiles = directToExit;
+      v.targetTile = safeLotExit;
+      v.path = directToExit.map((t) =>
+        tileCenterToWorld(t.x, t.z, state.gridWidth, state.gridDepth),
+      );
+      v.exteriorPath = [...depRoute.exitWaypoints];
+      return;
+    }
+
+    // Fallback: route to nearest door/perimeter exit
     const exit = pickExitLocation(this.navGrid, v.currentTile);
     const gridPath = this.computePathAvoidingVisitors(v, exit.exitTile);
     if (gridPath) {
@@ -880,17 +1330,11 @@ export class VisitorModule {
       v.path = gridPath.map((t) =>
         tileCenterToWorld(t.x, t.z, state.gridWidth, state.gridDepth),
       );
-      if (
-        Math.hypot(
-          exit.exitWorld.wx - (v.path[v.path.length - 1]?.wx ?? v.worldX),
-          exit.exitWorld.wz - (v.path[v.path.length - 1]?.wz ?? v.worldZ),
-        ) > 0.1
-      ) {
-        v.path.push(exit.exitWorld);
-      }
+      v.exteriorPath = [exit.exitWorld, ...depRoute.exitWaypoints];
     } else {
       v.pathTiles = [];
       v.path = [exit.exitWorld];
+      v.exteriorPath = [...depRoute.exitWaypoints];
     }
   }
 
@@ -898,9 +1342,11 @@ export class VisitorModule {
    * Emits an emoji-only 3D emotion bubble with animated blabbering soundwave and plays
    * the cozy synthesized gibberish voice using the hand-written dialogue line cadence.
    */
-  private speak(v: ActiveVisitorRuntime): void {
+  private speak(v: ActiveVisitorRuntime, forceDislike = false): void {
     const line = this.dialogueEngine.pickLine(v.def.id, v.mood, v.lastLineId);
-    const emote = this.dialogueEngine.getEmoteVisual(line.emote);
+    const emote = forceDislike
+      ? DISLIKE_EMOTES[Math.floor(Math.random() * DISLIKE_EMOTES.length)]
+      : this.dialogueEngine.getEmoteVisual(line.emote);
     const emoji = resolveEmoteEmoji(emote.id, emote.glyph, v.mood);
     const blabberDuration = estimateBlabberDuration(line.text, line.speedMultiplier);
 
@@ -912,7 +1358,7 @@ export class VisitorModule {
     this.audioModule?.playGibberishLine(
       line.text,
       v.def.voiceProfile,
-      line.pitchOffset,
+      forceDislike ? Math.min(0.84, line.pitchOffset) : line.pitchOffset,
       line.speedMultiplier,
     );
   }
@@ -942,6 +1388,19 @@ export class VisitorModule {
         continue;
       }
 
+      // If it's a seating item, skip if ALL seat slots are already occupied
+      const seatSlots = getSeatSlotsForItem(def);
+      if (seatSlots) {
+        let anyFree = false;
+        for (let s = 0; s < seatSlots.length; s++) {
+          if (!this.isSeatSlotTaken(item.uid, s, v.instanceId)) {
+            anyFree = true;
+            break;
+          }
+        }
+        if (!anyFree) continue;
+      }
+
       let tagMatch = 0;
       for (let i = 0; i < v.def.likedTags.length; i++) {
         if (def.tags.includes(v.def.likedTags[i])) {
@@ -949,8 +1408,11 @@ export class VisitorModule {
         }
       }
 
+      // Occasionally inspect a disliked item to visibly react with 👎 / 😒!
+      const isDislikedItem = v.def.dislikedTags.some((t) => def.tags.includes(t));
+
       const interactionSpec = this.classifyInteraction(v.def, def);
-      if (tagMatch === 0 && !interactionSpec.isGenerallyInteresting) continue;
+      if (tagMatch === 0 && !isDislikedItem && !interactionSpec.isGenerallyInteresting) continue;
 
       const approach = resolveItemApproach(
         this.navGrid,
@@ -965,14 +1427,19 @@ export class VisitorModule {
 
       const dist = reachable.get(tileIndex(approach.tile.x, approach.tile.z, state.gridDepth)) ?? 10;
       const repeatPenalty = item.uid === v.lastTargetItemUid ? -3.5 : 0;
-      const occupiedPenalty = this.active.some(
-        (other) => other.instanceId !== v.instanceId && other.targetItemUid === item.uid,
-      )
-        ? -2.8
-        : 0;
+      // Allow multiple visitors to share a multi-seat sofa cleanly!
+      const isMultiSeat = seatSlots && seatSlots.length > 1;
+      const occupiedPenalty =
+        !isMultiSeat &&
+        this.active.some(
+          (other) => other.instanceId !== v.instanceId && other.targetItemUid === item.uid,
+        )
+          ? -2.8
+          : 0;
 
       const score =
         tagMatch +
+        (isDislikedItem && tagMatch === 0 ? 1.6 : 0) +
         interactionSpec.priorityBonus +
         repeatPenalty +
         occupiedPenalty -
@@ -1083,11 +1550,12 @@ export class VisitorModule {
         isGenerallyInteresting: true,
       };
     }
-    if (tags.includes('seating') && !tags.includes('dining')) {
+    if (getSeatSlotsForItem(itemDef)) {
+      const isBed = tags.includes('sleep');
       return {
         pose: 'sit',
-        activity: `Relaxing on ${itemDef.name}`,
-        priorityBonus: prefs.includes('sit') ? 1.6 : 0.7,
+        activity: isBed ? `Relaxing on ${itemDef.name}` : `Sitting on ${itemDef.name}`,
+        priorityBonus: prefs.includes('sit') ? 1.8 : 0.85,
         isGenerallyInteresting: true,
       };
     }
@@ -1139,14 +1607,6 @@ export class VisitorModule {
         isGenerallyInteresting: true,
       };
     }
-    if (tags.includes('seating')) {
-      return {
-        pose: 'sit',
-        activity: `Sitting at ${itemDef.name}`,
-        priorityBonus: 0.8,
-        isGenerallyInteresting: true,
-      };
-    }
     return {
       pose: 'admire',
       activity: `Checking out ${itemDef.name}`,
@@ -1166,9 +1626,58 @@ export class VisitorModule {
     v.smoothVelZ = 0;
 
     if (item && def) {
+      const isDisliked = v.def.dislikedTags.some((t) => def.tags.includes(t));
       const spec = this.classifyInteraction(v.def, def);
+
+      // If visitor dislikes this item, react with 👎 / 😒 instead of happily sitting/dancing on it!
+      if (isDisliked) {
+        v.phase = 'using';
+        v.pose = 'idle';
+        v.activity = `Dislikes ${def.name}`;
+        v.useTimer = 2.4;
+        v.patienceRemaining = Math.max(0, v.patienceRemaining - 6);
+        this.updateVisitorMood(v, 0, true);
+        v.thought = this.buildContextualThought(v, this.evaluateRoomAffinity(v.def, state), def);
+        this.speak(v, true);
+        this.emitChange();
+        return;
+      }
+
+      // True elevated seating ON couches, chairs, bar stools, beanbags & beds!
+      if (spec.pose === 'sit') {
+        const seatAnchor = this.resolveAvailableSeatAnchor(
+          item,
+          def,
+          v.worldX,
+          v.worldZ,
+          v.instanceId,
+        );
+        if (seatAnchor) {
+          v.seatAnchor = seatAnchor;
+          v.seatBlend = 0;
+          v.phase = 'mounting_seat';
+          v.pose = 'sit';
+          v.activity = spec.activity;
+          v.useTimer = 4.6 + Math.random() * 3.0;
+          v.targetYaw = seatAnchor.facingYaw;
+
+          const isLiked = v.def.likedTags.some((t) => def.tags.includes(t));
+          if (isLiked) {
+            v.interactionBoost = Math.min(3.0, v.interactionBoost + 1.15);
+          }
+
+          this.updateVisitorMood(v, 0, true);
+          v.thought = this.buildContextualThought(v, this.evaluateRoomAffinity(v.def, state), def);
+          if (v.speechCooldown <= 0) {
+            this.speak(v);
+          }
+          this.emitChange();
+          return;
+        }
+      }
+
       v.phase = 'using';
-      v.pose = spec.pose;
+      v.pose = spec.pose === 'sit' ? 'admire' : spec.pose;
       v.activity = spec.activity;
       v.useTimer = 3.8 + Math.random() * 2.8;
 
@@ -1208,9 +1717,104 @@ export class VisitorModule {
   }
 
   /**
-   * Computes smoothly capped right-hand passing steering, soft personal-space repulsion,
-   * and polite doorway yielding between `v` and all other active visitors.
+   * Automatically opens placed doors when any visitor approaches within 1.3 world units
+   * (playing a subtle latch foley once on open) and closes them 1.0s after visitors clear.
    */
+  private updateDoorProximity(dt: number, state: HouseState): void {
+    const nearNow = new Set<string>();
+
+    for (const door of this.navGrid.doors) {
+      const wt = wallEdgeToWorldTransform(
+        door.item.x,
+        door.item.z,
+        door.item.rotation,
+        state.gridWidth,
+        state.gridDepth,
+        0,
+      );
+
+      for (const v of this.active) {
+        if (v.phase === 'arriving_transport' || v.leavingPopTimer > 0) continue;
+        if (Math.hypot(v.worldX - wt.wx, v.worldZ - wt.wz) <= DOOR_TRIGGER_RADIUS) {
+          nearNow.add(door.item.uid);
+          if (!this.doorHoldTimers.has(door.item.uid)) {
+            this.setDoorVisitorOpenSafe(door.item.uid, true);
+            this.audioModule?.playInteract(door.item.itemId, ['door'], true);
+          }
+          this.doorHoldTimers.set(door.item.uid, DOOR_HOLD_SECONDS);
+          break;
+        }
+      }
+    }
+
+    for (const [uid, remaining] of Array.from(this.doorHoldTimers.entries())) {
+      if (nearNow.has(uid)) continue;
+      const next = remaining - dt;
+      if (next <= 0) {
+        this.doorHoldTimers.delete(uid);
+        this.setDoorVisitorOpenSafe(uid, false);
+      } else {
+        this.doorHoldTimers.set(uid, next);
+      }
+    }
+  }
+
+  /**
+   * Spawns autonomous visitors organically when the house is Open (~65% likes match, ~35% varied/dislikes).
+   */
+  private updateAutonomousSpawner(dt: number, state: HouseState): void {
+    if (!this.isHouseOpen()) return;
+    if (this.visitorDefs.length === 0) return;
+
+    const autoCount = this.active.filter(
+      (v) => v.isAutonomous && v.phase !== 'leaving' && v.phase !== 'waiting_pickup',
+    ).length;
+
+    if (autoCount >= MAX_AUTONOMOUS_VISITORS || this.active.length >= 8) {
+      return;
+    }
+
+    this.autonomousSpawnTimer -= dt;
+    if (this.autonomousSpawnTimer > 0) return;
+
+    const activeIds = new Set(this.active.map((v) => v.def.id));
+    const likedDefs: VisitorDef[] = [];
+    const dislikedOrVariedDefs: VisitorDef[] = [];
+
+    for (const def of this.visitorDefs) {
+      const aff = this.evaluateRoomAffinity(def, state);
+      if (aff.likedScore > 0 && aff.dislikedScore === 0) {
+        likedDefs.push(def);
+      }
+      if (aff.dislikedScore > 0 || aff.likedScore < 1.2) {
+        dislikedOrVariedDefs.push(def);
+      }
+    }
+
+    const preferMatch = Math.random() < 0.65;
+    let pool = preferMatch
+      ? likedDefs.length > 0
+        ? likedDefs
+        : this.visitorDefs
+      : dislikedOrVariedDefs.length > 0
+        ? dislikedOrVariedDefs
+        : this.visitorDefs;
+
+    // Prefer archetypes not already visiting so the room looks lively and diverse
+    const freshPool = pool.filter((d) => !activeIds.has(d.id));
+    if (freshPool.length > 0) {
+      pool = freshPool;
+    }
+
+    const chosen = pool[Math.floor(Math.random() * pool.length)];
+    if (chosen) {
+      this.spawnVisitorInternal(chosen.id, true);
+    }
+
+    // Next organic arrival in 8–14 seconds
+    this.autonomousSpawnTimer = 8 + Math.random() * 6;
+  }
+
   private computeAvoidanceVector(
     v: ActiveVisitorRuntime,
     desiredDirX: number,
@@ -1227,7 +1831,8 @@ export class VisitorModule {
 
     for (const other of this.active) {
       if (other.instanceId === v.instanceId) continue;
-      if (other.leavingPopTimer > 0) continue;
+      if (other.leavingPopTimer > 0 || other.phase === 'arriving_transport') continue;
+      if (other.seatAnchor) continue; // Seated visitors sit ON furniture above walking path
 
       const rx = v.worldX - other.worldX;
       const rz = v.worldZ - other.worldZ;
@@ -1273,7 +1878,6 @@ export class VisitorModule {
       }
     }
 
-    // Cap lateral separation magnitude to keep steering buttery-smooth without vibration
     const steerMag = Math.hypot(steerX, steerZ);
     if (steerMag > MAX_SEPARATION_SPEED) {
       const s = MAX_SEPARATION_SPEED / steerMag;
@@ -1304,7 +1908,7 @@ export class VisitorModule {
       const w = tileCenterToWorld(nx, nz, state.gridWidth, state.gridDepth);
       let minDist = Infinity;
       for (const other of this.active) {
-        if (other.instanceId === v.instanceId) continue;
+        if (other.instanceId === v.instanceId || other.seatAnchor) continue;
         const od = Math.hypot(w.wx - other.worldX, w.wz - other.worldZ);
         if (od < minDist) minDist = od;
       }
@@ -1333,7 +1937,7 @@ export class VisitorModule {
         );
         v.worldX = safe.wx;
         v.worldZ = safe.wz;
-        v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+        v.mesh.root.position.set(v.worldX, v.worldY, v.worldZ);
         v.mesh.updateAnimation(dt, 'walk', v.def.walkSpeed * 0.7);
         return;
       }
@@ -1342,10 +1946,6 @@ export class VisitorModule {
     v.mesh.updateAnimation(dt, 'idle', v.def.walkSpeed);
   }
 
-  /**
-   * Smoothly damped post-step personal-space relaxation (wall/furniture safe).
-   * Uses damped relaxation per frame so separation glides smoothly without snapping/jitter.
-   */
   private enforcePersonalSpace(dt: number): void {
     const count = this.active.length;
     if (count < 2) return;
@@ -1355,18 +1955,18 @@ export class VisitorModule {
     for (let iter = 0; iter < 2; iter++) {
       for (let i = 0; i < count; i++) {
         const a = this.active[i];
-        if (a.leavingPopTimer > 0) continue;
+        if (a.leavingPopTimer > 0 || a.phase === 'arriving_transport' || a.seatAnchor) continue;
 
         for (let j = i + 1; j < count; j++) {
           const b = this.active[j];
-          if (b.leavingPopTimer > 0) continue;
+          if (b.leavingPopTimer > 0 || b.phase === 'arriving_transport' || b.seatAnchor) continue;
 
           const dx = b.worldX - a.worldX;
           const dz = b.worldZ - a.worldZ;
           const dist = Math.hypot(dx, dz);
           if (dist >= PERSONAL_SPACE) continue;
 
-          const nx = dist > 0.001 ? dx / dist : (i % 2 === 0 ? 1 : -1);
+          const nx = dist > 0.001 ? dx / dist : i % 2 === 0 ? 1 : -1;
           const nz = dist > 0.001 ? dz / dist : 0;
           const overlap = Math.min(PERSONAL_SPACE - dist, maxPushStep * 1.8);
 
@@ -1375,8 +1975,8 @@ export class VisitorModule {
           const weightA = aStatic && !bStatic ? 0.12 : !aStatic && bStatic ? 0.88 : 0.5;
           const weightB = 1 - weightA;
 
-          const allowOutA = a.phase === 'entering' || a.phase === 'leaving';
-          const allowOutB = b.phase === 'entering' || b.phase === 'leaving';
+          const allowOutA = a.phase === 'entering' || a.phase === 'leaving' || a.phase === 'waiting_pickup';
+          const allowOutB = b.phase === 'entering' || b.phase === 'leaving' || b.phase === 'waiting_pickup';
 
           const safeA = resolveSafeMovement(
             this.navGrid,
@@ -1399,17 +1999,67 @@ export class VisitorModule {
           a.worldZ = safeA.wz;
           b.worldX = safeB.wx;
           b.worldZ = safeB.wz;
-          a.mesh.root.position.set(a.worldX, 0, a.worldZ);
-          b.mesh.root.position.set(b.worldX, 0, b.worldZ);
+          a.mesh.root.position.set(a.worldX, a.worldY, a.worldZ);
+          b.mesh.root.position.set(b.worldX, b.worldY, b.worldZ);
         }
       }
     }
   }
 
+  private stepExteriorWaypoint(
+    v: ActiveVisitorRuntime,
+    wp: WorldPoint,
+    dt: number,
+    velSmoothAlpha: number,
+  ): boolean {
+    const dx = wp.wx - v.worldX;
+    const dz = wp.wz - v.worldZ;
+    const dist = Math.hypot(dx, dz);
+    if (dist <= 0.18) {
+      return true;
+    }
+
+    const speed = v.def.walkSpeed;
+    const step = Math.min(speed * dt, dist);
+    const movedX = (dx / dist) * step;
+    const movedZ = (dz / dist) * step;
+    v.worldX += movedX;
+    v.worldZ += movedZ;
+    v.velX = dt > 0 ? movedX / dt : 0;
+    v.velZ = dt > 0 ? movedZ / dt : 0;
+    v.smoothVelX += (v.velX - v.smoothVelX) * velSmoothAlpha;
+    v.smoothVelZ += (v.velZ - v.smoothVelZ) * velSmoothAlpha;
+
+    const smoothSpeed = Math.hypot(v.smoothVelX, v.smoothVelZ);
+    if (smoothSpeed > 0.12) {
+      v.targetYaw = Math.atan2(v.smoothVelX, v.smoothVelZ);
+    }
+    v.rotY = dampAngle(v.rotY, v.targetYaw, 9, dt);
+    v.mesh.root.rotation.y = v.rotY;
+    v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+    v.mesh.updateAnimation(dt, 'walk', speed);
+    return false;
+  }
+
   update(dt: number): void {
-    if (this.active.length === 0 || dt <= 0) return;
+    if (dt <= 0) return;
 
     const state = this.store.getState();
+
+    // Update biome vehicles & persistent elevator kiosk every frame
+    this.transport.update(dt);
+
+    // Organic autonomous guest spawning when house is Open
+    this.updateAutonomousSpawner(dt, state);
+
+    if (this.active.length === 0) {
+      // Ensure any held doors close cleanly even if last visitor just left
+      if (this.doorHoldTimers.size > 0) {
+        this.updateDoorProximity(dt, state);
+      }
+      return;
+    }
+
     const toRemove: ActiveVisitorRuntime[] = [];
     let anyChanged = false;
     const velSmoothAlpha = 1 - Math.exp(-10 * dt);
@@ -1418,11 +2068,15 @@ export class VisitorModule {
       v.speechCooldown = Math.max(0, v.speechCooldown - dt);
       v.replanCooldown = Math.max(0, v.replanCooldown - dt);
 
+      // Waiting inside incoming car/boat/elevator until transport reaches curb/pier/terrace
+      if (v.phase === 'arriving_transport') {
+        continue;
+      }
+
       // Clean opaque scale-in pop on spawn
       if (v.spawnPopTimer > 0) {
         v.spawnPopTimer += dt;
         const t = clamp01(v.spawnPopTimer / SPAWN_POP_DURATION);
-        // Subtle ease-out overshoot pop
         const eased = t < 1 ? 0.05 + 0.95 * (1 - Math.pow(1 - t, 3)) : 1;
         v.mesh.setScalePop(eased);
         if (t >= 1) {
@@ -1431,36 +2085,126 @@ export class VisitorModule {
         }
       }
 
-      if (!v.hasSpokenInitial && v.speechCooldown <= 0 && v.phase !== 'leaving') {
+      // Speak initial arrival reaction once inside/near the house
+      if (
+        !v.hasSpokenInitial &&
+        v.speechCooldown <= 0 &&
+        v.exteriorPath.length === 0 &&
+        v.phase !== 'leaving' &&
+        v.phase !== 'waiting_pickup'
+      ) {
         v.hasSpokenInitial = true;
         this.updateVisitorMood(v, 0, true);
-        this.speak(v);
+        const aff = this.evaluateRoomAffinity(v.def, state);
+        this.speak(v, aff.presentDislikedTags.length > 0 && aff.netScore < 1.5);
         anyChanged = true;
       }
 
-      if (v.phase !== 'leaving') {
+      if (v.phase !== 'leaving' && v.phase !== 'waiting_pickup') {
         if (this.updateVisitorMood(v, dt)) {
           anyChanged = true;
         }
       }
 
+      // Clean opaque scale-out pop on exit
+      if (v.leavingPopTimer > 0) {
+        v.leavingPopTimer += dt;
+        const t = clamp01(v.leavingPopTimer / LEAVE_POP_DURATION);
+        const scale = Math.max(0.01, 1 - t * t);
+        v.mesh.setScalePop(scale);
+        v.mesh.updateAnimation(dt, 'idle', v.def.walkSpeed);
+        if (t >= 1) {
+          toRemove.push(v);
+        }
+        continue;
+      }
+
+      // Waiting at curb/pier/elevator for pickup vehicle to arrive & open
+      if (v.phase === 'waiting_pickup') {
+        v.velX = 0;
+        v.velZ = 0;
+        v.smoothVelX = 0;
+        v.smoothVelZ = 0;
+        v.stuckExitTimer += dt;
+        v.mesh.updateAnimation(dt, 'idle', v.def.walkSpeed);
+        if (v.stuckExitTimer > 6.5) {
+          v.leavingPopTimer = 0.001;
+        }
+        continue;
+      }
+
+      // Smoothly hopping ONTO couch/chair/stool/bed cushion
+      if (v.phase === 'mounting_seat' && v.seatAnchor) {
+        v.seatBlend = clamp01(v.seatBlend + dt / SEAT_MOUNT_DURATION);
+        const t = v.seatBlend;
+        const smoothT = t * t * (3 - 2 * t);
+        const arcY = Math.sin(t * Math.PI) * 0.1;
+
+        v.worldX = v.seatAnchor.returnX + (v.seatAnchor.wx - v.seatAnchor.returnX) * smoothT;
+        v.worldZ = v.seatAnchor.returnZ + (v.seatAnchor.wz - v.seatAnchor.returnZ) * smoothT;
+        v.worldY = v.seatAnchor.wy * smoothT + arcY;
+
+        v.rotY = dampAngle(v.rotY, v.seatAnchor.facingYaw, 11, dt);
+        v.mesh.root.position.set(v.worldX, v.worldY, v.worldZ);
+        v.mesh.root.rotation.y = v.rotY;
+        v.mesh.updateAnimation(dt, 'sit', v.def.walkSpeed, smoothT);
+
+        if (v.seatBlend >= 1) {
+          v.phase = 'using';
+          v.worldX = v.seatAnchor.wx;
+          v.worldY = v.seatAnchor.wy;
+          v.worldZ = v.seatAnchor.wz;
+          v.mesh.root.position.set(v.worldX, v.worldY, v.worldZ);
+        }
+        continue;
+      }
+
+      // Smoothly stepping OFF couch/chair/stool/bed cushion back onto floor tile
+      if (v.phase === 'dismounting_seat' && v.seatAnchor) {
+        v.seatBlend = clamp01(v.seatBlend - dt / SEAT_DISMOUNT_DURATION);
+        const t = v.seatBlend;
+        const smoothT = t * t * (3 - 2 * t);
+        const arcY = Math.sin(t * Math.PI) * 0.08;
+
+        v.worldX = v.seatAnchor.returnX + (v.seatAnchor.wx - v.seatAnchor.returnX) * smoothT;
+        v.worldZ = v.seatAnchor.returnZ + (v.seatAnchor.wz - v.seatAnchor.returnZ) * smoothT;
+        v.worldY = v.seatAnchor.wy * smoothT + arcY;
+
+        v.mesh.root.position.set(v.worldX, v.worldY, v.worldZ);
+        v.mesh.updateAnimation(dt, 'sit', v.def.walkSpeed, smoothT);
+
+        if (v.seatBlend <= 0) {
+          v.worldX = v.seatAnchor.returnX;
+          v.worldY = 0;
+          v.worldZ = v.seatAnchor.returnZ;
+          v.seatAnchor = null;
+          v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+          v.phase = 'idle';
+          v.pose = 'idle';
+          v.targetItemUid = null;
+          v.targetTile = null;
+          v.idleTimer = 0.45 + Math.random() * 0.8;
+          v.activity = 'Looking around';
+          v.thought = this.buildContextualThought(v, this.evaluateRoomAffinity(v.def, state));
+          anyChanged = true;
+        }
+        continue;
+      }
+
       if (v.phase === 'entering' || v.phase === 'walking' || v.phase === 'leaving') {
         if (v.phase === 'leaving') {
           v.stuckExitTimer += dt;
-          if (v.stuckExitTimer > 12 && v.leavingPopTimer === 0) {
+          if (v.stuckExitTimer > 18 && v.leavingPopTimer === 0) {
             v.leavingPopTimer = 0.001;
+            continue;
           }
         }
 
-        // Clean opaque scale-out pop on exit (zero transparent inside-out glitches!)
-        if (v.leavingPopTimer > 0) {
-          v.leavingPopTimer += dt;
-          const t = clamp01(v.leavingPopTimer / LEAVE_POP_DURATION);
-          const scale = Math.max(0.01, 1 - t * t);
-          v.mesh.setScalePop(scale);
-          v.mesh.updateAnimation(dt, 'idle', v.def.walkSpeed);
-          if (t >= 1) {
-            toRemove.push(v);
+        // Entering along exterior walkway / pier / elevator terrace / woodland trail before entering lot
+        if (v.phase === 'entering' && v.exteriorPath.length > 0) {
+          const reached = this.stepExteriorWaypoint(v, v.exteriorPath[0], dt, velSmoothAlpha);
+          if (reached) {
+            v.exteriorPath.shift();
           }
           continue;
         }
@@ -1481,7 +2225,7 @@ export class VisitorModule {
           const dz = nextWp.wz - v.worldZ;
           const dist = Math.hypot(dx, dz);
 
-          const arrivalRadius = v.path.length > 1 ? 0.24 : 0.14;
+          const arrivalRadius = v.path.length > 1 ? 0.24 : 0.16;
           if (dist <= arrivalRadius) {
             v.path.shift();
             if (v.pathTiles.length > 0) {
@@ -1530,7 +2274,6 @@ export class VisitorModule {
           v.smoothVelX += (v.velX - v.smoothVelX) * velSmoothAlpha;
           v.smoothVelZ += (v.velZ - v.smoothVelZ) * velSmoothAlpha;
 
-          // Only update targetYaw when meaningfully moving (> 0.12 u/s) to prevent micro-nudge spin jitter!
           const smoothSpeed = Math.hypot(v.smoothVelX, v.smoothVelZ);
           if (smoothSpeed > 0.12) {
             v.targetYaw = Math.atan2(v.smoothVelX, v.smoothVelZ);
@@ -1541,7 +2284,6 @@ export class VisitorModule {
           v.mesh.root.position.set(v.worldX, 0, v.worldZ);
           v.mesh.updateAnimation(dt, smoothSpeed > 0.08 ? 'walk' : 'idle', speed);
 
-          // Detect stalled progress around a crowd with a 0.45s replan cooldown
           const newDist = Math.hypot(nextWp.wx - v.worldX, nextWp.wz - v.worldZ);
           if (newDist >= v.lastWaypointDist - 0.004) {
             v.blockedProgressTimer += dt;
@@ -1568,13 +2310,30 @@ export class VisitorModule {
             v.blockedProgressTimer = 0;
           }
           v.lastWaypointDist = newDist;
+        } else if (v.phase === 'leaving' && v.exteriorPath.length > 0) {
+          // Walk cleanly down exterior walkway / pier / elevator pad / trail
+          const reached = this.stepExteriorWaypoint(v, v.exteriorPath[0], dt, velSmoothAlpha);
+          if (reached) {
+            v.exteriorPath.shift();
+          }
         } else {
           v.velX = 0;
           v.velZ = 0;
           v.smoothVelX = 0;
           v.smoothVelZ = 0;
+
           if (v.phase === 'leaving') {
-            v.leavingPopTimer = 0.001;
+            const dep = v.departureRoute;
+            if (dep && (dep.kind === 'car' || dep.kind === 'boat' || dep.kind === 'elevator')) {
+              v.phase = 'waiting_pickup';
+              v.stuckExitTimer = 0;
+              this.transport.dispatchDeparture(dep, () => {
+                if (!this.active.includes(v)) return;
+                v.leavingPopTimer = 0.001;
+              });
+            } else {
+              v.leavingPopTimer = 0.001;
+            }
           } else if (v.phase === 'entering') {
             v.phase = 'idle';
             v.pose = 'idle';
@@ -1590,26 +2349,40 @@ export class VisitorModule {
         v.velZ = 0;
         v.smoothVelX = 0;
         v.smoothVelZ = 0;
-        if (v.faceTarget) {
-          const dx = v.faceTarget.wx - v.worldX;
-          const dz = v.faceTarget.wz - v.worldZ;
-          if (Math.hypot(dx, dz) > 0.04) {
-            v.targetYaw = Math.atan2(dx, dz);
-            v.rotY = dampAngle(v.rotY, v.targetYaw, 8, dt);
-            v.mesh.root.rotation.y = v.rotY;
+
+        if (v.seatAnchor) {
+          v.rotY = dampAngle(v.rotY, v.seatAnchor.facingYaw, 9, dt);
+          v.mesh.root.rotation.y = v.rotY;
+          v.mesh.root.position.set(v.seatAnchor.wx, v.seatAnchor.wy, v.seatAnchor.wz);
+          v.mesh.updateAnimation(dt, 'sit', v.def.walkSpeed, 1);
+        } else {
+          if (v.faceTarget) {
+            const dx = v.faceTarget.wx - v.worldX;
+            const dz = v.faceTarget.wz - v.worldZ;
+            if (Math.hypot(dx, dz) > 0.04) {
+              v.targetYaw = Math.atan2(dx, dz);
+              v.rotY = dampAngle(v.rotY, v.targetYaw, 8, dt);
+              v.mesh.root.rotation.y = v.rotY;
+            }
           }
+          v.mesh.updateAnimation(dt, v.pose, v.def.walkSpeed, 0);
         }
-        v.mesh.updateAnimation(dt, v.pose, v.def.walkSpeed);
+
         v.useTimer -= dt;
         if (v.useTimer <= 0) {
-          v.phase = 'idle';
-          v.pose = 'idle';
-          v.targetItemUid = null;
-          v.targetTile = null;
-          v.idleTimer = 0.55 + Math.random() * 1.1;
-          v.activity = 'Looking around';
-          v.thought = this.buildContextualThought(v, this.evaluateRoomAffinity(v.def, state));
-          anyChanged = true;
+          if (v.seatAnchor) {
+            v.phase = 'dismounting_seat';
+            v.seatBlend = 1;
+          } else {
+            v.phase = 'idle';
+            v.pose = 'idle';
+            v.targetItemUid = null;
+            v.targetTile = null;
+            v.idleTimer = 0.55 + Math.random() * 1.1;
+            v.activity = 'Looking around';
+            v.thought = this.buildContextualThought(v, this.evaluateRoomAffinity(v.def, state));
+            anyChanged = true;
+          }
         }
       } else if (v.phase === 'idle') {
         v.velX = 0;
@@ -1620,24 +2393,31 @@ export class VisitorModule {
         v.idleTimer -= dt;
         if (v.idleTimer <= 0) {
           if (v.speechCooldown <= 0 && v.hasSpokenInitial) {
-            this.speak(v);
+            const aff = this.evaluateRoomAffinity(v.def, state);
+            this.speak(v, v.mood === 'bored' && aff.presentDislikedTags.length > 0);
             anyChanged = true;
           }
           this.pickNextDestination(v);
         }
       }
 
-      const fx = Math.floor(v.worldX + state.gridWidth / 2);
-      const fz = Math.floor(v.worldZ + state.gridDepth / 2);
-      if (inGridBounds(fx, fz, state.gridWidth, state.gridDepth)) {
-        v.currentTile = { x: fx, z: fz };
+      if (!v.seatAnchor) {
+        const fx = Math.floor(v.worldX + state.gridWidth / 2);
+        const fz = Math.floor(v.worldZ + state.gridDepth / 2);
+        if (inGridBounds(fx, fz, state.gridWidth, state.gridDepth)) {
+          v.currentTile = { x: fx, z: fz };
+        }
       }
     }
 
-    // Damped wall-safe personal-space separation pass
+    // Proximity automatic door opening & closing
+    this.updateDoorProximity(dt, state);
+
+    // Damped wall-safe personal-space separation pass (skips seated guests)
     this.enforcePersonalSpace(dt);
 
     for (const v of this.active) {
+      if (v.seatAnchor) continue;
       const fx = Math.floor(v.worldX + state.gridWidth / 2);
       const fz = Math.floor(v.worldZ + state.gridDepth / 2);
       if (inGridBounds(fx, fz, state.gridWidth, state.gridDepth)) {
@@ -1662,12 +2442,21 @@ export class VisitorModule {
 
   dispose(): void {
     this.unsubscribeHouse();
+    this.unsubscribeOpen?.();
+    this.unsubscribeOpen = null;
+
+    for (const uid of this.doorHoldTimers.keys()) {
+      this.setDoorVisitorOpenSafe(uid, false);
+    }
+    this.doorHoldTimers.clear();
+
     for (const v of this.active) {
       this.visitorsRoot.remove(v.mesh.root);
       v.mesh.dispose();
     }
     this.active = [];
     this.sceneManager.scene.remove(this.visitorsRoot);
+    this.transport.dispose();
     this.changeListeners.clear();
   }
 }

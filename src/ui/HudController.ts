@@ -3,14 +3,22 @@ import type { CatalogTabId, FurnitureItemDef, VisitorDef } from '../data/schemas
 import type { HoverItemInfo, PlacementController } from '../engine/PlacementController';
 import type { SceneManager } from '../engine/SceneManager';
 import { evaluateRoomType } from '../rooms/RoomEvaluator';
-import { decodeHouseFromShareLink, encodeHouseToShareUrl } from '../save/shareLink';
 import { exportHouseToFile, importHouseFromFile } from '../save/fileIO';
+import { decodeHouseFromShareLink, encodeHouseToShareUrl } from '../save/shareLink';
 import type { SceneryModule } from '../scenery/SceneryModule';
 import { createEmptyHouse, createStarterHouse } from '../state/defaultHouse';
 import type { EraseFilter, ExpandSide, HouseStore, WallViewMode } from '../state/houseStore';
 import type { VisitorModule } from '../visitors/VisitorModule';
 import { CelebrationBanner } from './CelebrationBanner';
-import { type IconName, createIconEl } from './icons';
+import {
+  type IconName,
+  type StorybookIconName,
+  createIconEl,
+  createStorybookIconEl,
+  getLocationStorybookIconName,
+  getRoomStorybookIconName,
+  getWeatherStorybookIconName,
+} from './icons';
 
 export interface HudModules {
   visitorModule?: VisitorModule;
@@ -43,19 +51,29 @@ const ERASE_FILTERS: Array<{ id: EraseFilter; label: string }> = [
   { id: 'furniture', label: 'Furniture' },
 ];
 
-const WEATHER_ICON_NAMES: Record<string, IconName> = {
-  clear: 'sun',
-  rain: 'cloudRain',
-  snow: 'snow',
-  fog: 'fog',
-  thunderstorm: 'thunder',
-};
+const TIME_STOPS: Array<{
+  id: 'running' | 'dawn' | 'day' | 'dusk' | 'night';
+  label: string;
+  icon: StorybookIconName;
+  hour?: number;
+}> = [
+  { id: 'running', label: 'Running', icon: 'time_running' },
+  { id: 'dawn', label: 'Dawn', icon: 'time_dawn', hour: 6.5 },
+  { id: 'day', label: 'Day', icon: 'time_day', hour: 12.0 },
+  { id: 'dusk', label: 'Dusk', icon: 'time_dusk', hour: 18.5 },
+  { id: 'night', label: 'Night', icon: 'time_night', hour: 22.5 },
+];
 
-const TIME_TICKS: Array<{ label: string; hour: number }> = [
-  { label: 'Dawn', hour: 6.5 },
-  { label: 'Noon', hour: 12.0 },
-  { label: 'Sunset', hour: 18.5 },
-  { label: 'Night', hour: 22.5 },
+const WEATHER_SLIDER_ORDER: Array<{
+  id: string;
+  label: string;
+  icon: StorybookIconName;
+}> = [
+  { id: 'clear', label: 'Clear', icon: 'weather_clear' },
+  { id: 'rain', label: 'Rain', icon: 'weather_rain' },
+  { id: 'fog', label: 'Fog', icon: 'weather_fog' },
+  { id: 'thunderstorm', label: 'Thunderstorm', icon: 'weather_thunderstorm' },
+  { id: 'snow', label: 'Snow', icon: 'weather_snow' },
 ];
 
 const WALL_VIEW_OPTIONS: Array<{ id: WallViewMode; label: string; fullLabel: string }> = [
@@ -97,6 +115,9 @@ const EMOTE_ID_TO_EMOJI: Record<string, string> = {
   star: '⭐',
   sweat: '💧',
   zzz: '😴',
+  thumbsDown: '👎',
+  unimpressed: '😒',
+  grimace: '😖',
 };
 
 const MOOD_FALLBACK_EMOJI: Record<string, string> = {
@@ -166,11 +187,7 @@ const TAB_SUBCATEGORIES: Record<Exclude<CatalogTabId, 'basics'>, SubcategoryDef[
         i.id.includes('microwave') ||
         i.id.includes('dishwasher'),
     },
-    {
-      id: 'dining',
-      label: 'Dining',
-      match: (i) => i.id.includes('dining_'),
-    },
+    { id: 'dining', label: 'Dining', match: (i) => i.id.includes('dining_') },
     {
       id: 'smallware',
       label: 'Smallware',
@@ -302,30 +319,42 @@ const TAB_SUBCATEGORIES: Record<Exclude<CatalogTabId, 'basics'>, SubcategoryDef[
   ],
 };
 
-function formatClockHour(rawHour: number): { text: string; shortText: string; icon: IconName; emoji: string } {
-  const h = ((rawHour % 24) + 24) % 24;
-  const totalMinutes = Math.round(h * 60) % (24 * 60);
-  const hour24 = Math.floor(totalMinutes / 60);
-  const mins = totalMinutes % 60;
-  const period = hour24 >= 12 ? 'PM' : 'AM';
-  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
-  const mm = String(mins).padStart(2, '0');
-  const text = `${hour12}:${mm} ${period}`;
-  const shortText = `${hour12}:${mm}${period === 'AM' ? 'a' : 'p'}`;
+function timeHourToStorybookIcon(hour: number, running: boolean): StorybookIconName {
+  if (running) return 'time_running';
+  const h = ((hour % 24) + 24) % 24;
+  if (h < 5.2 || h >= 20.2) return 'time_night';
+  if (h < 9.0) return 'time_dawn';
+  if (h < 16.8) return 'time_day';
+  return 'time_dusk';
+}
 
-  let icon: IconName = 'sun';
-  let emoji = '☀';
-  if (h < 5.5 || h >= 20.2) {
-    icon = 'moon';
-    emoji = '🌙';
-  } else if (h < 8.5) {
-    icon = 'sunrise';
-    emoji = '🌅';
-  } else if (h >= 17.2) {
-    icon = 'sunset';
-    emoji = '🌇';
-  }
-  return { text, shortText, icon, emoji };
+function timeHourToLabel(hour: number, running: boolean): string {
+  if (running) return 'Running';
+  const h = ((hour % 24) + 24) % 24;
+  if (h < 5.2 || h >= 20.2) return 'Night';
+  if (h < 9.0) return 'Dawn';
+  if (h < 16.8) return 'Day';
+  return 'Dusk';
+}
+
+/** Maps continuous hour (6.5..22.5) into slider stop position (1..4). */
+function hourToTimeSliderPos(hour: number, running: boolean): number {
+  if (running) return 0;
+  const h = ((hour % 24) + 24) % 24;
+  if (h < 4.5) return 4;
+  if (h <= 6.5) return 1;
+  if (h <= 12.0) return 1 + (h - 6.5) / (12.0 - 6.5);
+  if (h <= 18.5) return 2 + (h - 12.0) / (18.5 - 12.0);
+  if (h <= 22.5) return 3 + (h - 18.5) / (22.5 - 18.5);
+  return 4;
+}
+
+/** Maps slider stop position (1..4) back to continuous hour (6.5..22.5). */
+function timeSliderPosToHour(pos: number): number {
+  const clamped = Math.max(1, Math.min(4, pos));
+  if (clamped <= 2) return 6.5 + (clamped - 1) * (12.0 - 6.5);
+  if (clamped <= 3) return 12.0 + (clamped - 2) * (18.5 - 12.0);
+  return 18.5 + (clamped - 3) * (22.5 - 18.5);
 }
 
 export class HudController {
@@ -363,15 +392,20 @@ export class HudController {
   private previewObserver: IntersectionObserver | null = null;
   private unsubscribes: Array<() => void> = [];
 
+  // Location transition timers
+  private locSwapTimer: number | null = null;
+  private locFadeTimer: number | null = null;
+  private locHideTimer: number | null = null;
+
   // DOM references
   private topBarEl!: HTMLDivElement;
   private roomBtnEl!: HTMLButtonElement;
-  private roomDotEl!: HTMLSpanElement;
+  private roomIconSlotEl!: HTMLSpanElement;
   private roomLabelTextEl!: HTMLSpanElement;
-  private roomOverrideTagEl!: HTMLSpanElement;
   private atmosphereBtnEl!: HTMLButtonElement;
-  private atmosphereDotEl!: HTMLSpanElement;
-  private atmosphereTextEl!: HTMLSpanElement;
+  private atmoLocSlotEl!: HTMLSpanElement;
+  private atmoTimeSlotEl!: HTMLSpanElement;
+  private atmoWeatherSlotEl!: HTMLSpanElement;
 
   private liveModeBtnEl!: HTMLButtonElement;
   private buildModeBtnEl!: HTMLButtonElement;
@@ -382,6 +416,9 @@ export class HudController {
   private cinematicBtnEl!: HTMLButtonElement;
   private cinematicExitBtnEl!: HTMLButtonElement;
 
+  private houseOpenBtnEl!: HTMLButtonElement;
+  private houseOpenDotEl!: HTMLSpanElement;
+  private houseOpenLabelEl!: HTMLSpanElement;
   private visitorsBtnEl!: HTMLButtonElement;
   private visitorCountEl!: HTMLSpanElement;
   private soundBtnEl!: HTMLButtonElement;
@@ -405,6 +442,10 @@ export class HudController {
   private hoverTooltipEl!: HTMLDivElement;
   private hoverHintEl!: HTMLDivElement;
   private toastStackEl!: HTMLDivElement;
+  private locationCurtainEl!: HTMLDivElement;
+  private locationCurtainIconEl!: HTMLDivElement;
+  private locationCurtainTitleEl!: HTMLDivElement;
+
   private roomPopoverEl!: HTMLDivElement;
   private atmospherePopoverEl!: HTMLDivElement;
   private visitorsPopoverEl!: HTMLDivElement;
@@ -412,10 +453,15 @@ export class HudController {
   private lotPopoverEl!: HTMLDivElement;
   private fileInputEl!: HTMLInputElement;
 
-  // Live range readout refs inside open popovers so dragging never rebuilds DOM
-  private timeSliderEl: HTMLInputElement | null = null;
-  private timeReadoutEl: HTMLSpanElement | null = null;
-  private volumeSliderEls: HTMLInputElement[] = [];
+  // Live storybook slider refs so dragging stays silky smooth without rebuilding DOM
+  private timeThumbEl: HTMLDivElement | null = null;
+  private timeTrackEl: HTMLDivElement | null = null;
+  private timeStatusEl: HTMLSpanElement | null = null;
+  private timeStopBtns: HTMLButtonElement[] = [];
+  private weatherThumbEl: HTMLDivElement | null = null;
+  private weatherTrackEl: HTMLDivElement | null = null;
+  private weatherStopBtns: HTMLButtonElement[] = [];
+  private volumeThumbEls: HTMLDivElement[] = [];
   private volumeValueEls: HTMLSpanElement[] = [];
 
   constructor(
@@ -446,6 +492,7 @@ export class HudController {
     this.renderSubcategories();
     this.renderSidebarCatalog();
     this.syncEditModeUi();
+    this.syncHouseOpenButton();
     this.syncHud();
     this.syncWallViewButton();
     this.syncSoundButton();
@@ -464,6 +511,22 @@ export class HudController {
 
     this.unsubscribes.push(
       this.store.on('houseChanged', ({ state, reason }) => {
+        if (reason === 'timeOfDay') {
+          this.syncAtmosphereTopPill();
+          if (this.activePopover === 'atmosphere') {
+            this.syncTimeSliderLive();
+          }
+          return;
+        }
+
+        if (reason === 'weather' && this.activePopover === 'atmosphere') {
+          this.syncAtmosphereTopPill();
+          this.syncWeatherSliderLive();
+          this.undoBtn.disabled = !this.store.canUndo();
+          this.redoBtn.disabled = !this.store.canRedo();
+          return;
+        }
+
         const evaluation = evaluateRoomType(state, this.store.data);
         const changed =
           evaluation.labelInfo.id !== this.lastRoomId ||
@@ -477,12 +540,19 @@ export class HudController {
         this.lastRoomId = evaluation.labelInfo.id;
         this.lastRoomLabel = evaluation.labelInfo.label;
 
-        if (reason === 'timeOfDay' && this.activePopover === 'atmosphere') {
-          this.syncAtmosphereTopPill();
-          this.syncTimeSliderLive();
-          return;
-        }
         this.syncHud();
+      }),
+      this.store.on('houseOpenChanged', () => {
+        this.syncHouseOpenButton();
+        if (this.activePopover === 'visitors') {
+          this.renderVisitorsPopover();
+        }
+      }),
+      this.store.on('timeCycleChanged', () => {
+        this.syncAtmosphereTopPill();
+        if (this.activePopover === 'atmosphere') {
+          this.syncTimeSliderLive();
+        }
       }),
       this.store.on('selectionChanged', () => this.renderContextBar()),
       this.store.on('modeChanged', (modeState) => {
@@ -611,6 +681,7 @@ export class HudController {
   }
 
   dispose(): void {
+    this.clearLocationTimers();
     this.previewObserver?.disconnect();
     this.previewObserver = null;
     for (const unsub of this.unsubscribes) {
@@ -618,6 +689,56 @@ export class HudController {
     }
     this.unsubscribes = [];
     this.celebrationBanner.dispose();
+  }
+
+  private clearLocationTimers(): void {
+    if (this.locSwapTimer !== null) {
+      window.clearTimeout(this.locSwapTimer);
+      this.locSwapTimer = null;
+    }
+    if (this.locFadeTimer !== null) {
+      window.clearTimeout(this.locFadeTimer);
+      this.locFadeTimer = null;
+    }
+    if (this.locHideTimer !== null) {
+      window.clearTimeout(this.locHideTimer);
+      this.locHideTimer = null;
+    }
+  }
+
+  private switchLocationWithTransition(viewId: string): void {
+    if (this.store.getState().sceneryViewId === viewId) return;
+    const viewDef = this.store.data.viewsById.get(viewId);
+    if (!viewDef) return;
+
+    this.clearLocationTimers();
+    this.locationCurtainIconEl.innerHTML = '';
+    this.locationCurtainIconEl.appendChild(
+      createStorybookIconEl(getLocationStorybookIconName(viewId), 64),
+    );
+    this.locationCurtainTitleEl.textContent = viewDef.name;
+
+    this.locationCurtainEl.classList.remove('hidden', 'leaving');
+    void this.locationCurtainEl.offsetWidth;
+    this.locationCurtainEl.classList.add('visible');
+
+    // Swap scenery cleanly at peak opacity (~220ms)
+    this.locSwapTimer = window.setTimeout(() => {
+      this.store.setSceneryView(viewId);
+      this.locSwapTimer = null;
+    }, 220);
+
+    // Fade curtain out (~360ms -> ~560ms total)
+    this.locFadeTimer = window.setTimeout(() => {
+      this.locationCurtainEl.classList.remove('visible');
+      this.locationCurtainEl.classList.add('leaving');
+      this.locFadeTimer = null;
+      this.locHideTimer = window.setTimeout(() => {
+        this.locationCurtainEl.classList.add('hidden');
+        this.locationCurtainEl.classList.remove('leaving');
+        this.locHideTimer = null;
+      }, 210);
+    }, 360);
   }
 
   private ensureValidGroupDefaults(): void {
@@ -677,69 +798,52 @@ export class HudController {
     });
     this.root.appendChild(this.fileInputEl);
 
-    // ── Top Bar (3 calm floating islands, single-row at 1280px+) ──
+    // ── Top Bar (Ultra-clean icon-first storybook islands) ──
     this.topBarEl = document.createElement('div');
     this.topBarEl.className = 'hud-bar';
 
-    // Left Island: Brand + Room Label + Atmosphere
+    // Left Island: [Illustrated Room Icon + Label] + [Location · Time · Weather Icons Only]
     const leftIsland = document.createElement('div');
     leftIsland.className = 'hud-island';
-
-    const brand = document.createElement('div');
-    brand.className = 'brand-lockup';
-    brand.append(createIconEl('brand', 17));
-    const brandText = document.createElement('span');
-    brandText.className = 'brand-title';
-    brandText.textContent = 'Cozyhouse';
-    brand.appendChild(brandText);
-
-    const divLeft = document.createElement('span');
-    divLeft.className = 'hud-divider';
 
     this.roomBtnEl = document.createElement('button');
     this.roomBtnEl.type = 'button';
     this.roomBtnEl.className = 'island-btn room-badge-btn';
-    this.roomBtnEl.title = 'Inspect room tags or choose a manual room type';
+    this.roomBtnEl.title = 'Choose room type or custom name';
 
-    this.roomDotEl = document.createElement('span');
-    this.roomDotEl.className = 'status-dot';
+    this.roomIconSlotEl = document.createElement('span');
+    this.roomIconSlotEl.className = 'room-icon-slot';
     this.roomLabelTextEl = document.createElement('span');
     this.roomLabelTextEl.className = 'room-label-text';
-    this.roomOverrideTagEl = document.createElement('span');
-    this.roomOverrideTagEl.className = 'room-override-chip hidden';
-    this.roomOverrideTagEl.textContent = 'Manual';
-    const roomChevron = document.createElement('span');
-    roomChevron.className = 'btn-chevron';
-    roomChevron.textContent = '▾';
-    this.roomBtnEl.append(
-      this.roomDotEl,
-      this.roomLabelTextEl,
-      this.roomOverrideTagEl,
-      roomChevron,
-    );
+
+    this.roomBtnEl.append(this.roomIconSlotEl, this.roomLabelTextEl);
     this.roomBtnEl.addEventListener('click', () => {
       this.audioModule?.playUiClick();
       this.togglePopover('room');
     });
 
+    const divLeft = document.createElement('span');
+    divLeft.className = 'hud-divider';
+
     this.atmosphereBtnEl = document.createElement('button');
     this.atmosphereBtnEl.type = 'button';
     this.atmosphereBtnEl.className = 'island-btn atmosphere-btn';
-    this.atmosphereBtnEl.title = '24-hour time, window view, weather & lighting';
-    this.atmosphereDotEl = document.createElement('span');
-    this.atmosphereDotEl.className = 'atmosphere-dot';
-    this.atmosphereTextEl = document.createElement('span');
-    this.atmosphereTextEl.className = 'tabular-num';
-    const atmoChevron = document.createElement('span');
-    atmoChevron.className = 'btn-chevron';
-    atmoChevron.textContent = '▾';
-    this.atmosphereBtnEl.append(this.atmosphereDotEl, this.atmosphereTextEl, atmoChevron);
+    this.atmosphereBtnEl.setAttribute('aria-label', 'Atmosphere, time, weather & location');
+
+    this.atmoLocSlotEl = document.createElement('span');
+    this.atmoLocSlotEl.className = 'atmo-icon-slot';
+    this.atmoTimeSlotEl = document.createElement('span');
+    this.atmoTimeSlotEl.className = 'atmo-icon-slot';
+    this.atmoWeatherSlotEl = document.createElement('span');
+    this.atmoWeatherSlotEl.className = 'atmo-icon-slot';
+
+    this.atmosphereBtnEl.append(this.atmoLocSlotEl, this.atmoTimeSlotEl, this.atmoWeatherSlotEl);
     this.atmosphereBtnEl.addEventListener('click', () => {
       this.audioModule?.playUiClick();
       this.togglePopover('atmosphere');
     });
 
-    leftIsland.append(brand, divLeft, this.roomBtnEl, this.atmosphereBtnEl);
+    leftIsland.append(this.roomBtnEl, divLeft, this.atmosphereBtnEl);
 
     // Center Island: Live / Build Switch + Build Undo/Redo + Camera + Wall Cutaway + Cinematic
     const centerIsland = document.createElement('div');
@@ -753,8 +857,8 @@ export class HudController {
     this.liveModeBtnEl = document.createElement('button');
     this.liveModeBtnEl.type = 'button';
     this.liveModeBtnEl.className = 'mode-seg-btn live-seg';
-    this.liveModeBtnEl.title = 'Live Mode — interact with items and watch visitors';
-    this.liveModeBtnEl.append(createIconEl('live', 14));
+    this.liveModeBtnEl.title = 'Live Mode — interact and watch visitors';
+    this.liveModeBtnEl.append(createIconEl('live', 13));
     const liveLbl = document.createElement('span');
     liveLbl.textContent = 'Live';
     this.liveModeBtnEl.appendChild(liveLbl);
@@ -767,7 +871,7 @@ export class HudController {
     this.buildModeBtnEl.type = 'button';
     this.buildModeBtnEl.className = 'mode-seg-btn build-seg';
     this.buildModeBtnEl.title = 'Build Mode — furnish, paint walls & floors, expand lot';
-    this.buildModeBtnEl.append(createIconEl('build', 14));
+    this.buildModeBtnEl.append(createIconEl('build', 13));
     const buildLbl = document.createElement('span');
     buildLbl.textContent = 'Build';
     this.buildModeBtnEl.appendChild(buildLbl);
@@ -921,21 +1025,44 @@ export class HudController {
       this.cinematicBtnEl,
     );
 
-    // Right Island: Visitors + Sound Mute + House Menu (⋯)
+    // Right Island: Open/Closed Switch + Visitors Icon+Count + Sound Icon + Menu Icon
     const rightIsland = document.createElement('div');
     rightIsland.className = 'hud-island';
+
+    this.houseOpenBtnEl = document.createElement('button');
+    this.houseOpenBtnEl.type = 'button';
+    this.houseOpenBtnEl.className = 'open-toggle-pill';
+    this.houseOpenBtnEl.setAttribute('role', 'switch');
+    this.houseOpenBtnEl.title = 'Toggle whether visitors can drop by automatically';
+
+    this.houseOpenDotEl = document.createElement('span');
+    this.houseOpenDotEl.className = 'open-status-dot';
+    this.houseOpenLabelEl = document.createElement('span');
+    this.houseOpenLabelEl.textContent = 'Open';
+    this.houseOpenBtnEl.append(this.houseOpenDotEl, this.houseOpenLabelEl);
+    this.houseOpenBtnEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.store.toggleHouseOpen();
+      const nowOpen = this.store.isHouseOpen();
+      this.store.notify(
+        nowOpen ? 'House is Open — guests may drop by!' : 'House is Closed to drop-in guests',
+        'info',
+      );
+    });
+
+    const divRight = document.createElement('span');
+    divRight.className = 'hud-divider';
 
     this.visitorsBtnEl = document.createElement('button');
     this.visitorsBtnEl.type = 'button';
     this.visitorsBtnEl.className = 'island-btn visitors-btn';
-    this.visitorsBtnEl.title = 'Invite guests & inspect visitor status';
-    this.visitorsBtnEl.appendChild(createIconEl('visitors', 15));
-    const visitorsLabel = document.createElement('span');
-    visitorsLabel.textContent = 'Visitors';
+    this.visitorsBtnEl.title = 'Visitors & Guests';
+    this.visitorsBtnEl.setAttribute('aria-label', 'Visitors');
+    this.visitorsBtnEl.appendChild(createIconEl('visitors', 16));
     this.visitorCountEl = document.createElement('span');
     this.visitorCountEl.className = 'count-pill';
     this.visitorCountEl.textContent = '0';
-    this.visitorsBtnEl.append(visitorsLabel, this.visitorCountEl);
+    this.visitorsBtnEl.appendChild(this.visitorCountEl);
     this.visitorsBtnEl.addEventListener('click', () => {
       this.audioModule?.playUiClick();
       this.togglePopover('visitors');
@@ -957,7 +1084,7 @@ export class HudController {
     this.menuBtnEl = document.createElement('button');
     this.menuBtnEl.type = 'button';
     this.menuBtnEl.className = 'icon-btn menu-btn';
-    this.menuBtnEl.title = 'House menu — Share Link, Volume, Export, Import & Controls';
+    this.menuBtnEl.title = 'House menu — Share Link, Volume, Files & Controls';
     this.menuBtnEl.setAttribute('aria-label', 'House menu');
     this.menuBtnEl.appendChild(createIconEl('menu', 16));
     this.menuBtnEl.addEventListener('click', () => {
@@ -965,12 +1092,18 @@ export class HudController {
       this.togglePopover('menu');
     });
 
-    rightIsland.append(this.visitorsBtnEl, this.soundBtnEl, this.menuBtnEl);
+    rightIsland.append(
+      this.houseOpenBtnEl,
+      divRight,
+      this.visitorsBtnEl,
+      this.soundBtnEl,
+      this.menuBtnEl,
+    );
 
     this.topBarEl.append(leftIsland, centerIsland, rightIsland);
     this.root.appendChild(this.topBarEl);
 
-    // ── Left-Side Vertical Build Sidebar (Slides in on Build Mode) ──
+    // ── Left-Side Vertical Build Sidebar ──
     this.buildSidebarEl = document.createElement('aside');
     this.buildSidebarEl.className = 'build-sidebar tucked';
     this.buildSidebarEl.setAttribute('aria-label', 'Build Catalog');
@@ -981,25 +1114,25 @@ export class HudController {
     const mainCol = document.createElement('div');
     mainCol.className = 'sidebar-main-col';
 
-    // Compact Build Tool Strip
     const toolRow = document.createElement('div');
     toolRow.className = 'sidebar-tool-row';
 
     this.selectToolBtnEl = this.makeBtn(
-      'Select',
+      '',
       () => {
         this.audioModule?.playUiClick();
         this.store.setSelectMode();
       },
       'ghost',
       'select',
-      13,
+      14,
     );
     this.selectToolBtnEl.className = 'tool-btn';
     this.selectToolBtnEl.title = 'Select, move, rotate, or recolor items';
+    this.selectToolBtnEl.setAttribute('aria-label', 'Select tool');
 
     this.bulkSelectBtnEl = this.makeBtn(
-      'Bulk',
+      '',
       () => {
         this.audioModule?.playUiClick();
         if (this.store.getModeState().mode === 'bulk-select') {
@@ -1010,13 +1143,14 @@ export class HudController {
       },
       'ghost',
       'bulkSelect',
-      13,
+      14,
     );
     this.bulkSelectBtnEl.className = 'tool-btn';
     this.bulkSelectBtnEl.title = 'Bulk Select — click or drag box';
+    this.bulkSelectBtnEl.setAttribute('aria-label', 'Bulk select tool');
 
     this.bulkEraseBtnEl = this.makeBtn(
-      'Erase',
+      '',
       () => {
         this.audioModule?.playUiClick();
         if (this.store.getModeState().mode === 'erase') {
@@ -1027,16 +1161,17 @@ export class HudController {
       },
       'ghost',
       'eraser',
-      13,
+      14,
     );
     this.bulkEraseBtnEl.className = 'tool-btn';
     this.bulkEraseBtnEl.title = 'Bulk Erase — click or drag to remove';
+    this.bulkEraseBtnEl.setAttribute('aria-label', 'Bulk erase tool');
 
     this.lotSizeBtnEl = document.createElement('button');
     this.lotSizeBtnEl.type = 'button';
     this.lotSizeBtnEl.className = 'tool-btn';
     this.lotSizeBtnEl.title = 'Expand lot in any direction & restyle all walls or floors';
-    this.lotSizeBtnEl.appendChild(createIconEl('lot', 13));
+    this.lotSizeBtnEl.appendChild(createIconEl('lot', 14));
     this.lotSizeBadgeEl = document.createElement('span');
     this.lotSizeBadgeEl.className = 'lot-dim-chip';
     this.lotSizeBtnEl.appendChild(this.lotSizeBadgeEl);
@@ -1046,17 +1181,18 @@ export class HudController {
     });
 
     this.gridToggleBtnEl = this.makeBtn(
-      'Grid',
+      '',
       () => {
         this.audioModule?.playUiClick();
         this.store.setGridVisible(!this.store.isGridVisible());
       },
       'ghost',
       'grid',
-      13,
+      14,
     );
     this.gridToggleBtnEl.className = 'tool-btn';
     this.gridToggleBtnEl.title = 'Toggle buildable tile grid lines';
+    this.gridToggleBtnEl.setAttribute('aria-label', 'Toggle grid');
 
     toolRow.append(
       this.selectToolBtnEl,
@@ -1066,7 +1202,6 @@ export class HudController {
       this.gridToggleBtnEl,
     );
 
-    // Search Row
     const searchWrap = document.createElement('div');
     searchWrap.className = 'catalog-search-wrap';
     searchWrap.appendChild(createIconEl('search', 14));
@@ -1074,7 +1209,7 @@ export class HudController {
     this.searchInputEl = document.createElement('input');
     this.searchInputEl.type = 'text';
     this.searchInputEl.className = 'catalog-search-input';
-    this.searchInputEl.placeholder = 'Search furniture…';
+    this.searchInputEl.placeholder = 'Search…';
     this.searchInputEl.setAttribute('aria-label', 'Search catalog items');
     this.searchInputEl.addEventListener('input', () => {
       this.searchQuery = this.searchInputEl.value;
@@ -1098,11 +1233,9 @@ export class HudController {
 
     searchWrap.append(this.searchInputEl, this.searchClearBtn);
 
-    // Subcategory Pills Strip
     this.subcategoryStripEl = document.createElement('div');
     this.subcategoryStripEl.className = 'subcategory-strip';
 
-    // Downward-scrolling Catalog Body
     this.sidebarBodyEl = document.createElement('div');
     this.sidebarBodyEl.className = 'sidebar-catalog-body';
 
@@ -1136,17 +1269,30 @@ export class HudController {
     this.hoverTooltipEl.className = 'hover-item-tooltip';
     this.root.appendChild(this.hoverTooltipEl);
 
-    // Hover validation hint pill
     this.hoverHintEl = document.createElement('div');
     this.hoverHintEl.className = 'floating-hint';
     this.root.appendChild(this.hoverHintEl);
 
-    // Toast stack
     this.toastStackEl = document.createElement('div');
     this.toastStackEl.className = 'toast-stack';
+    this.toastStackEl.setAttribute('aria-live', 'polite');
     this.root.appendChild(this.toastStackEl);
 
-    // Cinematic Mode Exit Pill
+    // ── Location Transition Storybook Curtain ──
+    this.locationCurtainEl = document.createElement('div');
+    this.locationCurtainEl.className = 'location-transition-curtain hidden';
+    this.locationCurtainEl.setAttribute('aria-hidden', 'true');
+    const curtainCard = document.createElement('div');
+    curtainCard.className = 'location-curtain-card';
+    this.locationCurtainIconEl = document.createElement('div');
+    this.locationCurtainIconEl.className = 'location-curtain-icon';
+    this.locationCurtainTitleEl = document.createElement('div');
+    this.locationCurtainTitleEl.className = 'location-curtain-title';
+    curtainCard.append(this.locationCurtainIconEl, this.locationCurtainTitleEl);
+    this.locationCurtainEl.appendChild(curtainCard);
+    this.root.appendChild(this.locationCurtainEl);
+
+    // ── Cinematic Mode Exit Pill ──
     this.cinematicExitBtnEl = this.makeBtn(
       'Exit Cinematic',
       () => {
@@ -1165,7 +1311,7 @@ export class HudController {
     this.liveCtaWrapEl = document.createElement('div');
     this.liveCtaWrapEl.className = 'live-cta-wrap';
     const enterBuildBtn = this.makeBtn(
-      'Build & Decorate',
+      'Build',
       () => {
         this.audioModule?.playUiClick();
         this.store.setEditMode(true);
@@ -1175,6 +1321,7 @@ export class HudController {
       15,
     );
     enterBuildBtn.className = 'live-build-cta';
+    enterBuildBtn.title = 'Open Build Mode';
     this.liveCtaWrapEl.appendChild(enterBuildBtn);
     this.root.appendChild(this.liveCtaWrapEl);
 
@@ -1204,9 +1351,10 @@ export class HudController {
   private setActivePopover(kind: PopoverKind): void {
     this.updateTopOffset();
     this.activePopover = kind;
-    this.timeSliderEl = null;
-    this.timeReadoutEl = null;
-    this.volumeSliderEls = [];
+    this.timeThumbEl = null;
+    this.timeStatusEl = null;
+    this.timeStopBtns = [];
+    this.volumeThumbEls = [];
     this.volumeValueEls = [];
 
     this.roomPopoverEl.classList.toggle('hidden', kind !== 'room');
@@ -1240,6 +1388,17 @@ export class HudController {
     this.updateTopOffset();
   }
 
+  private syncHouseOpenButton(): void {
+    if (!this.houseOpenBtnEl) return;
+    const isOpen = this.store.isHouseOpen();
+    this.houseOpenBtnEl.classList.toggle('is-open', isOpen);
+    this.houseOpenBtnEl.setAttribute('aria-checked', String(isOpen));
+    this.houseOpenLabelEl.textContent = isOpen ? 'Open' : 'Closed';
+    this.houseOpenBtnEl.title = isOpen
+      ? 'House is Open — guests drop by automatically (click to Close)'
+      : 'House is Closed — invite guests manually (click to Open)';
+  }
+
   private renderTabRail(): void {
     this.tabRailEl.innerHTML = '';
     const counts = new Map<CatalogTabId, number>();
@@ -1253,7 +1412,6 @@ export class HudController {
       btn.className = tab.id === this.activeTab ? 'rail-tab-btn active' : 'rail-tab-btn';
       const count = tab.id === 'basics' ? BASICS_GROUPS.length : (counts.get(tab.id) ?? 0);
       btn.title = `${tab.label} (${count})`;
-      btn.style.setProperty('--tab-accent', tab.color);
 
       const iconWrap = document.createElement('span');
       iconWrap.className = 'rail-tab-icon';
@@ -1427,7 +1585,6 @@ export class HudController {
     const modeState = this.store.getModeState();
     const query = this.searchQuery.trim().toLowerCase();
 
-    // ── Consolidated Basics Tab (4 iconic cards + inline style grid when selected) ──
     if (this.activeTab === 'basics' && !query) {
       this.ensureValidGroupDefaults();
 
@@ -1487,14 +1644,12 @@ export class HudController {
 
       this.sidebarBodyEl.appendChild(groupGrid);
 
-      // Inline Basics Style Sub-Picker right inside the sidebar!
       if (this.activeBasicsGroup) {
         this.renderInlineBasicsSubPicker(this.activeBasicsGroup);
       }
       return;
     }
 
-    // ── Standard 2-column Vertical Grid (with Subcategory or Global Search filtering) ──
     let items: FurnitureItemDef[];
     if (query) {
       items = this.store.data.furniture.items.filter((i) => {
@@ -1512,7 +1667,7 @@ export class HudController {
       const empty = document.createElement('div');
       empty.className = 'catalog-empty';
       const msg = document.createElement('span');
-      msg.textContent = query ? 'No items match your search.' : 'No items in this subcategory.';
+      msg.textContent = query ? 'No items match your search.' : 'No items in this category.';
       const reset = this.makeBtn('Show All', () => {
         this.audioModule?.playUiClick();
         this.searchQuery = '';
@@ -1624,12 +1779,16 @@ export class HudController {
     header.className = 'inline-basics-header';
     const title = document.createElement('span');
     title.className = 'popover-section-label';
-    title.textContent = `${groupMeta.label} Styles`;
-    const closeBtn = this.makeBtn('Done', () => {
-      this.audioModule?.playUiClick();
-      this.activeBasicsGroup = null;
-      this.store.setSelectMode();
-    }, 'primary');
+    title.textContent = groupMeta.label;
+    const closeBtn = this.makeBtn(
+      'Done',
+      () => {
+        this.audioModule?.playUiClick();
+        this.activeBasicsGroup = null;
+        this.store.setSelectMode();
+      },
+      'primary',
+    );
     closeBtn.className = 'btn primary btn-xs';
     header.append(title, closeBtn);
     panel.appendChild(header);
@@ -1646,13 +1805,14 @@ export class HudController {
 
     if (groupId === 'floors' || groupId === 'walls') {
       const applyBtn = this.makeBtn(
-        groupId === 'floors' ? 'Apply All Floors' : 'Apply All Walls',
+        groupId === 'floors' ? 'Apply All' : 'Apply All',
         () => {
           this.audioModule?.playUiClick();
           this.applySurfaceStyleToAll(groupId, activeDef.id, activeVariantId);
         },
       );
       applyBtn.className = 'btn btn-xs';
+      applyBtn.title = groupId === 'floors' ? 'Apply style to all floors' : 'Apply style to all walls';
       swatchRow.appendChild(applyBtn);
     }
     panel.appendChild(swatchRow);
@@ -1781,7 +1941,7 @@ export class HudController {
 
       const title = document.createElement('span');
       title.className = 'context-title';
-      title.textContent = 'Bulk Erase — click or drag';
+      title.textContent = 'Erase';
 
       const filterWrap = document.createElement('div');
       filterWrap.className = 'seg-strip';
@@ -1837,7 +1997,7 @@ export class HudController {
 
       const title = document.createElement('span');
       title.className = 'context-title';
-      title.textContent = `Placing: ${def.name}`;
+      title.textContent = def.name;
 
       const swatches = this.buildVariantSwatches(def, activeVariantId, (variantId) => {
         this.audioModule?.playUiClick();
@@ -1848,10 +2008,10 @@ export class HudController {
         contextPreview,
         title,
         swatches,
-        this.makeBtn('Rotate 90°', () => {
+        this.makeBtn('Rotate', () => {
           this.audioModule?.playUiClick();
           this.store.rotatePlacement(1);
-        }),
+        }, undefined, 'rotRight', 14),
         this.makeBtn(
           'Done',
           () => {
@@ -1871,14 +2031,14 @@ export class HudController {
 
       const title = document.createElement('span');
       title.className = 'context-title';
-      title.textContent = `Moving ${def?.name ?? selected.itemId} — click to drop`;
+      title.textContent = `Moving ${def?.name ?? selected.itemId}`;
 
       this.contextBarEl.append(
         title,
-        this.makeBtn('Rotate 90°', () => {
+        this.makeBtn('Rotate', () => {
           this.audioModule?.playUiClick();
           this.store.rotatePlacement(1);
-        }),
+        }, undefined, 'rotRight', 14),
         this.makeBtn('Cancel', () => {
           this.audioModule?.playUiClick();
           this.store.setSelectMode();
@@ -1919,56 +2079,36 @@ export class HudController {
         const wallDefs = this.getBasicsGroupItems('walls');
         if (wallDefs.length > 1) {
           this.contextBarEl.appendChild(
-            this.buildStyleSelect(
-              wallDefs,
-              def.id,
-              (nextItemId) => {
-                this.store.replaceItemsType([selected.uid], nextItemId);
-              },
-              'Wall style…',
-            ),
+            this.buildStyleSelect(wallDefs, def.id, (nextItemId) => {
+              this.store.replaceItemsType([selected.uid], nextItemId);
+            }),
           );
         }
       } else if (this.isFloorTileDef(def)) {
         const floorDefs = this.getBasicsGroupItems('floors');
         if (floorDefs.length > 1) {
           this.contextBarEl.appendChild(
-            this.buildStyleSelect(
-              floorDefs,
-              def.id,
-              (nextItemId) => {
-                this.store.replaceItemsType([selected.uid], nextItemId);
-              },
-              'Floor style…',
-            ),
+            this.buildStyleSelect(floorDefs, def.id, (nextItemId) => {
+              this.store.replaceItemsType([selected.uid], nextItemId);
+            }),
           );
         }
       } else if (this.isDoorDef(def)) {
         const doorDefs = this.getBasicsGroupItems('doors');
         if (doorDefs.length > 1) {
           this.contextBarEl.appendChild(
-            this.buildStyleSelect(
-              doorDefs,
-              def.id,
-              (nextItemId) => {
-                this.store.replaceItemsType([selected.uid], nextItemId);
-              },
-              'Door style…',
-            ),
+            this.buildStyleSelect(doorDefs, def.id, (nextItemId) => {
+              this.store.replaceItemsType([selected.uid], nextItemId);
+            }),
           );
         }
       } else if (this.isWindowDef(def)) {
         const winDefs = this.getBasicsGroupItems('windows');
         if (winDefs.length > 1) {
           this.contextBarEl.appendChild(
-            this.buildStyleSelect(
-              winDefs,
-              def.id,
-              (nextItemId) => {
-                this.store.replaceItemsType([selected.uid], nextItemId);
-              },
-              'Window style…',
-            ),
+            this.buildStyleSelect(winDefs, def.id, (nextItemId) => {
+              this.store.replaceItemsType([selected.uid], nextItemId);
+            }),
           );
         }
       }
@@ -1986,10 +2126,10 @@ export class HudController {
           this.audioModule?.playUiClick();
           this.store.startMovingSelected();
         }),
-        this.makeBtn('Rotate 90°', () => {
+        this.makeBtn('Rotate', () => {
           this.audioModule?.playUiClick();
           this.placement.rotateSelectedInPlace();
-        }),
+        }, undefined, 'rotRight', 14),
         this.makeBtn(
           'Delete',
           () => {
@@ -2018,8 +2158,7 @@ export class HudController {
 
     const countPill = document.createElement('span');
     countPill.className = 'context-title tabular-num';
-    countPill.textContent =
-      uids.length === 0 ? '0 selected — click or drag box' : `${uids.length} selected`;
+    countPill.textContent = uids.length === 0 ? '0 selected' : `${uids.length} selected`;
 
     const allWallsBtn = this.makeBtn('All Walls', () => {
       this.audioModule?.playUiClick();
@@ -2089,7 +2228,7 @@ export class HudController {
                 );
               }
             },
-            'Swap wall style…',
+            'Swap wall…',
           ),
         );
       } else if (allFloors) {
@@ -2108,7 +2247,7 @@ export class HudController {
                 );
               }
             },
-            'Swap floor style…',
+            'Swap floor…',
           ),
         );
       }
@@ -2157,6 +2296,667 @@ export class HudController {
     this.contextBarEl.append(deleteBtn, clearBtn, doneBtn);
   }
 
+  // ── Clean Room Picker Popover (NO Furniture Tag Dump!) ──
+  private renderRoomPopover(): void {
+    const state = this.store.getState();
+    const derivedEval = evaluateRoomType({ ...state, roomTypeOverride: null }, this.store.data);
+
+    this.roomPopoverEl.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'popover-header';
+    const h4 = document.createElement('h4');
+    h4.textContent = 'Space';
+    const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
+    closeBtn.className = 'btn icon-close';
+    header.append(h4, closeBtn);
+    this.roomPopoverEl.appendChild(header);
+
+    const autoBtn = document.createElement('button');
+    autoBtn.type = 'button';
+    autoBtn.className = !state.roomTypeOverride ? 'preset-btn full selected' : 'preset-btn full';
+    autoBtn.append(createStorybookIconEl(getRoomStorybookIconName(derivedEval.labelInfo.id), 18));
+    const autoText = document.createElement('span');
+    autoText.textContent = `Auto · ${derivedEval.labelInfo.label}`;
+    autoBtn.appendChild(autoText);
+    autoBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.store.setRoomTypeOverride(null);
+    });
+    this.roomPopoverEl.appendChild(autoBtn);
+
+    const grid = document.createElement('div');
+    grid.className = 'room-preset-grid';
+    const sortedRules = [...this.store.data.roomRules.rules].sort(
+      (a, b) => b.priority - a.priority,
+    );
+    for (const rule of sortedRules) {
+      const isSelected =
+        state.roomTypeOverride === rule.id || state.roomTypeOverride === rule.label;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = isSelected ? 'preset-btn selected' : 'preset-btn';
+      btn.title = rule.description;
+
+      btn.append(createStorybookIconEl(getRoomStorybookIconName(rule.id), 19));
+
+      const lbl = document.createElement('span');
+      lbl.textContent = rule.label;
+      btn.appendChild(lbl);
+
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.store.setRoomTypeOverride(rule.id);
+      });
+      grid.appendChild(btn);
+    }
+    this.roomPopoverEl.appendChild(grid);
+
+    const customRow = document.createElement('div');
+    customRow.className = 'custom-room-row';
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'custom-room-input';
+    input.placeholder = 'Custom name…';
+    input.maxLength = 32;
+    if (
+      state.roomTypeOverride &&
+      !sortedRules.some(
+        (r) => r.id === state.roomTypeOverride || r.label === state.roomTypeOverride,
+      )
+    ) {
+      input.value = state.roomTypeOverride;
+    }
+
+    const applyCustom = () => {
+      const trimmed = input.value.trim();
+      if (!trimmed) return;
+      this.audioModule?.playUiClick();
+      this.store.setRoomTypeOverride(trimmed);
+    };
+
+    const applyBtn = this.makeBtn('Set', applyCustom, 'primary');
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') applyCustom();
+    });
+
+    customRow.append(input, applyBtn);
+    this.roomPopoverEl.appendChild(customRow);
+  }
+
+  // ── Storybook Custom Ink-Rail Sliders & Atmosphere Popover ──
+  private positionOrbAlongNotches(orb: HTMLDivElement, pos: number, stopCount: number): void {
+    const t = Math.max(0, Math.min(1, pos / (stopCount - 1)));
+    // Matches the rail padding (10% .. 90% for 5 stops = center of first & last icon column)
+    const halfCol = 50 / stopCount;
+    const pct = halfCol + t * (100 - halfCol * 2);
+    orb.style.left = `${pct.toFixed(2)}%`;
+  }
+
+  private syncTimeSliderLive(): void {
+    const running = this.store.isTimeCycleRunning();
+    const hour = this.store.getTimeHour();
+    const pos = hourToTimeSliderPos(hour, running);
+    const label = timeHourToLabel(hour, running);
+
+    if (this.timeThumbEl && this.timeThumbEl.isConnected) {
+      this.positionOrbAlongNotches(this.timeThumbEl, pos, TIME_STOPS.length);
+    }
+    if (this.timeTrackEl && this.timeTrackEl.isConnected) {
+      this.timeTrackEl.setAttribute('aria-valuenow', pos.toFixed(2));
+      this.timeTrackEl.setAttribute('aria-valuetext', label);
+    }
+    if (this.timeStatusEl && this.timeStatusEl.isConnected) {
+      this.timeStatusEl.textContent = label;
+    }
+    const activeIdx = running ? 0 : Math.round(pos);
+    this.timeStopBtns.forEach((btn, idx) => {
+      if (btn.isConnected) {
+        btn.classList.toggle('active', idx === activeIdx);
+      }
+    });
+  }
+
+  private syncWeatherSliderLive(): void {
+    const activeWeatherId = this.store.getState().weatherId;
+    const activeIdx = Math.max(
+      0,
+      WEATHER_SLIDER_ORDER.findIndex((w) => w.id === activeWeatherId),
+    );
+    const entry = WEATHER_SLIDER_ORDER[activeIdx] ?? WEATHER_SLIDER_ORDER[0];
+
+    if (this.weatherThumbEl && this.weatherThumbEl.isConnected) {
+      this.positionOrbAlongNotches(this.weatherThumbEl, activeIdx, WEATHER_SLIDER_ORDER.length);
+    }
+    if (this.weatherTrackEl && this.weatherTrackEl.isConnected) {
+      this.weatherTrackEl.setAttribute('aria-valuenow', String(activeIdx));
+      this.weatherTrackEl.setAttribute('aria-valuetext', entry.label);
+    }
+    this.weatherStopBtns.forEach((btn, idx) => {
+      if (btn.isConnected) {
+        btn.classList.toggle('active', idx === activeIdx);
+      }
+    });
+  }
+
+  private buildStorybookTimeSlider(): HTMLDivElement {
+    const card = document.createElement('div');
+    card.className = 'sb-slider-card';
+
+    const running = this.store.isTimeCycleRunning();
+    const hour = this.store.getTimeHour();
+    const pos = hourToTimeSliderPos(hour, running);
+
+    const head = document.createElement('div');
+    head.className = 'sb-slider-head';
+    const prefix = document.createElement('span');
+    prefix.className = 'sb-slider-prefix';
+    prefix.textContent = 'Time of day:';
+    const val = document.createElement('span');
+    val.className = 'sb-slider-value';
+    val.textContent = timeHourToLabel(hour, running);
+    this.timeStatusEl = val;
+    head.append(prefix, val);
+    card.appendChild(head);
+
+    const track = document.createElement('div');
+    track.className = 'sb-slider-track';
+    track.setAttribute('role', 'slider');
+    track.setAttribute('tabindex', '0');
+    track.setAttribute('aria-label', 'Time of day');
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '4');
+    track.setAttribute('aria-valuenow', pos.toFixed(2));
+    track.setAttribute('aria-valuetext', timeHourToLabel(hour, running));
+    this.timeTrackEl = track;
+
+    const rail = document.createElement('div');
+    rail.className = 'sb-slider-rail';
+    track.appendChild(rail);
+
+    for (let i = 0; i < TIME_STOPS.length; i++) {
+      const tick = document.createElement('span');
+      tick.className = 'sb-slider-tick';
+      const halfCol = 50 / TIME_STOPS.length;
+      const pct = halfCol + (i / (TIME_STOPS.length - 1)) * (100 - halfCol * 2);
+      tick.style.left = `${pct}%`;
+      track.appendChild(tick);
+    }
+
+    const orb = document.createElement('div');
+    orb.className = 'sb-slider-orb';
+    this.positionOrbAlongNotches(orb, pos, TIME_STOPS.length);
+    this.timeThumbEl = orb;
+    track.appendChild(orb);
+
+    const applyClientX = (clientX: number, commitHistory: boolean) => {
+      const rect = rail.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const nextPos = ratio * (TIME_STOPS.length - 1);
+      if (nextPos < 0.45) {
+        if (!this.store.isTimeCycleRunning()) {
+          this.store.setTimeCycleRunning(true);
+        }
+        this.syncTimeSliderLive();
+      } else {
+        if (this.store.isTimeCycleRunning()) {
+          this.store.setTimeCycleRunning(false);
+        }
+        const nextHour = timeSliderPosToHour(Math.max(1, nextPos));
+        this.store.setTimeHour(nextHour, { recordHistory: commitHistory });
+        this.syncTimeSliderLive();
+      }
+    };
+
+    let dragging = false;
+    track.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dragging = true;
+      track.setPointerCapture(e.pointerId);
+      orb.classList.add('dragging');
+      applyClientX(e.clientX, false);
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      applyClientX(e.clientX, false);
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      orb.classList.remove('dragging');
+      if (track.hasPointerCapture(e.pointerId)) {
+        track.releasePointerCapture(e.pointerId);
+      }
+    };
+    track.addEventListener('pointerup', endDrag);
+    track.addEventListener('pointercancel', endDrag);
+
+    track.addEventListener('keydown', (e) => {
+      const curIdx = this.store.isTimeCycleRunning()
+        ? 0
+        : Math.round(hourToTimeSliderPos(this.store.getTimeHour(), false));
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const nextIdx = Math.min(TIME_STOPS.length - 1, curIdx + 1);
+        this.selectTimeStop(nextIdx);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const nextIdx = Math.max(0, curIdx - 1);
+        this.selectTimeStop(nextIdx);
+      }
+    });
+
+    card.appendChild(track);
+
+    const iconsRow = document.createElement('div');
+    iconsRow.className = 'sb-slider-stops';
+    this.timeStopBtns = [];
+    const activeIdx = running ? 0 : Math.round(pos);
+
+    TIME_STOPS.forEach((stop, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = idx === activeIdx ? 'sb-stop-btn active' : 'sb-stop-btn';
+      btn.title = stop.label;
+      btn.setAttribute('aria-label', stop.label);
+      btn.appendChild(createStorybookIconEl(stop.icon, 24));
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.selectTimeStop(idx);
+      });
+      this.timeStopBtns.push(btn);
+      iconsRow.appendChild(btn);
+    });
+
+    card.appendChild(iconsRow);
+    return card;
+  }
+
+  private selectTimeStop(idx: number): void {
+    const stop = TIME_STOPS[idx];
+    if (!stop) return;
+    if (stop.id === 'running') {
+      this.store.setTimeCycleRunning(true);
+    } else {
+      this.store.setTimeCycleRunning(false);
+      this.store.setTimeHour(stop.hour ?? 12);
+    }
+    this.syncTimeSliderLive();
+  }
+
+  private buildStorybookWeatherSlider(activeWeatherId: string): HTMLDivElement {
+    const card = document.createElement('div');
+    card.className = 'sb-slider-card';
+
+    const activeIdx = Math.max(
+      0,
+      WEATHER_SLIDER_ORDER.findIndex((w) => w.id === activeWeatherId),
+    );
+
+    const track = document.createElement('div');
+    track.className = 'sb-slider-track';
+    track.setAttribute('role', 'slider');
+    track.setAttribute('tabindex', '0');
+    track.setAttribute('aria-label', 'Weather');
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', String(WEATHER_SLIDER_ORDER.length - 1));
+    track.setAttribute('aria-valuenow', String(activeIdx));
+    track.setAttribute(
+      'aria-valuetext',
+      (WEATHER_SLIDER_ORDER[activeIdx] ?? WEATHER_SLIDER_ORDER[0]).label,
+    );
+    this.weatherTrackEl = track;
+
+    const rail = document.createElement('div');
+    rail.className = 'sb-slider-rail';
+    track.appendChild(rail);
+
+    for (let i = 0; i < WEATHER_SLIDER_ORDER.length; i++) {
+      const tick = document.createElement('span');
+      tick.className = 'sb-slider-tick';
+      const halfCol = 50 / WEATHER_SLIDER_ORDER.length;
+      const pct = halfCol + (i / (WEATHER_SLIDER_ORDER.length - 1)) * (100 - halfCol * 2);
+      tick.style.left = `${pct}%`;
+      track.appendChild(tick);
+    }
+
+    const orb = document.createElement('div');
+    orb.className = 'sb-slider-orb';
+    this.positionOrbAlongNotches(orb, activeIdx, WEATHER_SLIDER_ORDER.length);
+    this.weatherThumbEl = orb;
+    track.appendChild(orb);
+
+    const applyClientX = (clientX: number) => {
+      const rect = rail.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const idx = Math.round(ratio * (WEATHER_SLIDER_ORDER.length - 1));
+      const chosen = WEATHER_SLIDER_ORDER[idx];
+      if (chosen && chosen.id !== this.store.getState().weatherId) {
+        this.audioModule?.playUiClick();
+        this.store.setWeather(chosen.id);
+      }
+    };
+
+    let dragging = false;
+    track.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dragging = true;
+      track.setPointerCapture(e.pointerId);
+      orb.classList.add('dragging');
+      applyClientX(e.clientX);
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      applyClientX(e.clientX);
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      orb.classList.remove('dragging');
+      if (track.hasPointerCapture(e.pointerId)) {
+        track.releasePointerCapture(e.pointerId);
+      }
+    };
+    track.addEventListener('pointerup', endDrag);
+    track.addEventListener('pointercancel', endDrag);
+
+    track.addEventListener('keydown', (e) => {
+      const curIdx = Math.max(
+        0,
+        WEATHER_SLIDER_ORDER.findIndex((w) => w.id === this.store.getState().weatherId),
+      );
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const next = WEATHER_SLIDER_ORDER[Math.min(WEATHER_SLIDER_ORDER.length - 1, curIdx + 1)];
+        if (next) this.store.setWeather(next.id);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const prev = WEATHER_SLIDER_ORDER[Math.max(0, curIdx - 1)];
+        if (prev) this.store.setWeather(prev.id);
+      }
+    });
+
+    card.appendChild(track);
+
+    // 5 illustrated weather icons ONLY (zero text below!)
+    const iconsRow = document.createElement('div');
+    iconsRow.className = 'sb-slider-stops';
+    this.weatherStopBtns = [];
+    WEATHER_SLIDER_ORDER.forEach((w, idx) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = idx === activeIdx ? 'sb-stop-btn active' : 'sb-stop-btn';
+      btn.title = w.label;
+      btn.setAttribute('aria-label', w.label);
+      btn.appendChild(createStorybookIconEl(w.icon, 24));
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.store.setWeather(w.id);
+      });
+      this.weatherStopBtns.push(btn);
+      iconsRow.appendChild(btn);
+    });
+
+    card.appendChild(iconsRow);
+    return card;
+  }
+
+  private renderAtmospherePopover(): void {
+    const state = this.store.getState();
+    const activeView =
+      this.sceneryModule?.getActiveView() ??
+      this.store.data.viewsById.get(state.sceneryViewId) ??
+      this.store.data.scenery.views[0];
+    const activeWeather =
+      this.sceneryModule?.getActiveWeather() ??
+      this.store.data.weathersById.get(state.weatherId) ??
+      this.store.data.scenery.weathers[0];
+
+    this.atmospherePopoverEl.innerHTML = '';
+
+    // 1. Time of Day Storybook Slider (Running · Dawn · Day · Dusk · Night)
+    this.atmospherePopoverEl.appendChild(this.buildStorybookTimeSlider());
+
+    // 2. Weather Storybook Slider (5 illustrated icons only!)
+    this.atmospherePopoverEl.appendChild(this.buildStorybookWeatherSlider(activeWeather.id));
+
+    // 3. Location Icon Row (6 illustrated pastel+ink icons only!)
+    const locRow = document.createElement('div');
+    locRow.className = 'sb-location-row';
+    for (const view of this.store.data.scenery.views) {
+      const isSelected = view.id === activeView.id;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = isSelected ? 'sb-loc-btn active' : 'sb-loc-btn';
+      btn.title = `${view.name} — ${view.description}`;
+      btn.setAttribute('aria-label', view.name);
+      btn.appendChild(createStorybookIconEl(getLocationStorybookIconName(view.id), 26));
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.switchLocationWithTransition(view.id);
+      });
+      locRow.appendChild(btn);
+    }
+    this.atmospherePopoverEl.appendChild(locRow);
+
+    // 4. Lightbulb Switch + Walls & Ceiling compact row
+    const anyOn = this.store.areAnyLightsActive();
+    const lightRow = document.createElement('div');
+    lightRow.className = 'sb-light-switch-row';
+
+    const bulbIcon = createStorybookIconEl(anyOn ? 'bulb_on' : 'bulb_off', 26);
+
+    const switchBtn = document.createElement('button');
+    switchBtn.type = 'button';
+    switchBtn.className = anyOn ? 'sb-toggle-switch on' : 'sb-toggle-switch';
+    switchBtn.setAttribute('role', 'switch');
+    switchBtn.setAttribute('aria-checked', String(anyOn));
+    switchBtn.setAttribute('aria-label', anyOn ? 'Turn all lights off' : 'Turn all lights on');
+    switchBtn.title = anyOn ? 'Lights On — click to turn all off' : 'Lights Off — click to turn all on';
+
+    const knob = document.createElement('span');
+    knob.className = 'sb-toggle-knob';
+    switchBtn.appendChild(knob);
+
+    const toggleLights = () => {
+      this.audioModule?.playUiClick();
+      const target = !this.store.areAnyLightsActive();
+      const changed = this.store.setAllLightsActive(target);
+      if (target && changed === 0 && !this.store.areAnyLightsActive()) {
+        this.store.notify('Place a lamp or light first', 'info');
+      }
+      this.renderAtmospherePopover();
+    };
+    switchBtn.addEventListener('click', toggleLights);
+
+    const bulbBtn = document.createElement('button');
+    bulbBtn.type = 'button';
+    bulbBtn.className = 'sb-bulb-trigger';
+    bulbBtn.title = switchBtn.title;
+    bulbBtn.appendChild(bulbIcon);
+    bulbBtn.addEventListener('click', toggleLights);
+
+    const ceilingOn = this.store.isCeilingVisible();
+    const ceilingBtn = this.makeBtn(
+      ceilingOn ? 'Ceiling On' : 'Ceiling Off',
+      () => {
+        this.audioModule?.playUiClick();
+        this.store.setCeilingVisible(!this.store.isCeilingVisible());
+      },
+      ceilingOn ? 'primary' : undefined,
+    );
+    ceilingBtn.className = ceilingOn
+      ? 'btn primary btn-xs ceiling-toggle-btn'
+      : 'btn btn-xs ceiling-toggle-btn';
+
+    const leftPair = document.createElement('div');
+    leftPair.className = 'sb-bulb-pair';
+    leftPair.append(bulbBtn, switchBtn);
+
+    lightRow.append(leftPair, ceilingBtn);
+    this.atmospherePopoverEl.appendChild(lightRow);
+
+    // 5. Storybook Volume Rail
+    if (this.audioModule) {
+      this.atmospherePopoverEl.appendChild(this.buildVolumeControl());
+    }
+  }
+
+  private buildVolumeControl(): HTMLDivElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'volume-control-row';
+
+    const icon = createIconEl('volume', 15);
+    const vol = this.audioModule?.getVolume() ?? 0.85;
+
+    const track = document.createElement('div');
+    track.className = 'sb-vol-track';
+    track.setAttribute('role', 'slider');
+    track.setAttribute('tabindex', '0');
+    track.setAttribute('aria-label', 'Master volume');
+    track.setAttribute('aria-valuemin', '0');
+    track.setAttribute('aria-valuemax', '100');
+
+    const rail = document.createElement('div');
+    rail.className = 'sb-vol-rail';
+    const orb = document.createElement('div');
+    orb.className = 'sb-slider-orb small';
+    orb.style.left = `${Math.round(vol * 100)}%`;
+    track.append(rail, orb);
+
+    const pct = document.createElement('span');
+    pct.className = 'volume-pct tabular-num';
+    pct.textContent = `${Math.round(vol * 100)}%`;
+
+    const applyClientX = (clientX: number) => {
+      const rect = rail.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const next = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      orb.style.left = `${Math.round(next * 100)}%`;
+      pct.textContent = `${Math.round(next * 100)}%`;
+      if (this.audioModule) {
+        if (next > 0 && this.audioModule.isMuted()) {
+          this.audioModule.setMuted(false);
+        }
+        this.audioModule.setVolume(next);
+      }
+    };
+
+    let dragging = false;
+    track.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      dragging = true;
+      track.setPointerCapture(e.pointerId);
+      orb.classList.add('dragging');
+      applyClientX(e.clientX);
+    });
+    track.addEventListener('pointermove', (e) => {
+      if (!dragging) return;
+      applyClientX(e.clientX);
+    });
+    const endDrag = (e: PointerEvent) => {
+      if (!dragging) return;
+      dragging = false;
+      orb.classList.remove('dragging');
+      if (track.hasPointerCapture(e.pointerId)) {
+        track.releasePointerCapture(e.pointerId);
+      }
+    };
+    track.addEventListener('pointerup', endDrag);
+    track.addEventListener('pointercancel', endDrag);
+
+    track.addEventListener('keydown', (e) => {
+      const cur = this.audioModule?.getVolume() ?? 0.85;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.audioModule?.setVolume(Math.min(1, cur + 0.05));
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.audioModule?.setVolume(Math.max(0, cur - 0.05));
+      }
+    });
+
+    this.volumeThumbEls = this.volumeThumbEls.filter((el) => el.isConnected);
+    this.volumeValueEls = this.volumeValueEls.filter((el) => el.isConnected);
+    this.volumeThumbEls.push(orb);
+    this.volumeValueEls.push(pct);
+
+    wrap.append(icon, track, pct);
+    return wrap;
+  }
+
+  private syncVolumeSlidersLive(): void {
+    const pct = Math.round((this.audioModule?.getVolume() ?? 0.85) * 100);
+    for (const orb of this.volumeThumbEls) {
+      if (orb.isConnected) {
+        orb.style.left = `${pct}%`;
+      }
+    }
+    for (const v of this.volumeValueEls) {
+      if (v.isConnected) {
+        v.textContent = `${pct}%`;
+      }
+    }
+  }
+
+  private appendWallCeilingControls(parent: HTMLElement): void {
+    const title = document.createElement('div');
+    title.className = 'popover-section-label';
+    title.textContent = 'Walls & Ceiling';
+    parent.appendChild(title);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'wall-ceiling-panel';
+
+    const activeMode = this.store.getWallViewMode();
+    const modeRow = document.createElement('div');
+    modeRow.className = 'wall-view-seg';
+    modeRow.setAttribute('role', 'group');
+    modeRow.setAttribute('aria-label', 'Wall cutaway mode');
+
+    for (const opt of WALL_VIEW_OPTIONS) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = opt.id === activeMode ? 'wall-view-opt active' : 'wall-view-opt';
+      btn.textContent = opt.label;
+      btn.title = opt.fullLabel;
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.store.setWallViewMode(opt.id);
+      });
+      modeRow.appendChild(btn);
+    }
+
+    const ceilingOn = this.store.isCeilingVisible();
+    const ceilingBtn = this.makeBtn(
+      ceilingOn ? 'Ceiling On' : 'Ceiling Off',
+      () => {
+        this.audioModule?.playUiClick();
+        this.store.setCeilingVisible(!this.store.isCeilingVisible());
+      },
+      ceilingOn ? 'primary' : undefined,
+    );
+    ceilingBtn.className = ceilingOn
+      ? 'btn primary btn-xs ceiling-toggle-btn'
+      : 'btn btn-xs ceiling-toggle-btn';
+
+    wrap.append(modeRow, ceilingBtn);
+    parent.appendChild(wrap);
+  }
+
+  private syncWallViewButton(): void {
+    if (!this.wallViewBtnEl) return;
+    const mode = this.store.getWallViewMode();
+    const meta = WALL_VIEW_OPTIONS.find((o) => o.id === mode) ?? WALL_VIEW_OPTIONS[0];
+    this.wallViewBtnEl.title = `${meta.fullLabel} — click to cycle`;
+    this.wallViewBtnEl.setAttribute('aria-label', meta.fullLabel);
+    this.wallViewBtnEl.classList.toggle('active-trigger', mode === 'translucent');
+    this.wallViewBtnEl.classList.toggle('wall-solid-state', mode === 'solid');
+  }
+
   private renderLotPopover(): void {
     const state = this.store.getState();
     this.ensureValidGroupDefaults();
@@ -2172,16 +2972,11 @@ export class HudController {
     const header = document.createElement('div');
     header.className = 'popover-header';
     const h4 = document.createElement('h4');
-    h4.textContent = 'Lot Size & Surfaces';
+    h4.textContent = 'Lot & Surfaces';
     const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
     closeBtn.className = 'btn icon-close';
     header.append(h4, closeBtn);
     this.lotPopoverEl.appendChild(header);
-
-    const dirLabel = document.createElement('div');
-    dirLabel.className = 'popover-section-label';
-    dirLabel.textContent = 'Expand Any Side (Rectangular)';
-    this.lotPopoverEl.appendChild(dirLabel);
 
     const makeDirControl = (side: ExpandSide, arrow: string, name: string) => {
       const box = document.createElement('div');
@@ -2198,7 +2993,7 @@ export class HudController {
         this.audioModule?.playUiClick();
         if (this.store.expandDirection(side, -2)) {
           const s = this.store.getState();
-          this.store.notify(`Lot resized to ${s.gridWidth}×${s.gridDepth}`, 'info');
+          this.store.notify(`Lot ${s.gridWidth}×${s.gridDepth}`, 'info');
         }
       });
       shrink.className = 'btn btn-xs';
@@ -2209,7 +3004,7 @@ export class HudController {
           this.audioModule?.playUiClick();
           if (this.store.expandDirection(side, 2)) {
             const s = this.store.getState();
-            this.store.notify(`Expanded ${name} to ${s.gridWidth}×${s.gridDepth}`, 'success');
+            this.store.notify(`Expanded ${name} (${s.gridWidth}×${s.gridDepth})`, 'success');
           }
         },
         'primary',
@@ -2279,13 +3074,13 @@ export class HudController {
       makeStepper('Width', state.gridWidth, (d) => {
         const nw = Math.max(8, Math.min(36, state.gridWidth + d));
         if (this.store.resizeGrid(nw, state.gridDepth)) {
-          this.store.notify(`Lot width set to ${nw}×${state.gridDepth}`, 'success');
+          this.store.notify(`Lot ${nw}×${state.gridDepth}`, 'success');
         }
       }),
       makeStepper('Depth', state.gridDepth, (d) => {
         const nd = Math.max(8, Math.min(36, state.gridDepth + d));
         if (this.store.resizeGrid(state.gridWidth, nd)) {
-          this.store.notify(`Lot depth set to ${state.gridWidth}×${nd}`, 'success');
+          this.store.notify(`Lot ${state.gridWidth}×${nd}`, 'success');
         }
       }),
     );
@@ -2295,10 +3090,10 @@ export class HudController {
     gridRow.className = 'toggle-setting-row';
     const gridText = document.createElement('span');
     gridText.className = 'toggle-setting-label';
-    gridText.textContent = 'Show Buildable Grid Tiles';
+    gridText.textContent = 'Grid Tiles';
     const gridOn = this.store.isGridVisible();
     const gridBtn = this.makeBtn(
-      gridOn ? 'Visible' : 'Auto (Build Only)',
+      gridOn ? 'Visible' : 'Build Only',
       () => {
         this.audioModule?.playUiClick();
         this.store.setGridVisible(!this.store.isGridVisible());
@@ -2314,7 +3109,7 @@ export class HudController {
     if (activeWallDef) {
       const wallLabel = document.createElement('div');
       wallLabel.className = 'popover-section-label';
-      wallLabel.textContent = 'Quick Restyle All Walls';
+      wallLabel.textContent = 'All Walls';
       this.lotPopoverEl.appendChild(wallLabel);
 
       const row = document.createElement('div');
@@ -2344,7 +3139,7 @@ export class HudController {
         }),
       );
 
-      const applyBtn = this.makeBtn('Apply All', () => {
+      const applyBtn = this.makeBtn('Apply', () => {
         this.audioModule?.playUiClick();
         this.applySurfaceStyleToAll('walls', activeWallDef.id, this.groupActiveVariant.walls);
       });
@@ -2357,7 +3152,7 @@ export class HudController {
     if (activeFloorDef) {
       const floorLabel = document.createElement('div');
       floorLabel.className = 'popover-section-label';
-      floorLabel.textContent = 'Quick Restyle All Floors';
+      floorLabel.textContent = 'All Floors';
       this.lotPopoverEl.appendChild(floorLabel);
 
       const row = document.createElement('div');
@@ -2387,7 +3182,7 @@ export class HudController {
         }),
       );
 
-      const applyBtn = this.makeBtn('Apply All', () => {
+      const applyBtn = this.makeBtn('Apply', () => {
         this.audioModule?.playUiClick();
         this.applySurfaceStyleToAll('floors', activeFloorDef.id, this.groupActiveVariant.floors);
       });
@@ -2395,61 +3190,6 @@ export class HudController {
 
       row.append(preview, mid, applyBtn);
       this.lotPopoverEl.appendChild(row);
-    }
-  }
-
-  private buildVolumeControl(): HTMLDivElement {
-    const wrap = document.createElement('div');
-    wrap.className = 'volume-control-row';
-
-    const icon = createIconEl('volume', 15);
-    const label = document.createElement('span');
-    label.className = 'volume-label';
-    label.textContent = 'Volume';
-
-    const vol = this.audioModule?.getVolume() ?? 0.85;
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.className = 'volume-slider';
-    slider.min = '0';
-    slider.max = '100';
-    slider.step = '1';
-    slider.value = String(Math.round(vol * 100));
-    slider.setAttribute('aria-label', 'Master volume');
-
-    const pct = document.createElement('span');
-    pct.className = 'volume-pct tabular-num';
-    pct.textContent = `${Math.round(vol * 100)}%`;
-
-    slider.addEventListener('input', () => {
-      const next = Number(slider.value) / 100;
-      pct.textContent = `${slider.value}%`;
-      if (this.audioModule) {
-        if (next > 0 && this.audioModule.isMuted()) {
-          this.audioModule.setMuted(false);
-        }
-        this.audioModule.setVolume(next);
-      }
-    });
-
-    this.volumeSliderEls.push(slider);
-    this.volumeValueEls.push(pct);
-
-    wrap.append(icon, label, slider, pct);
-    return wrap;
-  }
-
-  private syncVolumeSlidersLive(): void {
-    const pct = Math.round((this.audioModule?.getVolume() ?? 0.85) * 100);
-    for (const s of this.volumeSliderEls) {
-      if (s.isConnected && document.activeElement !== s) {
-        s.value = String(pct);
-      }
-    }
-    for (const v of this.volumeValueEls) {
-      if (v.isConnected) {
-        v.textContent = `${pct}%`;
-      }
     }
   }
 
@@ -2485,7 +3225,7 @@ export class HudController {
     const header = document.createElement('div');
     header.className = 'popover-header';
     const h4 = document.createElement('h4');
-    h4.textContent = 'House Menu';
+    h4.textContent = 'Menu';
     const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
     closeBtn.className = 'btn icon-close';
     header.append(h4, closeBtn);
@@ -2496,15 +3236,13 @@ export class HudController {
     statusLine.innerHTML = `<span>${this.saveStatusText}</span><span>${state.items.length} items · ${state.gridWidth}×${state.gridDepth}</span>`;
     this.menuPopoverEl.appendChild(statusLine);
 
-    // Audio Volume Slider
     if (this.audioModule) {
       this.menuPopoverEl.appendChild(this.buildVolumeControl());
     }
 
-    // ── Shareable Link Section ──
     const shareLabel = document.createElement('div');
     shareLabel.className = 'popover-section-label';
-    shareLabel.textContent = 'Shareable House Link';
+    shareLabel.textContent = 'Share';
     this.menuPopoverEl.appendChild(shareLabel);
 
     const copyLinkBtn = this.makeBtn(
@@ -2548,7 +3286,7 @@ export class HudController {
     const linkInput = document.createElement('input');
     linkInput.type = 'text';
     linkInput.className = 'custom-room-input';
-    linkInput.placeholder = 'Paste share link or #h=...';
+    linkInput.placeholder = 'Paste share link…';
     linkInput.setAttribute('aria-label', 'Import from share link');
 
     const loadSharedLink = () => {
@@ -2560,13 +3298,13 @@ export class HudController {
           const { state: decoded, warnings } = await decodeHouseFromShareLink(raw, this.store.data);
           this.store.loadHouse(decoded, { reason: 'import' });
           const warnSuffix = warnings.length > 0 ? ` (${warnings.length} skipped)` : '';
-          this.store.notify(`Loaded shared house (${decoded.items.length} items${warnSuffix})`, 'success');
+          this.store.notify(
+            `Loaded shared house (${decoded.items.length} items${warnSuffix})`,
+            'success',
+          );
           this.setActivePopover(null);
         } catch (err) {
-          this.store.notify(
-            err instanceof Error ? err.message : 'Invalid share link',
-            'error',
-          );
+          this.store.notify(err instanceof Error ? err.message : 'Invalid share link', 'error');
         }
       })();
     };
@@ -2579,18 +3317,12 @@ export class HudController {
     importLinkRow.append(linkInput, loadBtn);
     this.menuPopoverEl.appendChild(importLinkRow);
 
-    // File & Lot Actions
-    const fileLabel = document.createElement('div');
-    fileLabel.className = 'popover-section-label';
-    fileLabel.textContent = 'Files & Lot';
-    this.menuPopoverEl.appendChild(fileLabel);
-
     const actions = document.createElement('div');
     actions.className = 'menu-action-grid';
 
     actions.append(
       this.makeBtn(
-        'Export File',
+        'Export',
         () => {
           this.audioModule?.playUiClick();
           const { filename, bytes } = exportHouseToFile(this.store.getState());
@@ -2602,7 +3334,7 @@ export class HudController {
         14,
       ),
       this.makeBtn(
-        'Import File',
+        'Import',
         () => {
           this.audioModule?.playUiClick();
           this.fileInputEl.value = '';
@@ -2613,7 +3345,7 @@ export class HudController {
         'upload',
         14,
       ),
-      this.makeBtn('Starter House', () => {
+      this.makeBtn('Starter', () => {
         this.audioModule?.playUiClick();
         this.store.loadHouse(createStarterHouse(this.store.data), { reason: 'starter' });
         this.store.notify('Restored starter house', 'info');
@@ -2632,19 +3364,12 @@ export class HudController {
     );
     this.menuPopoverEl.appendChild(actions);
 
-    const helpTitle = document.createElement('div');
-    helpTitle.className = 'popover-section-label';
-    helpTitle.textContent = 'Trackpad & Controls';
-    this.menuPopoverEl.appendChild(helpTitle);
-
     const helpList = document.createElement('ul');
     helpList.className = 'menu-help-list';
     helpList.innerHTML = `
-      <li><strong>Two-finger scroll</strong> or drag empty space: pan camera</li>
-      <li><strong>Pinch</strong> or + / −: zoom; <strong>⟲ / ⟳</strong> (Q / E): rotate 90°</li>
-      <li><strong>Live Mode</strong>: click interactive items &amp; watch visitors</li>
-      <li><strong>Build Mode</strong>: browse left sidebar, drag items to move, drag-paint walls/floors</li>
-      <li><strong>Bulk Select &amp; Erase</strong>: drag a box or sweep to edit/remove</li>
+      <li><strong>Scroll / drag</strong>: pan · <strong>Pinch</strong>: zoom · <strong>Q/E</strong>: rotate</li>
+      <li><strong>R</strong>: rotate piece · <strong>Del</strong>: delete · <strong>Cmd/Ctrl+Z</strong>: undo</li>
+      <li><strong>Drag walls/floors</strong> to paint · <strong>Open/Closed</strong> controls drop-in guests</li>
     `;
     this.menuPopoverEl.appendChild(helpList);
   }
@@ -2669,392 +3394,6 @@ export class HudController {
     return wrap;
   }
 
-  private renderRoomPopover(): void {
-    const state = this.store.getState();
-    const currentEval = evaluateRoomType(state, this.store.data);
-    const derivedEval = evaluateRoomType({ ...state, roomTypeOverride: null }, this.store.data);
-
-    this.roomPopoverEl.innerHTML = '';
-
-    const header = document.createElement('div');
-    header.className = 'popover-header';
-    const h4 = document.createElement('h4');
-    h4.textContent = 'Space Type';
-    const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
-    closeBtn.className = 'btn icon-close';
-    header.append(h4, closeBtn);
-    this.roomPopoverEl.appendChild(header);
-
-    const summary = document.createElement('div');
-    summary.className = 'room-summary-box';
-    const derivedLine = document.createElement('div');
-    derivedLine.className = 'room-derived-line';
-    derivedLine.innerHTML = `From furniture: <strong>${derivedEval.labelInfo.label}</strong>`;
-    const descLine = document.createElement('div');
-    descLine.className = 'popover-subtext';
-    descLine.textContent = currentEval.labelInfo.description;
-    summary.append(derivedLine, descLine);
-
-    const tagEntries = Object.entries(currentEval.tagCounts)
-      .filter(([tag]) => tag !== 'structure' && tag !== 'floor' && tag !== 'wall')
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 10);
-
-    if (tagEntries.length > 0) {
-      const tagsWrap = document.createElement('div');
-      tagsWrap.className = 'tag-chip-list';
-      for (const [tag, count] of tagEntries) {
-        const chip = document.createElement('span');
-        chip.className = 'tag-chip tabular-num';
-        chip.textContent = `${tag} ×${count}`;
-        tagsWrap.appendChild(chip);
-      }
-      summary.appendChild(tagsWrap);
-    }
-    this.roomPopoverEl.appendChild(summary);
-
-    const autoBtn = document.createElement('button');
-    autoBtn.type = 'button';
-    autoBtn.className = !state.roomTypeOverride ? 'preset-btn full selected' : 'preset-btn full';
-    autoBtn.textContent = `Auto (from furniture: ${derivedEval.labelInfo.label})`;
-    autoBtn.addEventListener('click', () => {
-      this.audioModule?.playUiClick();
-      this.store.setRoomTypeOverride(null);
-    });
-    this.roomPopoverEl.appendChild(autoBtn);
-
-    const presetLabel = document.createElement('div');
-    presetLabel.className = 'popover-section-label';
-    presetLabel.textContent = 'Or choose a manual type';
-    this.roomPopoverEl.appendChild(presetLabel);
-
-    const grid = document.createElement('div');
-    grid.className = 'room-preset-grid';
-    const sortedRules = [...this.store.data.roomRules.rules].sort(
-      (a, b) => b.priority - a.priority,
-    );
-    for (const rule of sortedRules) {
-      const isSelected =
-        state.roomTypeOverride === rule.id || state.roomTypeOverride === rule.label;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = isSelected ? 'preset-btn selected' : 'preset-btn';
-
-      const dot = document.createElement('span');
-      dot.className = 'tab-dot';
-      dot.style.background = rule.accentColor;
-
-      const lbl = document.createElement('span');
-      lbl.textContent = rule.label;
-
-      btn.append(dot, lbl);
-      btn.title = rule.description;
-      btn.addEventListener('click', () => {
-        this.audioModule?.playUiClick();
-        this.store.setRoomTypeOverride(rule.id);
-      });
-      grid.appendChild(btn);
-    }
-    this.roomPopoverEl.appendChild(grid);
-
-    const customRow = document.createElement('div');
-    customRow.className = 'custom-room-row';
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'custom-room-input';
-    input.placeholder = 'Optional custom label…';
-    input.maxLength = 32;
-    if (
-      state.roomTypeOverride &&
-      !sortedRules.some(
-        (r) => r.id === state.roomTypeOverride || r.label === state.roomTypeOverride,
-      )
-    ) {
-      input.value = state.roomTypeOverride;
-    }
-
-    const applyCustom = () => {
-      const trimmed = input.value.trim();
-      if (!trimmed) return;
-      this.audioModule?.playUiClick();
-      this.store.setRoomTypeOverride(trimmed);
-    };
-
-    const applyBtn = this.makeBtn('Apply', applyCustom, 'primary');
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') applyCustom();
-    });
-
-    customRow.append(input, applyBtn);
-    this.roomPopoverEl.appendChild(customRow);
-  }
-
-  private syncTimeSliderLive(): void {
-    const hour = this.store.getTimeHour();
-    const formatted = formatClockHour(hour);
-    if (this.timeSliderEl && this.timeSliderEl.isConnected && document.activeElement !== this.timeSliderEl) {
-      this.timeSliderEl.value = hour.toFixed(1);
-    }
-    if (this.timeReadoutEl && this.timeReadoutEl.isConnected) {
-      this.timeReadoutEl.textContent = `${formatted.emoji} ${formatted.text}`;
-    }
-  }
-
-  private renderAtmospherePopover(): void {
-    const state = this.store.getState();
-    const timeHour = this.store.getTimeHour();
-    const clock = formatClockHour(timeHour);
-    const activeView =
-      this.sceneryModule?.getActiveView() ??
-      this.store.data.viewsById.get(state.sceneryViewId) ??
-      this.store.data.scenery.views[0];
-    const activeWeather =
-      this.sceneryModule?.getActiveWeather() ??
-      this.store.data.weathersById.get(state.weatherId) ??
-      this.store.data.scenery.weathers[0];
-
-    this.atmospherePopoverEl.innerHTML = '';
-
-    const header = document.createElement('div');
-    header.className = 'popover-header';
-    const h4 = document.createElement('h4');
-    h4.textContent = 'Atmosphere & Lighting';
-    const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
-    closeBtn.className = 'btn icon-close';
-    header.append(h4, closeBtn);
-    this.atmospherePopoverEl.appendChild(header);
-
-    // ── Continuous 24-Hour Time Slider ──
-    const timeHeader = document.createElement('div');
-    timeHeader.className = 'time-slider-header';
-
-    const todTitle = document.createElement('span');
-    todTitle.className = 'popover-section-label';
-    todTitle.textContent = 'Time of Day (24h)';
-
-    const readout = document.createElement('span');
-    readout.className = 'time-clock-readout tabular-num';
-    readout.textContent = `${clock.emoji} ${clock.text}`;
-    this.timeReadoutEl = readout;
-
-    timeHeader.append(todTitle, readout);
-    this.atmospherePopoverEl.appendChild(timeHeader);
-
-    const sliderBox = document.createElement('div');
-    sliderBox.className = 'time-slider-box';
-
-    const slider = document.createElement('input');
-    slider.type = 'range';
-    slider.className = 'time-slider';
-    slider.min = '0';
-    slider.max = '24';
-    slider.step = '0.1';
-    slider.value = timeHour.toFixed(1);
-    slider.setAttribute('aria-label', 'Time of day (0 to 24 hours)');
-    this.timeSliderEl = slider;
-
-    slider.addEventListener('input', () => {
-      const nextHour = Number(slider.value);
-      const c = formatClockHour(nextHour);
-      readout.textContent = `${c.emoji} ${c.text}`;
-      this.store.setTimeHour(nextHour, { recordHistory: false });
-    });
-
-    const ticksRow = document.createElement('div');
-    ticksRow.className = 'time-ticks-row';
-    for (const tick of TIME_TICKS) {
-      const tickBtn = document.createElement('button');
-      tickBtn.type = 'button';
-      tickBtn.className = 'time-tick-btn';
-      tickBtn.textContent = tick.label;
-      tickBtn.addEventListener('click', () => {
-        this.audioModule?.playUiClick();
-        slider.value = tick.hour.toFixed(1);
-        const c = formatClockHour(tick.hour);
-        readout.textContent = `${c.emoji} ${c.text}`;
-        this.store.setTimeHour(tick.hour);
-      });
-      ticksRow.appendChild(tickBtn);
-    }
-
-    sliderBox.append(slider, ticksRow);
-    this.atmospherePopoverEl.appendChild(sliderBox);
-
-    // ── Window View ──
-    const viewTitle = document.createElement('div');
-    viewTitle.className = 'popover-section-label';
-    viewTitle.textContent = 'Window View';
-    this.atmospherePopoverEl.appendChild(viewTitle);
-
-    const viewGrid = document.createElement('div');
-    viewGrid.className = 'view-grid';
-    for (const view of this.store.data.scenery.views) {
-      const isSelected = view.id === activeView.id;
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = isSelected ? 'view-card selected' : 'view-card';
-
-      const preview = document.createElement('span');
-      preview.className = 'view-swatch';
-      preview.style.background = `linear-gradient(180deg, ${view.skyTop} 0%, ${view.skyHorizon} 60%, ${view.groundColor} 60%, ${view.groundColor} 100%)`;
-
-      const textWrap = document.createElement('div');
-      textWrap.className = 'view-card-text';
-
-      const name = document.createElement('div');
-      name.className = 'view-card-name';
-      name.textContent = view.name;
-
-      const desc = document.createElement('div');
-      desc.className = 'view-card-desc';
-      desc.textContent = view.description;
-
-      textWrap.append(name, desc);
-      card.append(preview, textWrap);
-      card.addEventListener('click', () => {
-        this.audioModule?.playUiClick();
-        this.store.setSceneryView(view.id);
-      });
-      viewGrid.appendChild(card);
-    }
-    this.atmospherePopoverEl.appendChild(viewGrid);
-
-    // ── Weather ──
-    const weatherTitle = document.createElement('div');
-    weatherTitle.className = 'popover-section-label';
-    weatherTitle.textContent = 'Weather';
-    this.atmospherePopoverEl.appendChild(weatherTitle);
-
-    const weatherGrid = document.createElement('div');
-    weatherGrid.className = 'weather-grid';
-    for (const weather of this.store.data.scenery.weathers) {
-      const isSelected = weather.id === activeWeather.id;
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = isSelected ? 'weather-chip selected' : 'weather-chip';
-
-      const iconName = WEATHER_ICON_NAMES[weather.id] ?? 'sun';
-      btn.appendChild(createIconEl(iconName, 14));
-
-      const label = document.createElement('span');
-      label.textContent = weather.name;
-
-      btn.appendChild(label);
-      btn.addEventListener('click', () => {
-        this.audioModule?.playUiClick();
-        this.store.setWeather(weather.id);
-      });
-      weatherGrid.appendChild(btn);
-    }
-    this.atmospherePopoverEl.appendChild(weatherGrid);
-
-    // ── Room Lights Row ──
-    const lightsTitle = document.createElement('div');
-    lightsTitle.className = 'popover-section-label';
-    lightsTitle.textContent = 'Room Lights';
-    this.atmospherePopoverEl.appendChild(lightsTitle);
-
-    const lightsRow = document.createElement('div');
-    lightsRow.className = 'room-lights-row';
-
-    const lightsOnBtn = this.makeBtn(
-      'All Lights On',
-      () => {
-        this.audioModule?.playUiClick();
-        const changed = this.store.setAllLights(true);
-        this.store.notify(
-          changed > 0
-            ? `Turned on ${changed} light${changed === 1 ? '' : 's'}`
-            : 'All room lights are already on',
-          'info',
-        );
-      },
-      'primary',
-    );
-    lightsOnBtn.className = 'btn primary';
-
-    const lightsOffBtn = this.makeBtn('All Lights Off', () => {
-      this.audioModule?.playUiClick();
-      const changed = this.store.setAllLights(false);
-      this.store.notify(
-        changed > 0
-          ? `Turned off ${changed} light${changed === 1 ? '' : 's'}`
-          : 'All room lights are already off',
-        'info',
-      );
-    });
-
-    lightsRow.append(lightsOnBtn, lightsOffBtn);
-    this.atmospherePopoverEl.appendChild(lightsRow);
-
-    this.appendWallCeilingControls(this.atmospherePopoverEl);
-
-    if (this.audioModule) {
-      const audioTitle = document.createElement('div');
-      audioTitle.className = 'popover-section-label';
-      audioTitle.textContent = 'Sound & Ambience';
-      this.atmospherePopoverEl.appendChild(audioTitle);
-      this.atmospherePopoverEl.appendChild(this.buildVolumeControl());
-    }
-  }
-
-  private appendWallCeilingControls(parent: HTMLElement): void {
-    const title = document.createElement('div');
-    title.className = 'popover-section-label';
-    title.textContent = 'Walls & Ceiling';
-    parent.appendChild(title);
-
-    const wrap = document.createElement('div');
-    wrap.className = 'wall-ceiling-panel';
-
-    const activeMode = this.store.getWallViewMode();
-    const modeRow = document.createElement('div');
-    modeRow.className = 'wall-view-seg';
-    modeRow.setAttribute('role', 'group');
-    modeRow.setAttribute('aria-label', 'Wall cutaway mode');
-
-    for (const opt of WALL_VIEW_OPTIONS) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = opt.id === activeMode ? 'wall-view-opt active' : 'wall-view-opt';
-      btn.textContent = opt.label;
-      btn.title = opt.fullLabel;
-      btn.addEventListener('click', () => {
-        this.audioModule?.playUiClick();
-        this.store.setWallViewMode(opt.id);
-      });
-      modeRow.appendChild(btn);
-    }
-
-    const ceilingOn = this.store.isCeilingVisible();
-    const ceilingBtn = this.makeBtn(
-      ceilingOn ? 'Ceiling On' : 'Ceiling Off',
-      () => {
-        this.audioModule?.playUiClick();
-        this.store.setCeilingVisible(!this.store.isCeilingVisible());
-      },
-      ceilingOn ? 'primary' : undefined,
-    );
-    ceilingBtn.className = ceilingOn
-      ? 'btn primary btn-xs ceiling-toggle-btn'
-      : 'btn btn-xs ceiling-toggle-btn';
-    ceilingBtn.title = 'Toggle translucent ceiling over enclosed rooms';
-
-    wrap.append(modeRow, ceilingBtn);
-    parent.appendChild(wrap);
-  }
-
-  private syncWallViewButton(): void {
-    if (!this.wallViewBtnEl) return;
-    const mode = this.store.getWallViewMode();
-    const meta = WALL_VIEW_OPTIONS.find((o) => o.id === mode) ?? WALL_VIEW_OPTIONS[0];
-    this.wallViewBtnEl.title = `${meta.fullLabel} — click to cycle`;
-    this.wallViewBtnEl.setAttribute('aria-label', meta.fullLabel);
-    this.wallViewBtnEl.classList.toggle('active-trigger', mode === 'translucent');
-    this.wallViewBtnEl.classList.toggle('wall-solid-state', mode === 'solid');
-  }
-
   private createVisitorPortrait(
     def: VisitorDef | undefined,
     variantIndex: number,
@@ -3064,7 +3403,7 @@ export class HudController {
     const wrap = document.createElement('div');
     wrap.className = 'visitor-portrait';
     const tint = def?.color ?? fallbackColor ?? '#E8BFA8';
-    wrap.style.background = `color-mix(in srgb, ${tint} 36%, #FFFDF9)`;
+    wrap.style.background = `color-mix(in srgb, ${tint} 36%, #FCF9F2)`;
 
     const fallback = document.createElement('span');
     fallback.className = 'visitor-portrait-fallback';
@@ -3119,7 +3458,7 @@ export class HudController {
     const header = document.createElement('div');
     header.className = 'popover-header';
     const h4 = document.createElement('h4');
-    h4.textContent = 'Visitors & Guests';
+    h4.textContent = 'Visitors';
     const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
     closeBtn.className = 'btn icon-close';
     header.append(h4, closeBtn);
@@ -3131,7 +3470,7 @@ export class HudController {
     activeHeader.className = 'visitors-section-header';
     const activeLabel = document.createElement('span');
     activeLabel.className = 'popover-section-label tabular-num';
-    activeLabel.textContent = `Visiting Now (${active.length})`;
+    activeLabel.textContent = `Here Now (${active.length})`;
     activeHeader.appendChild(activeLabel);
 
     if (active.length > 0 && this.visitorModule) {
@@ -3147,7 +3486,9 @@ export class HudController {
     if (active.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'visitors-empty';
-      empty.textContent = 'No visitors right now. Invite someone below to explore your space.';
+      empty.textContent = this.store.isHouseOpen()
+        ? 'Guests drop by automatically while Open, or invite anyone below.'
+        : 'House is Closed. Invite a guest below or switch to Open.';
       this.visitorsPopoverEl.appendChild(empty);
     } else {
       const activeList = document.createElement('div');
@@ -3196,7 +3537,6 @@ export class HudController {
           nameRow.appendChild(pron);
         }
 
-        // Mood pill + emotion emoji + progress bar
         const moodRow = document.createElement('div');
         moodRow.className = 'visitor-mood-row';
 
@@ -3227,7 +3567,7 @@ export class HudController {
 
         const barTrack = document.createElement('div');
         barTrack.className = 'mood-bar-track';
-        barTrack.title = `Mood score: ${Math.round(score)}%`;
+        barTrack.title = `Mood: ${Math.round(score)}%`;
         const barFill = document.createElement('div');
         barFill.className = `mood-bar-fill mood-${snap.mood}`;
         barFill.style.width = `${Math.round(score)}%`;
@@ -3236,39 +3576,52 @@ export class HudController {
         moodRow.append(emotionBadge, moodEl, barTrack);
         identity.append(nameRow, moodRow);
 
-        const sendHomeBtn = this.makeBtn('Send Home', () => {
+        const sendHomeBtn = this.makeBtn('×', () => {
           this.audioModule?.playUiClick();
           this.visitorModule?.dismiss(snap.instanceId);
         });
-        sendHomeBtn.className = 'btn btn-xs';
+        sendHomeBtn.className = 'btn icon-close';
+        sendHomeBtn.title = 'Send Home';
+        sendHomeBtn.setAttribute('aria-label', `Send ${personalName} home`);
 
         headerRow.append(portrait, identity, sendHomeBtn);
         card.appendChild(headerRow);
 
-        // Matched vs Unmatched Interests chips
-        const interests = snap.interests ?? def?.likedTags ?? [];
-        const matchedSet = new Set(snap.matchedInterests ?? []);
-        if (interests.length > 0) {
+        // Likes + Dislikes chips
+        const likes = snap.interests ?? def?.likedTags ?? [];
+        const matchedLikes = new Set(snap.matchedInterests ?? []);
+        const dislikes = snap.dislikes ?? def?.dislikedTags ?? [];
+        const matchedDislikes = new Set(snap.matchedDislikes ?? []);
+
+        if (likes.length > 0 || dislikes.length > 0) {
           const chips = document.createElement('div');
           chips.className = 'tag-chip-list';
-          for (const tag of interests) {
-            const isMatched = matchedSet.has(tag);
+          for (const tag of likes) {
+            const isMatched = matchedLikes.has(tag);
             const chip = document.createElement('span');
             chip.className = isMatched ? 'tag-chip matched' : 'tag-chip';
             chip.textContent = isMatched ? `✓ ${tag}` : tag;
+            chip.title = isMatched ? `Likes ${tag} (in room)` : `Likes ${tag}`;
+            chips.appendChild(chip);
+          }
+          for (const tag of dislikes) {
+            const isTriggered = matchedDislikes.has(tag);
+            const chip = document.createElement('span');
+            chip.className = isTriggered ? 'tag-chip disliked-hit' : 'tag-chip disliked';
+            chip.textContent = `✕ ${tag}`;
+            chip.title = isTriggered ? `Dislikes ${tag} (in room!)` : `Dislikes ${tag}`;
             chips.appendChild(chip);
           }
           card.appendChild(chips);
         }
 
-        // Thought bubble + Activity
         const thoughtBox = document.createElement('div');
         thoughtBox.className = 'visitor-thought-strip';
-        const activityText = snap.activity || 'Exploring the space';
+        const activityText = snap.activity || 'Exploring';
         if (snap.thought) {
           const quoteEl = document.createElement('div');
           quoteEl.className = 'visitor-thought-quote';
-          quoteEl.textContent = `💭 “${snap.thought}”`;
+          quoteEl.textContent = `“${snap.thought}”`;
           const actEl = document.createElement('div');
           actEl.className = 'visitor-thought-activity';
           actEl.textContent = activityText;
@@ -3288,7 +3641,7 @@ export class HudController {
 
     const inviteLabel = document.createElement('div');
     inviteLabel.className = 'popover-section-label';
-    inviteLabel.textContent = `Invite a Guest (${this.store.data.visitors.visitors.length})`;
+    inviteLabel.textContent = `Invite (${this.store.data.visitors.visitors.length})`;
     this.visitorsPopoverEl.appendChild(inviteLabel);
 
     const inviteList = document.createElement('div');
@@ -3306,10 +3659,6 @@ export class HudController {
       name.className = 'invite-visitor-name';
       name.textContent = visitor.name;
 
-      const desc = document.createElement('div');
-      desc.className = 'invite-visitor-desc';
-      desc.textContent = visitor.description;
-
       const tags = document.createElement('div');
       tags.className = 'tag-chip-list';
       for (const tag of visitor.likedTags) {
@@ -3318,8 +3667,14 @@ export class HudController {
         chip.textContent = tag;
         tags.appendChild(chip);
       }
+      for (const tag of visitor.dislikedTags) {
+        const chip = document.createElement('span');
+        chip.className = 'tag-chip disliked';
+        chip.textContent = `✕ ${tag}`;
+        tags.appendChild(chip);
+      }
 
-      body.append(name, desc, tags);
+      body.append(name, tags);
 
       const inviteBtn = this.makeBtn(
         'Invite',
@@ -3379,6 +3734,13 @@ export class HudController {
     this.soundBtnEl.classList.toggle('muted-state', muted);
   }
 
+  private setStorybookSlotIcon(slot: HTMLElement, iconName: StorybookIconName, size: number): void {
+    if (slot.dataset.icon === iconName) return;
+    slot.dataset.icon = iconName;
+    slot.innerHTML = '';
+    slot.appendChild(createStorybookIconEl(iconName, size));
+  }
+
   private syncAtmosphereTopPill(): void {
     const state = this.store.getState();
     const activeView =
@@ -3389,18 +3751,31 @@ export class HudController {
       this.sceneryModule?.getActiveWeather() ??
       this.store.data.weathersById.get(state.weatherId) ??
       this.store.data.scenery.weathers[0];
-    const clock = formatClockHour(this.store.getTimeHour());
 
-    this.atmosphereDotEl.style.background = `linear-gradient(180deg, ${activeView.skyTop}, ${activeView.groundColor})`;
-    this.atmosphereTextEl.textContent = `${clock.emoji} ${clock.shortText} · ${activeView.name} · ${activeWeather.name}`;
+    const running = this.store.isTimeCycleRunning();
+    const timeHour = this.store.getTimeHour();
+
+    const locIcon = getLocationStorybookIconName(activeView.id);
+    const timeIcon = timeHourToStorybookIcon(timeHour, running);
+    const weatherIcon = getWeatherStorybookIconName(activeWeather.id);
+
+    this.setStorybookSlotIcon(this.atmoLocSlotEl, locIcon, 20);
+    this.setStorybookSlotIcon(this.atmoTimeSlotEl, timeIcon, 20);
+    this.setStorybookSlotIcon(this.atmoWeatherSlotEl, weatherIcon, 20);
+
+    this.atmosphereBtnEl.title = `${activeView.name} · ${timeHourToLabel(timeHour, running)} · ${activeWeather.name}`;
   }
 
   private syncHud(): void {
     const state = this.store.getState();
     const evaluation = evaluateRoomType(state, this.store.data);
+
+    this.setStorybookSlotIcon(
+      this.roomIconSlotEl,
+      getRoomStorybookIconName(evaluation.labelInfo.id),
+      20,
+    );
     this.roomLabelTextEl.textContent = evaluation.labelInfo.label;
-    this.roomDotEl.style.background = evaluation.labelInfo.accentColor;
-    this.roomOverrideTagEl.classList.toggle('hidden', !evaluation.isOverride);
 
     this.undoBtn.disabled = !this.store.canUndo();
     this.redoBtn.disabled = !this.store.canRedo();

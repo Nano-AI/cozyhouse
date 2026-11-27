@@ -482,9 +482,11 @@ function shadeHex(hex: string, factor: number): string {
  * Clean, solid, zero-clipping low-poly figurine for Cozyhouse visitors.
  * - 100% opaque character materials (`transparent: false, depthWrite: true`) prevent
  *   inside-out depth sorting glitches.
- * - Strict non-coplanar geometry offsets keep face features, glasses, hair, jackets,
- *   sleeves, skirts, and limbs cleanly separated across all animations and 3/4 portraits.
- * - Supports smooth scale-in/scale-out pops (`setScalePop`) instead of alpha fading.
+ * - 2-segment articulated legs with knee joints allow natural walking strides AND true
+ *   elevated sitting ON couches, chairs, bar stools, beanbags, and beds with legs draping
+ *   cleanly over the front cushion edge.
+ * - Strict >= 0.006 non-coplanar geometry offsets keep face features, glasses, hair,
+ *   jackets, pockets, collars, sleeves, and limbs completely flicker-free.
  */
 export class VisitorMesh {
   readonly root = new THREE.Group();
@@ -493,12 +495,15 @@ export class VisitorMesh {
   readonly headPivot = new THREE.Group();
   readonly leftLegPivot = new THREE.Group();
   readonly rightLegPivot = new THREE.Group();
+  readonly leftKneePivot = new THREE.Group();
+  readonly rightKneePivot = new THREE.Group();
   readonly leftArmPivot = new THREE.Group();
   readonly rightArmPivot = new THREE.Group();
   readonly mouthMesh: THREE.Mesh;
   readonly speechBubble = new SpeechBubble();
   readonly variantIndex: VisitorVariantIndex;
 
+  private readonly shadowMesh: THREE.Mesh;
   private readonly wearsSkirt: boolean;
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
@@ -525,9 +530,9 @@ export class VisitorMesh {
         depthWrite: false,
       }),
     );
-    const shadow = new THREE.Mesh(shadowGeo, shadowMat);
-    shadow.position.y = FLOOR_BASE_Y + 0.004;
-    this.root.add(shadow);
+    this.shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+    this.shadowMesh.position.y = FLOOR_BASE_Y + 0.004;
+    this.root.add(this.shadowMesh);
 
     // Ground body pivot flush on FLOOR_BASE_Y
     this.bodyPivot.position.y = FLOOR_BASE_Y;
@@ -549,29 +554,42 @@ export class VisitorMesh {
     const blushMat = this.makeMat('#F0A3A3', 0.86);
     const metalMat = this.makeMat('#D7C28D', 0.38, 0.45);
 
-    // 1. Articulated Legs & Sneakers (hinged at hip y = 0.36; hip ball prevents gaps when sitting)
+    // 1. 2-Segment Articulated Legs & Sneakers (hip y = 0.36, knee y = -0.15, sole bottom y = -0.36)
     this.leftLegPivot.position.set(-0.072, 0.36, 0);
     this.rightLegPivot.position.set(0.072, 0.36, 0);
-    this.buildLeg(this.leftLegPivot, style.skirt ? skinMat : bottomMat, sockMat, shoeMat, soleMat);
-    this.buildLeg(this.rightLegPivot, style.skirt ? skinMat : bottomMat, sockMat, shoeMat, soleMat);
+    this.buildLeg(
+      this.leftLegPivot,
+      this.leftKneePivot,
+      style.skirt ? skinMat : bottomMat,
+      sockMat,
+      shoeMat,
+      soleMat,
+    );
+    this.buildLeg(
+      this.rightLegPivot,
+      this.rightKneePivot,
+      style.skirt ? skinMat : bottomMat,
+      sockMat,
+      shoeMat,
+      soleMat,
+    );
     this.bodyPivot.add(this.leftLegPivot, this.rightLegPivot);
 
     // 2. Pelvis / Waist or Gently Flared Skirt (clean clearance over legs)
     if (style.skirt) {
-      // Inner hip block keeps waist sealed when seated
-      this.addCyl(this.bodyPivot, 0.118, 0.122, 0.09, 10, bottomMat, 0, 0.39, 0);
-      const skirtGeo = this.trackGeo(new THREE.CylinderGeometry(0.13, 0.205, 0.21, 12));
+      this.addCyl(this.bodyPivot, 0.116, 0.12, 0.088, 10, bottomMat, 0, 0.39, 0);
+      const skirtGeo = this.trackGeo(new THREE.CylinderGeometry(0.132, 0.208, 0.205, 12));
       const skirt = new THREE.Mesh(skirtGeo, bottomMat);
-      skirt.position.set(0, 0.335, 0);
+      skirt.position.set(0, 0.338, 0);
       skirt.scale.set(1.04, 1, 0.92);
       skirt.castShadow = true;
       skirt.receiveShadow = true;
       this.bodyPivot.add(skirt);
     } else {
-      const pelvisGeo = this.trackGeo(new THREE.CylinderGeometry(0.126, 0.132, 0.12, 10));
+      const pelvisGeo = this.trackGeo(new THREE.CylinderGeometry(0.126, 0.132, 0.118, 10));
       const pelvis = new THREE.Mesh(pelvisGeo, bottomMat);
-      pelvis.position.set(0, 0.385, 0);
-      pelvis.scale.set(1.06, 1, 0.82);
+      pelvis.position.set(0, 0.384, 0);
+      pelvis.scale.set(1.06, 1, 0.84);
       pelvis.castShadow = true;
       pelvis.receiveShadow = true;
       this.bodyPivot.add(pelvis);
@@ -581,19 +599,18 @@ export class VisitorMesh {
     this.torsoPivot.position.set(0, 0.425, 0);
     this.bodyPivot.add(this.torsoPivot);
 
-    // Layered non-coplanar stylish outfit torso (strict max half-width <= 0.152)
+    // Layered non-coplanar stylish outfit torso (strict max half-width <= 0.150)
     this.buildOutfit(style, topMat, topDarkMat, innerMat, bottomMat, accentMat, metalMat);
 
-    // 4. Articulated Arms clearly outside torso/jacket (x = ±0.195, sleeve r = 0.039 -> 0.156 > 0.152)
-    const sleeveMat =
-      style.outfitStyle === 'chef_apron' ? topMat : topMat;
+    // 4. Articulated Arms clearly outside torso/jacket (x = ±0.195, sleeve r = 0.039 -> 0.156 > 0.150)
+    const sleeveMat = topMat;
     this.leftArmPivot.position.set(-0.195, 0.265, 0);
     this.rightArmPivot.position.set(0.195, 0.265, 0);
     this.buildArm(this.leftArmPivot, sleeveMat, innerMat, skinMat, 1);
     this.buildArm(this.rightArmPivot, sleeveMat, innerMat, skinMat, -1);
     this.torsoPivot.add(this.leftArmPivot, this.rightArmPivot);
 
-    // Soft shoulder connectors bridge torso (0.145) to arm pivot (0.195) cleanly without clipping
+    // Soft shoulder connectors bridge torso to arm pivot cleanly
     this.addSphere(this.torsoPivot, 0.048, sleeveMat, -0.158, 0.265, 0, 1.15, 0.92, 0.95, 8);
     this.addSphere(this.torsoPivot, 0.048, sleeveMat, 0.158, 0.265, 0, 1.15, 0.92, 0.95, 8);
 
@@ -608,7 +625,7 @@ export class VisitorMesh {
       this.buildNeckHeadphones(accentMat, topDarkMat);
     }
 
-    // 5. Clean Neck bridging torso (y=0.31) to head base (y=0.37)
+    // 5. Clean Neck bridging torso (y=0.31) to head base (y=0.375)
     this.addCyl(this.torsoPivot, 0.05, 0.056, 0.095, 8, skinMat, 0, 0.34, 0);
 
     // 6. Head Pivot (hinged at y = 0.375 in torsoPivot -> head center at world ~0.955, ideal for 3/4 portrait!)
@@ -624,60 +641,56 @@ export class VisitorMesh {
     head.receiveShadow = true;
     this.headPivot.add(head);
 
-    // Cute side ears (cleanly outside head X = ±0.155)
+    // Cute side ears cleanly outside head X = ±0.155
     const earGeo = this.trackGeo(new THREE.SphereGeometry(0.03, 7, 6));
     const leftEar = new THREE.Mesh(earGeo, skinMat);
-    leftEar.position.set(-0.156, 0.148, -0.005);
+    leftEar.position.set(-0.158, 0.148, -0.005);
     leftEar.scale.set(0.65, 1.0, 0.8);
     const rightEar = new THREE.Mesh(earGeo, skinMat);
-    rightEar.position.set(0.156, 0.148, -0.005);
+    rightEar.position.set(0.158, 0.148, -0.005);
     rightEar.scale.set(0.65, 1.0, 0.8);
     this.headPivot.add(leftEar, rightEar);
 
-    // Facial features strictly proud of skull surface (zero z-fighting at any angle!)
-    // At eye level (x=±0.055, y=0.162), skull Z ≈ 0.138 -> eyes placed at z = 0.154
+    // Facial features strictly proud >= 0.008 of skull surface (zero z-fighting at any angle!)
     const eyeGeo = this.trackGeo(new THREE.SphereGeometry(0.021, 8, 6));
     const leftEye = new THREE.Mesh(eyeGeo, eyeMat);
-    leftEye.position.set(-0.055, 0.162, 0.152);
+    leftEye.position.set(-0.055, 0.162, 0.154);
     leftEye.scale.set(0.9, 1.12, 0.52);
     const rightEye = new THREE.Mesh(eyeGeo, eyeMat);
-    rightEye.position.set(0.055, 0.162, 0.152);
+    rightEye.position.set(0.055, 0.162, 0.154);
     rightEye.scale.set(0.9, 1.12, 0.52);
     this.headPivot.add(leftEye, rightEye);
 
     const shineGeo = this.trackGeo(new THREE.SphereGeometry(0.0062, 6, 4));
     const leftShine = new THREE.Mesh(shineGeo, eyeShineMat);
-    leftShine.position.set(-0.048, 0.171, 0.163);
+    leftShine.position.set(-0.048, 0.171, 0.165);
     const rightShine = new THREE.Mesh(shineGeo, eyeShineMat);
-    rightShine.position.set(0.062, 0.171, 0.163);
+    rightShine.position.set(0.062, 0.171, 0.165);
     this.headPivot.add(leftShine, rightShine);
 
-    // Eyebrows cleanly proud of forehead (skull Z ≈ 0.131 -> brows at z = 0.150)
     const browGeo = this.trackGeo(new THREE.BoxGeometry(0.042, 0.01, 0.01));
     const leftBrow = new THREE.Mesh(browGeo, hairMat);
-    leftBrow.position.set(-0.055, 0.203, 0.15);
+    leftBrow.position.set(-0.055, 0.203, 0.151);
     leftBrow.rotation.z = 0.08;
     const rightBrow = new THREE.Mesh(browGeo, hairMat);
-    rightBrow.position.set(0.055, 0.203, 0.15);
+    rightBrow.position.set(0.055, 0.203, 0.151);
     rightBrow.rotation.z = -0.08;
     this.headPivot.add(leftBrow, rightBrow);
 
-    // Rosy cheek blush cleanly proud of cheek surface (skull Z ≈ 0.118 -> blush at z = 0.134)
     const blushGeo = this.trackGeo(new THREE.SphereGeometry(0.02, 6, 4));
     const leftBlush = new THREE.Mesh(blushGeo, blushMat);
-    leftBlush.position.set(-0.089, 0.128, 0.134);
+    leftBlush.position.set(-0.089, 0.128, 0.136);
     leftBlush.scale.set(1.25, 0.6, 0.35);
     const rightBlush = new THREE.Mesh(blushGeo, blushMat);
-    rightBlush.position.set(0.089, 0.128, 0.134);
+    rightBlush.position.set(0.089, 0.128, 0.136);
     rightBlush.scale.set(1.25, 0.6, 0.35);
     this.headPivot.add(leftBlush, rightBlush);
 
-    // Friendly smile arc cleanly proud of chin/face (skull Z ≈ 0.142 -> mouth at z = 0.156)
     const mouthGeo = this.trackGeo(
       new THREE.TorusGeometry(0.022, 0.0052, 5, 10, Math.PI * 0.72),
     );
     this.mouthMesh = new THREE.Mesh(mouthGeo, eyeMat);
-    this.mouthMesh.position.set(0, 0.115, 0.156);
+    this.mouthMesh.position.set(0, 0.115, 0.157);
     this.mouthMesh.rotation.z = Math.PI * 1.14;
     this.headPivot.add(this.mouthMesh);
 
@@ -813,24 +826,38 @@ export class VisitorMesh {
     return mesh;
   }
 
+  /**
+   * Builds a 2-segment articulated leg (upper thigh + knee pivot + lower shin + sock + sneaker).
+   * Total standing length = 0.15 + 0.21 = 0.36, resting flush on FLOOR_BASE_Y.
+   */
   private buildLeg(
-    pivot: THREE.Group,
+    hipPivot: THREE.Group,
+    kneePivot: THREE.Group,
     legMat: THREE.Material,
     sockMat: THREE.Material,
     shoeMat: THREE.Material,
     soleMat: THREE.Material,
   ): void {
-    // Rounded hip ball ensures leg stays seamlessly joined during walking & sitting
-    this.addSphere(pivot, 0.054, legMat, 0, 0, 0, 1, 1, 1, 7);
-    // Leg column (spans y = 0 down to -0.27)
-    this.addCyl(pivot, 0.052, 0.044, 0.27, 8, legMat, 0, -0.135, 0);
-    // Crisp sock cuff (non-coplanar radius 0.046)
-    this.addCyl(pivot, 0.046, 0.046, 0.042, 8, sockMat, 0, -0.285, 0);
-    // Sneaker upper + white sole (bottom rests cleanly at y = -0.36 -> world FLOOR_BASE_Y)
-    this.addBox(pivot, 0.092, 0.06, 0.148, shoeMat, 0, -0.319, 0.024);
-    this.addBox(pivot, 0.098, 0.022, 0.156, soleMat, 0, -0.349, 0.024);
-    // Rounded toe cap (slightly proud of front shoe box)
-    this.addSphere(pivot, 0.04, soleMat, 0, -0.326, 0.09, 1.04, 0.62, 0.68, 7);
+    // Rounded hip ball seals hip joint at any sit/walk angle
+    this.addSphere(hipPivot, 0.052, legMat, 0, 0, 0, 1, 1, 1, 7);
+    // Upper thigh (0 down to -0.15)
+    this.addCyl(hipPivot, 0.05, 0.045, 0.15, 8, legMat, 0, -0.075, 0);
+
+    // Knee joint pivot at y = -0.15
+    kneePivot.position.set(0, -0.15, 0);
+    hipPivot.add(kneePivot);
+
+    // Rounded knee cap seals knee bend seamlessly when seated on couches!
+    this.addSphere(kneePivot, 0.044, legMat, 0, 0, 0, 1, 1, 1, 7);
+    // Lower shin (0 down to -0.12)
+    this.addCyl(kneePivot, 0.044, 0.04, 0.12, 8, legMat, 0, -0.06, 0);
+    // Crisp sock cuff strictly proud of shin (r=0.045 > 0.040)
+    this.addCyl(kneePivot, 0.045, 0.045, 0.036, 8, sockMat, 0, -0.136, 0);
+    // Sneaker upper + white sole (bottom rests cleanly at y = -0.21 -> total -0.36)
+    this.addBox(kneePivot, 0.092, 0.056, 0.148, shoeMat, 0, -0.17, 0.024);
+    this.addBox(kneePivot, 0.098, 0.022, 0.156, soleMat, 0, -0.199, 0.024);
+    // Rounded toe cap cleanly proud of shoe front
+    this.addSphere(kneePivot, 0.04, soleMat, 0, -0.176, 0.094, 1.04, 0.62, 0.68, 7);
   }
 
   private buildArm(
@@ -841,19 +868,15 @@ export class VisitorMesh {
     sideSign: 1 | -1,
   ): void {
     pivot.rotation.z = sideSign * 0.08;
-    // Shoulder cap (sleeve radius 0.039 clears torso cleanly at x = ±0.195)
     this.addSphere(pivot, 0.043, sleeveMat, 0, -0.008, 0, 1, 0.92, 1, 7);
-    // Sleeve
     this.addCyl(pivot, 0.04, 0.036, 0.198, 8, sleeveMat, 0, -0.108, 0);
-    // Cuff trim
-    this.addCyl(pivot, 0.04, 0.04, 0.028, 8, cuffMat, 0, -0.214, 0);
-    // Hand
+    this.addCyl(pivot, 0.042, 0.042, 0.028, 8, cuffMat, 0, -0.214, 0);
     this.addSphere(pivot, 0.038, skinMat, 0, -0.252, 0.006, 0.95, 1.04, 0.95, 7);
   }
 
   /**
-   * Builds strictly non-coplanar layered torso outfits with max half-width <= 0.150
-   * so arms at x = ±0.195 never clip the body.
+   * Builds strictly non-coplanar layered torso outfits with >= 0.006 clearance everywhere
+   * and max half-width <= 0.150 so arms at x = ±0.195 never clip the body.
    */
   private buildOutfit(
     style: VariantStyle,
@@ -872,10 +895,9 @@ export class VisitorMesh {
       style.outfitStyle === 'street_jacket' ||
       style.outfitStyle === 'corduroy_jacket';
 
-    // Inner torso core: strictly smaller (w=0.236, h=0.292, d=0.156) than outer jacket panels!
+    // Inner torso core strictly smaller (w=0.236, h=0.292, d=0.156) than outer shells!
     const coreMat = isLayeredOpen ? innerMat : topMat;
-    const core = this.addBox(this.torsoPivot, 0.236, 0.292, 0.156, coreMat, 0, 0.156, 0);
-    core.scale.set(1, 1, 1);
+    this.addBox(this.torsoPivot, 0.236, 0.292, 0.156, coreMat, 0, 0.156, 0);
 
     const addOpenJacketShell = (
       h: number,
@@ -883,32 +905,31 @@ export class VisitorMesh {
       shellMat: THREE.Material,
       hemMat: THREE.Material,
     ) => {
-      // Back jacket panel strictly behind core (z = -0.092, thickness 0.032 -> -0.108..-0.076)
-      this.addBox(this.torsoPivot, 0.286, h, 0.038, shellMat, 0, yCenter, -0.09);
-      // Left & right wrap panels strictly outside core X & front Z (non-coplanar heights!)
-      this.addBox(this.torsoPivot, 0.094, h - 0.004, 0.194, shellMat, -0.098, yCenter, 0.002);
-      this.addBox(this.torsoPivot, 0.094, h - 0.004, 0.194, shellMat, 0.098, yCenter, 0.002);
-      // Subtle bottom hem band
-      this.addBox(this.torsoPivot, 0.096, 0.026, 0.016, hemMat, -0.098, yCenter - h / 2 + 0.016, 0.096);
-      this.addBox(this.torsoPivot, 0.096, 0.026, 0.016, hemMat, 0.098, yCenter - h / 2 + 0.016, 0.096);
+      // Back panel strictly behind core (z: -0.116..-0.080 vs core -0.078)
+      this.addBox(this.torsoPivot, 0.286, h + 0.004, 0.036, shellMat, 0, yCenter, -0.098);
+      // Left & right wrap panels strictly non-coplanar in height & depth
+      this.addBox(this.torsoPivot, 0.094, h - 0.004, 0.194, shellMat, -0.098, yCenter, 0.004);
+      this.addBox(this.torsoPivot, 0.094, h - 0.004, 0.194, shellMat, 0.098, yCenter, 0.004);
+      // Subtle bottom hem band proud >= 0.006
+      this.addBox(this.torsoPivot, 0.096, 0.026, 0.016, hemMat, -0.098, yCenter - h / 2 + 0.016, 0.106);
+      this.addBox(this.torsoPivot, 0.096, 0.026, 0.016, hemMat, 0.098, yCenter - h / 2 + 0.016, 0.106);
     };
 
     switch (style.outfitStyle) {
       case 'cardigan':
       case 'cardigan_scarf': {
         addOpenJacketShell(0.304, 0.158, topMat, topDarkMat);
-        // Proud buttons on right front panel
-        this.addSphere(this.torsoPivot, 0.011, accentMat, 0.064, 0.205, 0.104, 1, 1, 0.6, 6);
-        this.addSphere(this.torsoPivot, 0.011, accentMat, 0.064, 0.125, 0.104, 1, 1, 0.6, 6);
+        this.addSphere(this.torsoPivot, 0.011, accentMat, 0.064, 0.205, 0.108, 1, 1, 0.6, 6);
+        this.addSphere(this.torsoPivot, 0.011, accentMat, 0.064, 0.125, 0.108, 1, 1, 0.6, 6);
 
         if (style.outfitStyle === 'cardigan_scarf') {
           const scarfGeo = this.trackGeo(new THREE.TorusGeometry(0.082, 0.028, 7, 14));
           scarfGeo.rotateX(Math.PI / 2);
           const scarf = new THREE.Mesh(scarfGeo, accentMat);
-          scarf.position.set(0, 0.318, 0.006);
+          scarf.position.set(0, 0.32, 0.006);
           scarf.castShadow = true;
           this.torsoPivot.add(scarf);
-          this.addBox(this.torsoPivot, 0.058, 0.14, 0.024, accentMat, 0.046, 0.225, 0.114, 0.08, 0, -0.08);
+          this.addBox(this.torsoPivot, 0.058, 0.14, 0.024, accentMat, 0.046, 0.225, 0.118, 0.08, 0, -0.08);
         }
         break;
       }
@@ -916,178 +937,156 @@ export class VisitorMesh {
       case 'turtleneck': {
         this.addBox(this.torsoPivot, 0.268, 0.302, 0.184, topMat, 0, 0.158, 0);
         this.addCyl(this.torsoPivot, 0.072, 0.078, 0.07, 10, topMat, 0, 0.32, 0);
-        this.addBox(this.torsoPivot, 0.274, 0.034, 0.19, topDarkMat, 0, 0.02, 0);
+        this.addBox(this.torsoPivot, 0.278, 0.034, 0.196, topDarkMat, 0, 0.02, 0);
         break;
       }
 
       case 'trench_crossbody': {
         this.addCyl(this.torsoPivot, 0.068, 0.074, 0.062, 10, innerMat, 0, 0.316, 0);
-        addOpenJacketShell(0.326, 0.148, topMat, topDarkMat);
-        // Sculpted lapels cleanly proud of front panels
-        this.addBox(this.torsoPivot, 0.05, 0.105, 0.018, topDarkMat, -0.074, 0.248, 0.106, 0, 0, -0.2);
-        this.addBox(this.torsoPivot, 0.05, 0.105, 0.018, topDarkMat, 0.074, 0.248, 0.106, 0, 0, 0.2);
+        addOpenJacketShell(0.324, 0.148, topMat, topDarkMat);
+        this.addBox(this.torsoPivot, 0.05, 0.105, 0.016, topDarkMat, -0.074, 0.248, 0.111, 0, 0, -0.2);
+        this.addBox(this.torsoPivot, 0.05, 0.105, 0.016, topDarkMat, 0.074, 0.248, 0.111, 0, 0, 0.2);
         break;
       }
 
       case 'oversized_sweater': {
         this.addBox(this.torsoPivot, 0.284, 0.304, 0.198, topMat, 0, 0.158, 0);
-        this.addBox(this.torsoPivot, 0.29, 0.038, 0.204, topDarkMat, 0, 0.016, 0);
-        this.addCyl(this.torsoPivot, 0.08, 0.086, 0.036, 10, innerMat, 0, 0.314, 0);
-        // Proud cute emblem patch
-        this.addSphere(this.torsoPivot, 0.022, accentMat, -0.064, 0.215, 0.106, 1.15, 0.9, 0.45, 7);
+        this.addBox(this.torsoPivot, 0.294, 0.038, 0.21, topDarkMat, 0, 0.016, 0);
+        this.addCyl(this.torsoPivot, 0.08, 0.086, 0.036, 10, innerMat, 0, 0.316, 0);
+        this.addSphere(this.torsoPivot, 0.022, accentMat, -0.064, 0.215, 0.108, 1.15, 0.9, 0.45, 7);
         break;
       }
 
       case 'bomber_jacket': {
         addOpenJacketShell(0.276, 0.172, topMat, innerMat);
-        // Cropped varsity waist stripe cleanly wrapping bottom
-        this.addBox(this.torsoPivot, 0.292, 0.032, 0.202, innerMat, 0, 0.044, -0.002);
-        // Graphic tee block cleanly proud on inner shirt
-        this.addBox(this.torsoPivot, 0.058, 0.064, 0.014, accentMat, 0, 0.185, 0.084);
+        this.addBox(this.torsoPivot, 0.296, 0.032, 0.222, innerMat, 0, 0.044, -0.004);
+        this.addBox(this.torsoPivot, 0.058, 0.064, 0.014, accentMat, 0, 0.185, 0.088);
         break;
       }
 
       case 'denim_overalls': {
-        this.addBox(this.torsoPivot, 0.264, 0.298, 0.178, topMat, 0, 0.156, 0);
-        // Overall bib & shoulder straps strictly outside tee (z = ±0.098)
-        this.addBox(this.torsoPivot, 0.205, 0.195, 0.198, bottomMat, 0, 0.115, 0.004);
+        this.addBox(this.torsoPivot, 0.26, 0.298, 0.174, topMat, 0, 0.156, 0);
+        this.addBox(this.torsoPivot, 0.205, 0.195, 0.196, bottomMat, 0, 0.115, 0.004);
         this.addBox(this.torsoPivot, 0.034, 0.125, 0.2, bottomMat, -0.068, 0.254, 0.002);
         this.addBox(this.torsoPivot, 0.034, 0.125, 0.2, bottomMat, 0.068, 0.254, 0.002);
-        // Front bib pocket & brass buttons proud of bib
-        this.addBox(this.torsoPivot, 0.105, 0.07, 0.018, bottomMat, 0, 0.145, 0.108);
-        this.addSphere(this.torsoPivot, 0.012, metalMat, -0.068, 0.208, 0.11, 1, 1, 0.5, 6);
-        this.addSphere(this.torsoPivot, 0.012, metalMat, 0.068, 0.208, 0.11, 1, 1, 0.5, 6);
+        this.addBox(this.torsoPivot, 0.105, 0.07, 0.016, bottomMat, 0, 0.145, 0.112);
+        this.addSphere(this.torsoPivot, 0.012, metalMat, -0.068, 0.208, 0.112, 1, 1, 0.5, 6);
+        this.addSphere(this.torsoPivot, 0.012, metalMat, 0.068, 0.208, 0.112, 1, 1, 0.5, 6);
         break;
       }
 
       case 'linen_shirt': {
         this.addBox(this.torsoPivot, 0.276, 0.3, 0.19, topMat, 0, 0.156, 0);
-        this.addBox(this.torsoPivot, 0.064, 0.05, 0.022, innerMat, -0.052, 0.285, 0.096, 0.15, 0, -0.24);
-        this.addBox(this.torsoPivot, 0.064, 0.05, 0.022, innerMat, 0.052, 0.285, 0.096, 0.15, 0, 0.24);
-        this.addBox(this.torsoPivot, 0.058, 0.064, 0.016, topDarkMat, -0.068, 0.198, 0.1);
+        this.addBox(this.torsoPivot, 0.064, 0.05, 0.02, innerMat, -0.052, 0.285, 0.104, 0.15, 0, -0.24);
+        this.addBox(this.torsoPivot, 0.064, 0.05, 0.02, innerMat, 0.052, 0.285, 0.104, 0.15, 0, 0.24);
+        this.addBox(this.torsoPivot, 0.058, 0.064, 0.014, topDarkMat, -0.068, 0.198, 0.104);
         break;
       }
 
       case 'hoodie': {
         this.addBox(this.torsoPivot, 0.286, 0.306, 0.198, topMat, 0, 0.158, 0);
-        // Kangaroo pocket proud of front
-        this.addBox(this.torsoPivot, 0.18, 0.088, 0.022, topDarkMat, 0, 0.088, 0.106);
-        // Drawstrings proud of chest
-        this.addBox(this.torsoPivot, 0.011, 0.088, 0.011, innerMat, -0.032, 0.242, 0.106);
-        this.addBox(this.torsoPivot, 0.011, 0.088, 0.011, innerMat, 0.032, 0.242, 0.106);
-        // Folded hood neatly draped behind shoulders (never over head!)
-        this.addBox(this.torsoPivot, 0.19, 0.08, 0.098, topDarkMat, 0, 0.285, -0.108, -0.32, 0, 0);
+        this.addBox(this.torsoPivot, 0.18, 0.088, 0.018, topDarkMat, 0, 0.088, 0.11);
+        this.addBox(this.torsoPivot, 0.011, 0.088, 0.012, innerMat, -0.032, 0.242, 0.109);
+        this.addBox(this.torsoPivot, 0.011, 0.088, 0.012, innerMat, 0.032, 0.242, 0.109);
+        this.addBox(this.torsoPivot, 0.19, 0.08, 0.096, topDarkMat, 0, 0.285, -0.114, -0.32, 0, 0);
         break;
       }
 
       case 'street_jacket': {
         addOpenJacketShell(0.304, 0.158, topMat, topDarkMat);
-        // Inner folded hood behind neck
-        this.addBox(this.torsoPivot, 0.175, 0.072, 0.09, innerMat, 0, 0.288, -0.11, -0.3, 0, 0);
+        this.addBox(this.torsoPivot, 0.175, 0.072, 0.088, innerMat, 0, 0.288, -0.122, -0.3, 0, 0);
         break;
       }
 
       case 'chef_apron': {
-        // Warm shirt underneath + crisp bistro/chef apron front & waist tie
-        this.addBox(this.torsoPivot, 0.268, 0.298, 0.182, topMat, 0, 0.156, 0);
-        // Apron bib + lower front panel strictly proud of front
-        this.addBox(this.torsoPivot, 0.19, 0.275, 0.022, accentMat, 0, 0.132, 0.098);
-        // Apron waist tie wrapping cleanly around waist
-        this.addBox(this.torsoPivot, 0.278, 0.028, 0.194, accentMat, 0, 0.055, 0);
-        // Front pocket & subtle stripe
-        this.addBox(this.torsoPivot, 0.12, 0.068, 0.016, innerMat, 0, 0.115, 0.113);
-        // Neck loop
+        this.addBox(this.torsoPivot, 0.268, 0.298, 0.18, topMat, 0, 0.156, 0);
+        this.addBox(this.torsoPivot, 0.19, 0.275, 0.018, accentMat, 0, 0.132, 0.103);
+        this.addBox(this.torsoPivot, 0.282, 0.028, 0.196, accentMat, 0, 0.055, 0);
+        this.addBox(this.torsoPivot, 0.12, 0.068, 0.014, innerMat, 0, 0.115, 0.119);
         const loopGeo = this.trackGeo(new THREE.TorusGeometry(0.068, 0.01, 6, 12));
         loopGeo.rotateX(Math.PI / 2);
         const loop = new THREE.Mesh(loopGeo, accentMat);
-        loop.position.set(0, 0.305, 0.01);
+        loop.position.set(0, 0.308, 0.01);
         this.torsoPivot.add(loop);
         break;
       }
 
       case 'studio_smock': {
-        // Relaxed artist studio smock with scarf & paint-brush pocket
         this.addBox(this.torsoPivot, 0.282, 0.312, 0.194, topMat, 0, 0.152, 0);
-        this.addBox(this.torsoPivot, 0.078, 0.078, 0.018, topDarkMat, 0.068, 0.115, 0.104);
-        this.addBox(this.torsoPivot, 0.078, 0.078, 0.018, topDarkMat, -0.068, 0.115, 0.104);
-        // Cute collar bow/scarf
+        this.addBox(this.torsoPivot, 0.078, 0.078, 0.016, topDarkMat, 0.068, 0.115, 0.108);
+        this.addBox(this.torsoPivot, 0.078, 0.078, 0.016, topDarkMat, -0.068, 0.115, 0.108);
         const ringGeo = this.trackGeo(new THREE.TorusGeometry(0.076, 0.02, 6, 12));
         ringGeo.rotateX(Math.PI / 2);
         const ring = new THREE.Mesh(ringGeo, accentMat);
-        ring.position.set(0, 0.312, 0.006);
+        ring.position.set(0, 0.314, 0.006);
         this.torsoPivot.add(ring);
         break;
       }
 
       case 'corduroy_jacket': {
         addOpenJacketShell(0.304, 0.158, topMat, topDarkMat);
-        // Cozy shearling/cream collar lapels
-        this.addBox(this.torsoPivot, 0.054, 0.088, 0.02, innerMat, -0.075, 0.268, 0.104, 0, 0, -0.18);
-        this.addBox(this.torsoPivot, 0.054, 0.088, 0.02, innerMat, 0.075, 0.268, 0.104, 0, 0, 0.18);
+        this.addBox(this.torsoPivot, 0.054, 0.088, 0.016, innerMat, -0.075, 0.268, 0.11, 0, 0, -0.18);
+        this.addBox(this.torsoPivot, 0.054, 0.088, 0.016, innerMat, 0.075, 0.268, 0.11, 0, 0, 0.18);
         break;
       }
     }
   }
 
   private buildCrossbodyBag(bagMat: THREE.Material, metalMat: THREE.Material): void {
-    // Diagonal strap strictly proud of front/back coat
-    this.addBox(this.torsoPivot, 0.024, 0.36, 0.222, bagMat, 0, 0.16, 0.002, 0, 0, -0.66);
-    // Satchel resting neatly at right hip (behind/below arm swing)
-    this.addBox(this.torsoPivot, 0.068, 0.11, 0.125, bagMat, 0.152, 0.01, -0.035);
-    this.addBox(this.torsoPivot, 0.016, 0.022, 0.028, metalMat, 0.188, 0.028, -0.035);
+    // Strap clears both front coat (+0.101) & back panel (-0.116) by >= 0.008!
+    this.addBox(this.torsoPivot, 0.024, 0.36, 0.248, bagMat, 0, 0.16, -0.004, 0, 0, -0.66);
+    this.addBox(this.torsoPivot, 0.068, 0.11, 0.125, bagMat, 0.154, 0.01, -0.036);
+    this.addBox(this.torsoPivot, 0.016, 0.022, 0.028, metalMat, 0.194, 0.028, -0.036);
   }
 
   private buildCanvasTote(toteMat: THREE.Material): void {
-    // Tote bag tucked slightly behind left hip so left arm swings freely!
-    this.addBox(this.torsoPivot, 0.062, 0.16, 0.148, toteMat, -0.152, 0.015, -0.042);
-    this.addBox(this.torsoPivot, 0.016, 0.18, 0.018, toteMat, -0.145, 0.15, 0.005);
-    this.addBox(this.torsoPivot, 0.016, 0.18, 0.018, toteMat, -0.145, 0.15, -0.085);
-    // Tiny cute botanical sprig peeking out
+    this.addBox(this.torsoPivot, 0.062, 0.16, 0.148, toteMat, -0.154, 0.015, -0.044);
+    this.addBox(this.torsoPivot, 0.016, 0.18, 0.018, toteMat, -0.146, 0.15, 0.005);
+    this.addBox(this.torsoPivot, 0.016, 0.18, 0.018, toteMat, -0.146, 0.15, -0.085);
     const leafMat = this.makeMat('#78B884', 0.8);
-    this.addSphere(this.torsoPivot, 0.028, leafMat, -0.155, 0.115, -0.02, 0.7, 1.35, 0.9, 6);
-    this.addSphere(this.torsoPivot, 0.025, leafMat, -0.158, 0.11, -0.06, 0.7, 1.25, 0.9, 6);
+    this.addSphere(this.torsoPivot, 0.028, leafMat, -0.156, 0.115, -0.02, 0.7, 1.35, 0.9, 6);
+    this.addSphere(this.torsoPivot, 0.025, leafMat, -0.16, 0.11, -0.06, 0.7, 1.25, 0.9, 6);
   }
 
   private buildNeckHeadphones(accentMat: THREE.Material, darkMat: THREE.Material): void {
     const bandGeo = this.trackGeo(new THREE.TorusGeometry(0.095, 0.014, 6, 14, Math.PI * 1.4));
     bandGeo.rotateX(Math.PI / 2);
     const band = new THREE.Mesh(bandGeo, darkMat);
-    band.position.set(0, 0.312, -0.006);
+    band.position.set(0, 0.314, -0.006);
     band.rotation.z = -Math.PI * 0.2;
     this.torsoPivot.add(band);
-    this.addCyl(this.torsoPivot, 0.036, 0.036, 0.03, 10, accentMat, -0.084, 0.296, 0.082, 0.38, 0.38);
-    this.addCyl(this.torsoPivot, 0.036, 0.036, 0.03, 10, accentMat, 0.084, 0.296, 0.082, 0.38, -0.38);
+    this.addCyl(this.torsoPivot, 0.036, 0.036, 0.03, 10, accentMat, -0.084, 0.296, 0.086, 0.38, 0.38);
+    this.addCyl(this.torsoPivot, 0.036, 0.036, 0.03, 10, accentMat, 0.084, 0.296, 0.086, 0.38, -0.38);
   }
 
   private buildWornHeadphones(accentMat: THREE.Material, darkMat: THREE.Material): void {
-    const archGeo = this.trackGeo(new THREE.TorusGeometry(0.186, 0.014, 6, 16, Math.PI));
+    const archGeo = this.trackGeo(new THREE.TorusGeometry(0.188, 0.014, 6, 16, Math.PI));
     const arch = new THREE.Mesh(archGeo, darkMat);
-    arch.position.set(0, 0.17, 0);
+    arch.position.set(0, 0.172, 0);
     arch.castShadow = true;
     this.headPivot.add(arch);
-    this.addCyl(this.headPivot, 0.044, 0.044, 0.034, 10, accentMat, -0.182, 0.152, 0, 0, Math.PI / 2);
-    this.addCyl(this.headPivot, 0.044, 0.044, 0.034, 10, accentMat, 0.182, 0.152, 0, 0, Math.PI / 2);
+    this.addCyl(this.headPivot, 0.044, 0.044, 0.034, 10, accentMat, -0.184, 0.152, 0, 0, Math.PI / 2);
+    this.addCyl(this.headPivot, 0.044, 0.044, 0.034, 10, accentMat, 0.184, 0.152, 0, 0, Math.PI / 2);
   }
 
   private buildGlasses(frameMat: THREE.Material): void {
-    // Cleanly proud at z = 0.172 (well clear of eyes at 0.163 & brows at 0.155)
     const lensGeo = this.trackGeo(new THREE.TorusGeometry(0.036, 0.0055, 6, 14));
     const left = new THREE.Mesh(lensGeo, frameMat);
-    left.position.set(-0.055, 0.162, 0.172);
+    left.position.set(-0.055, 0.162, 0.174);
     const right = new THREE.Mesh(lensGeo, frameMat);
-    right.position.set(0.055, 0.162, 0.172);
+    right.position.set(0.055, 0.162, 0.174);
     this.headPivot.add(left, right);
-    this.addBox(this.headPivot, 0.038, 0.007, 0.007, frameMat, 0, 0.165, 0.173);
-    this.addBox(this.headPivot, 0.007, 0.007, 0.145, frameMat, -0.094, 0.164, 0.102);
-    this.addBox(this.headPivot, 0.007, 0.007, 0.145, frameMat, 0.094, 0.164, 0.102);
+    this.addBox(this.headPivot, 0.038, 0.007, 0.007, frameMat, 0, 0.165, 0.175);
+    this.addBox(this.headPivot, 0.007, 0.007, 0.145, frameMat, -0.094, 0.164, 0.104);
+    this.addBox(this.headPivot, 0.007, 0.007, 0.145, frameMat, 0.094, 0.164, 0.104);
   }
 
   private buildHeadSunglasses(): void {
     const frameMat = this.makeMat('#2F2824', 0.35, 0.2);
     const tintMat = this.makeMat('#4E3D35', 0.2, 0.3);
-    this.addBox(this.headPivot, 0.068, 0.036, 0.016, tintMat, -0.046, 0.298, 0.078, -0.66, 0, 0);
-    this.addBox(this.headPivot, 0.068, 0.036, 0.016, tintMat, 0.046, 0.298, 0.078, -0.66, 0, 0);
-    this.addBox(this.headPivot, 0.154, 0.012, 0.018, frameMat, 0, 0.305, 0.072, -0.66, 0, 0);
+    this.addBox(this.headPivot, 0.068, 0.036, 0.016, tintMat, -0.046, 0.3, 0.08, -0.66, 0, 0);
+    this.addBox(this.headPivot, 0.068, 0.036, 0.016, tintMat, 0.046, 0.3, 0.08, -0.66, 0, 0);
+    this.addBox(this.headPivot, 0.154, 0.012, 0.018, frameMat, 0, 0.307, 0.074, -0.66, 0, 0);
   }
 
   private buildCatEarHeadband(accentMat: THREE.Material, innerEarMat: THREE.Material): void {
@@ -1110,10 +1109,10 @@ export class VisitorMesh {
 
     const innerGeo = this.trackGeo(new THREE.ConeGeometry(0.024, 0.048, 4));
     const leftIn = new THREE.Mesh(innerGeo, innerEarMat);
-    leftIn.position.set(-0.096, 0.362, 0.04);
+    leftIn.position.set(-0.096, 0.362, 0.042);
     leftIn.rotation.set(0.12, Math.PI / 4, 0.28);
     const rightIn = new THREE.Mesh(innerGeo, innerEarMat);
-    rightIn.position.set(0.096, 0.362, 0.04);
+    rightIn.position.set(0.096, 0.362, 0.042);
     rightIn.rotation.set(0.12, Math.PI / 4, -0.28);
 
     this.headPivot.add(leftEar, rightEar, leftIn, rightIn);
@@ -1129,7 +1128,6 @@ export class VisitorMesh {
     accentMat: THREE.Material,
   ): void {
     const h = this.headPivot;
-    // Outer scalp dome offset cleanly behind face (r = 0.166 > 0.155, z = -0.036 -> front <= 0.10)
     const addCrownBase = (mat: THREE.Material = hairMat, topLift = 0.0) => {
       this.addSphere(h, 0.166, mat, 0, 0.184 + topLift, -0.036, 1.04, 0.9, 0.96, 10);
       this.addSphere(h, 0.15, mat, 0, 0.132, -0.068, 1.06, 0.92, 0.84, 9);
@@ -1198,7 +1196,6 @@ export class VisitorMesh {
       }
 
       case 'tapered_fade': {
-        // Crisp short fade with neat contoured top
         this.addSphere(h, 0.16, hairMat, 0, 0.178, -0.038, 1.01, 0.86, 0.94, 9);
         this.addBox(h, 0.21, 0.062, 0.205, hairMat, 0, 0.285, -0.005);
         this.addBox(h, 0.19, 0.032, 0.05, hairMat, 0, 0.266, 0.092, 0.15, 0, 0);
@@ -1392,7 +1389,14 @@ export class VisitorMesh {
     this.root.scale.setScalar(s);
   }
 
-  updateAnimation(dt: number, pose: VisitorPose, walkSpeed = 1.45): void {
+  /**
+   * Updates skeletal animations.
+   * When `pose === 'sit'` and `seatBlend > 0` (character positioned on an elevated couch/chair/stool/bed
+   * at `root.position.y = seatY`), smoothly drops `bodyPivot.y` to `-0.325` so hips/pelvis sit flush ON
+   * the cushion, bends thighs horizontally forward and knees naturally down over the front edge, and
+   * hides the floating ground shadow disc.
+   */
+  updateAnimation(dt: number, pose: VisitorPose, walkSpeed = 1.45, seatBlend = 0): void {
     this.speechBubble.update(dt);
 
     // Subtle mouth & head chatter while audible blabber plays
@@ -1408,6 +1412,14 @@ export class VisitorMesh {
       ? Math.sin(this.blabberPhase * 0.45) * 0.05
       : 0;
 
+    // Ground shadow only shown when standing/walking on floor (not floating on top of cushions)
+    const isElevated = seatBlend > 0.25 || this.root.position.y > 0.08;
+    this.shadowMesh.visible = !isElevated;
+
+    // Adjust bubble vertical anchor nicely when seated vs standing
+    const bubbleY = isElevated ? 1.36 : 1.66;
+    this.speechBubble.setBaseHeight(bubbleY);
+
     switch (pose) {
       case 'walk': {
         this.animPhase += dt * walkSpeed * 6.5;
@@ -1418,6 +1430,9 @@ export class VisitorMesh {
         this.bodyPivot.position.y = FLOOR_BASE_Y + hop;
         this.leftLegPivot.rotation.set(stride * maxStride, 0, 0);
         this.rightLegPivot.rotation.set(-stride * maxStride, 0, 0);
+        // Subtle natural trailing knee flex during walk stride
+        this.leftKneePivot.rotation.set(Math.max(0, -stride) * 0.24, 0, 0);
+        this.rightKneePivot.rotation.set(Math.max(0, stride) * 0.24, 0, 0);
 
         this.torsoPivot.rotation.set(0.045, stride * 0.05, stride * 0.025);
         this.leftArmPivot.rotation.set(-stride * 0.38, 0, 0.08);
@@ -1430,15 +1445,46 @@ export class VisitorMesh {
         this.animPhase += dt * 2.1;
         const breathe = Math.abs(Math.sin(this.animPhase)) * 0.006;
 
-        // Seated drop keeps sneakers & heels cleanly above FLOOR_BASE_Y at every frame
-        this.bodyPivot.position.y = FLOOR_BASE_Y - 0.068 + breathe;
-        this.leftLegPivot.rotation.set(-0.98, 0.06, 0);
-        this.rightLegPivot.rotation.set(-0.98, -0.06, 0);
+        if (isElevated) {
+          // Seated ON a couch/chair/stool/bed (root.position.y = seatY):
+          // pelvis bottom (y=0.325 in bodyPivot) sits flush on y = 0 in root local space!
+          const b = Math.max(0, Math.min(1, seatBlend || 1));
+          const standY = FLOOR_BASE_Y;
+          const cushionY = -0.325 + breathe;
+          this.bodyPivot.position.y = standY + (cushionY - standY) * b;
 
-        this.torsoPivot.rotation.set(-0.06, 0, 0);
-        this.leftArmPivot.rotation.set(-0.36, 0, 0.12);
-        this.rightArmPivot.rotation.set(-0.36, 0, -0.12);
-        this.headPivot.rotation.set(0.04 + headChatterTilt, Math.sin(this.animPhase * 0.5) * 0.1, 0);
+          // Thighs rest horizontally forward on cushion; knees bend cleanly down over front edge!
+          const gentleSwing = Math.sin(this.animPhase * 0.75) * 0.04;
+          this.leftLegPivot.rotation.set(-1.46 * b, 0.06 * b, 0);
+          this.rightLegPivot.rotation.set(-1.46 * b, -0.06 * b, 0);
+          this.leftKneePivot.rotation.set((1.34 + gentleSwing) * b, 0, 0);
+          this.rightKneePivot.rotation.set((1.34 - gentleSwing) * b, 0, 0);
+
+          this.torsoPivot.rotation.set(-0.05, 0, 0);
+          this.leftArmPivot.rotation.set(-0.48 * b, 0, 0.14);
+          this.rightArmPivot.rotation.set(-0.48 * b, 0, -0.14);
+          this.headPivot.rotation.set(
+            0.03 + headChatterTilt,
+            Math.sin(this.animPhase * 0.5) * 0.12,
+            0,
+          );
+        } else {
+          // Floor-level fallback pose (keeps heels cleanly above FLOOR_BASE_Y)
+          this.bodyPivot.position.y = FLOOR_BASE_Y - 0.055 + breathe;
+          this.leftLegPivot.rotation.set(-0.88, 0.06, 0);
+          this.rightLegPivot.rotation.set(-0.88, -0.06, 0);
+          this.leftKneePivot.rotation.set(0.65, 0, 0);
+          this.rightKneePivot.rotation.set(0.65, 0, 0);
+
+          this.torsoPivot.rotation.set(-0.05, 0, 0);
+          this.leftArmPivot.rotation.set(-0.36, 0, 0.12);
+          this.rightArmPivot.rotation.set(-0.36, 0, -0.12);
+          this.headPivot.rotation.set(
+            0.04 + headChatterTilt,
+            Math.sin(this.animPhase * 0.5) * 0.1,
+            0,
+          );
+        }
         break;
       }
 
@@ -1451,6 +1497,8 @@ export class VisitorMesh {
         this.bodyPivot.position.y = FLOOR_BASE_Y + bounce;
         this.leftLegPivot.rotation.set(beat * 0.2, 0, 0.04);
         this.rightLegPivot.rotation.set(-beat * 0.2, 0, -0.04);
+        this.leftKneePivot.rotation.set(Math.max(0, -beat) * 0.2, 0, 0);
+        this.rightKneePivot.rotation.set(Math.max(0, beat) * 0.2, 0, 0);
 
         this.torsoPivot.rotation.set(0.04, halfBeat * 0.2, halfBeat * 0.1);
         this.leftArmPivot.rotation.set(-0.92 + beat * 0.4, 0, 0.22);
@@ -1467,10 +1515,11 @@ export class VisitorMesh {
         this.animPhase += dt * 5.0;
         const stroke = Math.sin(this.animPhase);
 
-        // Keep feet planted cleanly on FLOOR_BASE_Y while leaning smoothly from the waist
         this.bodyPivot.position.y = FLOOR_BASE_Y;
         this.leftLegPivot.rotation.set(0, 0, 0);
         this.rightLegPivot.rotation.set(0, 0, 0);
+        this.leftKneePivot.rotation.set(0, 0, 0);
+        this.rightKneePivot.rotation.set(0, 0, 0);
 
         this.torsoPivot.rotation.set(0.28 + stroke * 0.035, 0, 0);
         this.leftArmPivot.rotation.set(-0.68 + stroke * 0.16, 0, 0.08);
@@ -1486,6 +1535,8 @@ export class VisitorMesh {
         this.bodyPivot.position.y = FLOOR_BASE_Y + Math.abs(Math.sin(this.animPhase)) * 0.008;
         this.leftLegPivot.rotation.set(0, 0, 0);
         this.rightLegPivot.rotation.set(0, 0, 0);
+        this.leftKneePivot.rotation.set(0, 0, 0);
+        this.rightKneePivot.rotation.set(0, 0, 0);
 
         this.torsoPivot.rotation.set(0.035, sway * 0.07, 0);
         this.leftArmPivot.rotation.set(-0.08, 0, 0.08);
@@ -1502,6 +1553,8 @@ export class VisitorMesh {
         this.bodyPivot.position.y = FLOOR_BASE_Y + breathe;
         this.leftLegPivot.rotation.set(0, 0, 0);
         this.rightLegPivot.rotation.set(0, 0, 0);
+        this.leftKneePivot.rotation.set(0, 0, 0);
+        this.rightKneePivot.rotation.set(0, 0, 0);
 
         this.torsoPivot.rotation.set(0, 0, 0);
         this.leftArmPivot.rotation.set(0, 0, 0.08);

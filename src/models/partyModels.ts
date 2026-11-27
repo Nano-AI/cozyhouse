@@ -89,35 +89,35 @@ function buildDjBooth(ctx: ModelContext): void {
   // Sculpted main booth cabinet (y = 0.104 .. 0.994)
   ctx.box(1.80, 0.89, 0.78, primary, 0, baseY + 0.08 + 0.445, 0, { roughness: 0.65 });
 
-  // Architectural side frame pillars for crisp silhouette
+  // Architectural side frame pillars for crisp silhouette (inset slightly from top/bottom to avoid coplanar Z-fighting)
   for (const sx of [-0.88, 0.88]) {
-    ctx.box(0.08, 0.89, 0.82, deepTint, sx, baseY + 0.08 + 0.445, 0.01, { roughness: 0.62 });
+    ctx.box(0.08, 0.878, 0.82, deepTint, sx, baseY + 0.08 + 0.445, 0.01, { roughness: 0.62 });
   }
 
   // Front recessed fascia bay (+Z)
-  ctx.box(1.56, 0.72, 0.04, '#2F3440', 0, baseY + 0.52, 0.39, { roughness: 0.6 });
+  ctx.box(1.56, 0.72, 0.036, '#2F3440', 0, baseY + 0.52, 0.396, { roughness: 0.6 });
 
   // Top & bottom illuminated pastel fascia LED rails
   const ledGlow = isActive ? 1.05 : 0.22;
-  ctx.box(1.54, 0.036, 0.035, brightTint, 0, baseY + 0.86, 0.415, {
+  ctx.box(1.52, 0.034, 0.028, brightTint, 0, baseY + 0.852, 0.424, {
     emissive: primary,
     emissiveIntensity: ledGlow,
     roughness: 0.3,
   });
-  ctx.box(1.54, 0.036, 0.035, brightTint, 0, baseY + 0.18, 0.415, {
+  ctx.box(1.52, 0.034, 0.028, brightTint, 0, baseY + 0.198, 0.424, {
     emissive: primary,
     emissiveIntensity: ledGlow,
     roughness: 0.3,
   });
 
   // 3 bold geometric VU equalizer bars on the front fascia
-  const eqHeights = [0.34, 0.56, 0.40];
+  const eqHeights = [0.34, 0.54, 0.40];
   const eqColors = ['#9FE0DC', brightTint, '#F2B8C8'];
   for (let i = 0; i < 3; i++) {
     const ex = (i - 1) * 0.36;
     const eh = eqHeights[i];
     const col = eqColors[i];
-    ctx.box(0.18, eh, 0.032, col, ex, baseY + 0.22 + eh / 2, 0.412, {
+    ctx.box(0.18, eh, 0.028, col, ex, baseY + 0.232 + eh / 2, 0.422, {
       emissive: col,
       emissiveIntensity: isActive ? 0.98 : 0.16,
       roughness: 0.32,
@@ -130,7 +130,7 @@ function buildDjBooth(ctx: ModelContext): void {
     roughness: 0.45,
     metalness: 0.15,
   });
-  ctx.box(1.89, 0.018, 0.03, brightTint, 0, deckY - 0.012, 0.43, {
+  ctx.box(1.89, 0.018, 0.03, brightTint, 0, deckY - 0.018, 0.43, {
     emissive: isActive ? primary : undefined,
     emissiveIntensity: 0.45,
     roughness: 0.3,
@@ -184,22 +184,22 @@ function buildDjBooth(ctx: ModelContext): void {
       roughness: 0.28,
       parent: platter,
     });
-    ctx.cyl(0.168, 0.168, 0.008, 18, '#22252C', 0, 0.010, 0, {
+    ctx.cyl(0.168, 0.168, 0.006, 18, '#22252C', 0, 0.011, 0, {
       roughness: 0.28,
       metalness: 0.15,
       parent: platter,
     });
-    ctx.cyl(0.060, 0.060, 0.010, 12, labelColor, 0, 0.012, 0, {
+    ctx.cyl(0.060, 0.060, 0.006, 12, labelColor, 0, 0.017, 0, {
       emissive: isActive ? labelColor : undefined,
       emissiveIntensity: 0.38,
       roughness: 0.45,
       parent: platter,
     });
     // Cue marker stripe on label so vinyl spin is unmistakable
-    ctx.box(0.028, 0.012, 0.012, '#FFFFFF', 0.036, 0.013, 0, { parent: platter });
+    ctx.box(0.028, 0.005, 0.012, '#FFFFFF', 0.036, 0.0225, 0, { parent: platter });
 
-    // Metallic tonearm pivot + angled arm
-    const pivotX = dx + 0.175;
+    // Metallic tonearm pivot + angled arm (cleanly clear of platter rim)
+    const pivotX = dx + 0.194;
     const pivotZ = -0.115;
     ctx.cyl(0.024, 0.028, 0.036, 8, '#C8CFD8', pivotX, deckY + 0.042, pivotZ, {
       metalness: 0.72,
@@ -395,9 +395,9 @@ function buildFloorUplight(ctx: ModelContext): void {
     parent: can,
   });
 
-  // Recessed LED lens disc
+  // Recessed LED lens disc (cleanly proud of PAR-can rim)
   const lensCol = isActive ? '#FFFFFF' : shade(primary, 0.18);
-  ctx.cyl(0.098, 0.098, 0.016, 12, lensCol, 0, 0.120, 0, {
+  ctx.cyl(0.096, 0.096, 0.012, 12, lensCol, 0, 0.128, 0, {
     emissive: isActive ? primary : undefined,
     emissiveIntensity: isActive ? 1.35 : 0,
     roughness: 0.16,
@@ -407,7 +407,7 @@ function buildFloorUplight(ctx: ModelContext): void {
   // 3 tiny LED emitter pearls inside lens
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2;
-    ctx.sphere(0.018, 6, isActive ? '#FFFFFF' : primary, Math.cos(a) * 0.042, 0.128, Math.sin(a) * 0.042, {
+    ctx.sphere(0.018, 6, isActive ? '#FFFFFF' : primary, Math.cos(a) * 0.042, 0.138, Math.sin(a) * 0.042, {
       emissive: isActive ? primary : undefined,
       emissiveIntensity: isActive ? 1.5 : 0,
       parent: can,
@@ -542,17 +542,17 @@ function buildDiscoBall(ctx: ModelContext): void {
 function buildLedStripWall(ctx: ModelContext): void {
   const { primary, isActive, shade } = ctx;
 
-  // Slim anodized aluminum wall channel protruding +Z from wall face z = 0
-  ctx.box(0.88, 0.068, 0.036, '#565E6B', 0, 0, 0.018, {
+  // Slim anodized aluminum wall channel protruding +Z from mounting clips (strictly non-coplanar)
+  ctx.box(0.88, 0.068, 0.032, '#565E6B', 0, 0, 0.028, {
     metalness: 0.52,
     roughness: 0.35,
   });
 
   // Twin mounting clips & tiny power hub end-cap
   for (const sx of [-0.34, 0.34]) {
-    ctx.box(0.045, 0.092, 0.024, '#3F4550', sx, 0, 0.012, { metalness: 0.4 });
+    ctx.box(0.045, 0.092, 0.012, '#3F4550', sx, 0, 0.006, { metalness: 0.4 });
   }
-  ctx.box(0.044, 0.052, 0.044, '#3F4550', 0.46, 0, 0.022);
+  ctx.box(0.044, 0.052, 0.040, '#3F4550', 0.464, 0, 0.024);
 
   // 7 segmented pastel LED diffuser cells
   const segPalette = [
@@ -567,7 +567,7 @@ function buildLedStripWall(ctx: ModelContext): void {
   for (let i = 0; i < 7; i++) {
     const sx = (i - 3) * 0.118;
     const col = segPalette[i];
-    ctx.box(0.104, 0.042, 0.024, isActive ? col : shade(primary, 0.16), sx, 0, 0.042, {
+    ctx.box(0.104, 0.042, 0.020, isActive ? col : shade(primary, 0.16), sx, 0, 0.054, {
       emissive: isActive ? primary : undefined,
       emissiveIntensity: isActive ? (i === 3 ? 1.35 : 1.05) : 0,
       roughness: 0.22,
@@ -812,27 +812,27 @@ function buildVinylCrate(ctx: ModelContext): void {
   const darkWood = shade(primary, -0.14);
 
   // Solid wooden crate floor
-  ctx.box(0.48, 0.024, 0.44, darkWood, 0, baseY + 0.012, 0, { roughness: 0.84 });
+  ctx.box(0.47, 0.024, 0.43, darkWood, 0, baseY + 0.012, 0, { roughness: 0.84 });
 
-  // 4 corner posts
-  for (const sx of [-0.235, 0.235]) {
-    for (const sz of [-0.215, 0.215]) {
-      ctx.box(0.036, 0.29, 0.036, darkWood, sx, baseY + 0.155, sz, { roughness: 0.82 });
+  // 4 corner posts tucked strictly inside slats so zero faces overlap
+  for (const sx of [-0.218, 0.218]) {
+    for (const sz of [-0.198, 0.198]) {
+      ctx.box(0.032, 0.276, 0.032, darkWood, sx, baseY + 0.162, sz, { roughness: 0.82 });
     }
   }
 
   // Front & back horizontal slats (3 slats with clean gaps)
   const slatYs = [baseY + 0.068, baseY + 0.162, baseY + 0.256];
-  for (const sz of [-0.228, 0.228]) {
+  for (const sz of [-0.226, 0.226]) {
     for (const sy of slatYs) {
-      ctx.box(0.51, 0.062, 0.020, primary, 0, sy, sz, { roughness: 0.8 });
+      ctx.box(0.512, 0.060, 0.018, primary, 0, sy, sz, { roughness: 0.8 });
     }
   }
-  // Left & right slats (lower 2 + top handle rail)
-  for (const sx of [-0.248, 0.248]) {
-    ctx.box(0.020, 0.062, 0.46, primary, sx, slatYs[0], 0, { roughness: 0.8 });
-    ctx.box(0.020, 0.062, 0.46, primary, sx, slatYs[1], 0, { roughness: 0.8 });
-    ctx.box(0.020, 0.042, 0.46, primary, sx, slatYs[2] + 0.01, 0, { roughness: 0.8 });
+  // Left & right slats stopping cleanly short of front/back slats (z = ±0.215)
+  for (const sx of [-0.246, 0.246]) {
+    ctx.box(0.018, 0.060, 0.428, primary, sx, slatYs[0], 0, { roughness: 0.8 });
+    ctx.box(0.018, 0.060, 0.428, primary, sx, slatYs[1], 0, { roughness: 0.8 });
+    ctx.box(0.018, 0.042, 0.428, primary, sx, slatYs[2] + 0.01, 0, { roughness: 0.8 });
   }
 
   // 8 colorful angled vinyl sleeves tucked inside the crate
@@ -851,25 +851,25 @@ function buildVinylCrate(ctx: ModelContext): void {
     const sz = -0.155 + t * 0.31;
     const tilt = -0.15 + t * 0.26;
     const hVar = 0.375 + (i % 3) * 0.012;
-    ctx.box(0.40, hVar, 0.016, sleeveColors[i], (i % 2 === 0 ? -0.008 : 0.008), baseY + 0.03 + hVar / 2, sz, {
+    ctx.box(0.39, hVar, 0.014, sleeveColors[i], (i % 2 === 0 ? -0.008 : 0.008), baseY + 0.03 + hVar / 2, sz, {
       rotX: tilt,
       roughness: 0.65,
     });
   }
 
-  // Album cover geometric graphic accent on front-most sleeve
-  ctx.box(0.18, 0.16, 0.020, '#FAF5EC', -0.04, baseY + 0.31, 0.165, { rotX: 0.11 });
-  ctx.cyl(0.045, 0.045, 0.022, 10, '#F0B298', -0.04, baseY + 0.31, 0.168, {
+  // Album cover geometric graphic accent cleanly proud of front-most sleeve
+  ctx.box(0.18, 0.16, 0.014, '#FAF5EC', -0.04, baseY + 0.31, 0.174, { rotX: 0.11 });
+  ctx.cyl(0.045, 0.045, 0.014, 10, '#F0B298', -0.04, baseY + 0.31, 0.184, {
     rotX: Math.PI / 2 + 0.11,
   });
 
-  // Black vinyl record disc peeking playfully out of a sleeve
+  // Black vinyl record disc peeking playfully out of a sleeve (label cleanly proud on both faces)
   ctx.cyl(0.155, 0.155, 0.008, 16, '#23262E', 0.075, baseY + 0.295, 0.09, {
     rotX: Math.PI / 2 + 0.05,
     roughness: 0.28,
     metalness: 0.18,
   });
-  ctx.cyl(0.046, 0.046, 0.010, 10, '#F4C698', 0.075, baseY + 0.295, 0.09, {
+  ctx.cyl(0.046, 0.046, 0.018, 10, '#F4C698', 0.075, baseY + 0.295, 0.09, {
     rotX: Math.PI / 2 + 0.05,
   });
 }
@@ -877,14 +877,14 @@ function buildVinylCrate(ctx: ModelContext): void {
 function buildDanceFloorTile(ctx: ModelContext): void {
   const { primary, accent, isActive, shade } = ctx;
 
-  // Slim dark metallic grid housing (total height strictly 0.024 = FLOOR_BASE_Y)
-  ctx.box(0.985, 0.019, 0.985, '#3E434F', 0, 0.0095, 0, {
+  // Slim dark metallic grid housing strictly in y = [0.004 .. 0.018], inset 0.002+ per side
+  ctx.box(0.992, 0.014, 0.992, '#3E434F', 0, 0.011, 0, {
     metalness: 0.45,
     roughness: 0.42,
     castShadow: false,
   });
 
-  // 3x3 geometric glowing disco acrylic tiles sitting flush to y = 0.024
+  // 3x3 geometric glowing disco acrylic tiles strictly in y = [0.018 .. 0.024]
   const cornerCol = shade(primary, -0.10);
   const centerCol = shade(accent, 0.20);
   for (let gx = -1; gx <= 1; gx++) {
@@ -894,7 +894,7 @@ function buildDanceFloorTile(ctx: ModelContext): void {
       const tileColor = isCenter ? centerCol : isCross ? primary : cornerCol;
       const glowStrength = isCenter ? 1.35 : isCross ? 1.0 : 0.68;
 
-      ctx.box(0.278, 0.012, 0.278, tileColor, gx * 0.305, 0.018, gz * 0.305, {
+      ctx.box(0.278, 0.006, 0.278, tileColor, gx * 0.305, 0.021, gz * 0.305, {
         emissive: isActive ? tileColor : undefined,
         emissiveIntensity: isActive ? glowStrength : 0,
         roughness: 0.22,
@@ -1054,7 +1054,7 @@ function buildLaserBar(ctx: ModelContext): void {
   // Ceiling mounting brackets & twin hanger struts
   for (const sx of [-0.62, 0.62]) {
     ctx.box(0.10, 0.024, 0.10, accent, sx, -0.012, 0, { metalness: 0.55, roughness: 0.35 });
-    ctx.cyl(0.015, 0.015, 0.12, 6, accent, sx, -0.07, 0, { metalness: 0.6, roughness: 0.3 });
+    ctx.cyl(0.015, 0.015, 0.092, 6, accent, sx, -0.068, 0, { metalness: 0.6, roughness: 0.3 });
   }
 
   // Sleek 2-tile wide metallic laser bar housing
@@ -1063,7 +1063,7 @@ function buildLaserBar(ctx: ModelContext): void {
     roughness: 0.34,
   });
   // Top accent spine & pastel end caps
-  ctx.box(1.48, 0.020, 0.08, shade(accent, -0.15), 0, -0.122, 0, { metalness: 0.5 });
+  ctx.box(1.48, 0.016, 0.08, shade(accent, -0.15), 0, -0.117, 0, { metalness: 0.5 });
   for (const sx of [-0.795, 0.795]) {
     ctx.box(0.032, 0.116, 0.148, primary, sx, -0.18, 0, { roughness: 0.4 });
   }
