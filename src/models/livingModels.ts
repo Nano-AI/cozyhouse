@@ -306,7 +306,7 @@ function buildBedLoft(ctx: ModelContext): void {
   // Cozy under-loft chill futon strictly grounded on short legs & non-overlapping (seat top = 0.424!)
   for (const fx of [-0.72, 0.36]) {
     for (const fz of [-0.62, -0.06]) {
-      ctx.cyl(0.022, 0.018, 0.045, 6, shade(accent, -0.2), fx, baseY + 0.0225, fz, {
+      ctx.cyl(0.022, 0.018, 0.045, 4, shade(accent, -0.2), fx, baseY + 0.0225, fz, {
         roughness: 0.72,
       });
     }
@@ -686,7 +686,7 @@ function buildChairOffice(ctx: ModelContext): void {
       metalness: 0.22,
     });
     // Caster wheel & vertical caster stem touching FLOOR_BASE_Y cleanly
-    ctx.cyl(0.012, 0.012, 0.030, 6, metalCol, dx * 0.27, baseY + 0.044, dz * 0.27, {
+    ctx.cyl(0.012, 0.012, 0.030, 3, metalCol, dx * 0.27, baseY + 0.044, dz * 0.27, {
       roughness: 0.45,
       metalness: 0.4,
     });
@@ -1239,26 +1239,26 @@ function buildToiletCozy(ctx: ModelContext): void {
     metalness: 0.75,
   });
 
-  // Hinge bar + toilet lid (closed neatly when idle, tilted cleanly open when isActive!)
-  ctx.cyl(0.014, 0.014, 0.18, 6, '#C4CBD2', 0, baseY + 0.415, -0.115, {
+  // Hinge bar + hinged ToiletLidPivot (closed at rotX = 0, opens cleanly in front of tank z = -0.125!)
+  ctx.cyl(0.014, 0.014, 0.18, 6, '#C4CBD2', 0, baseY + 0.415, -0.105, {
     rotZ: Math.PI / 2,
     roughness: 0.3,
     metalness: 0.65,
   });
-  if (isActive) {
-    ctx.cyl(0.188, 0.188, 0.022, 12, shade(primary, 0.03), 0, baseY + 0.585, -0.105, {
-      rotX: Math.PI / 2 - 0.06,
-      scaleX: 0.94,
-      scaleZ: 1.06,
-      ...porcelainOpts,
-    });
-  } else {
-    ctx.cyl(0.192, 0.192, 0.022, 12, shade(primary, 0.03), 0, baseY + 0.436, 0.06, {
-      scaleX: 0.95,
-      scaleZ: 1.12,
-      ...porcelainOpts,
-    });
-  }
+  const lidOpenAngle = -(Math.PI / 2 - 0.08);
+  const lidPivot = new THREE.Group();
+  lidPivot.name = 'ToiletLidPivot';
+  lidPivot.position.set(0, baseY + 0.428, -0.100);
+  lidPivot.userData.openAngle = lidOpenAngle;
+  lidPivot.rotation.x = isActive ? lidOpenAngle : 0;
+  ctx.group.add(lidPivot);
+
+  ctx.cyl(0.175, 0.175, 0.022, 12, shade(primary, 0.03), 0, 0.008, 0.168, {
+    parent: lidPivot,
+    scaleX: 0.98,
+    scaleZ: 1.04,
+    ...porcelainOpts,
+  });
 }
 
 function buildBathroomSink(ctx: ModelContext): void {
@@ -1309,12 +1309,16 @@ function buildBathroomSink(ctx: ModelContext): void {
   // Curved brass gooseneck faucet + twin handles mounted behind basin
   const brassOpts = { roughness: 0.26, metalness: 0.68 };
   ctx.cyl(0.024, 0.028, 0.022, 8, BRASS, 0, baseY + 0.799, -0.23, brassOpts);
-  ctx.cyl(0.013, 0.015, 0.17, 7, BRASS, 0, baseY + 0.895, -0.23, brassOpts);
-  ctx.torus(0.062, 0.013, 6, 10, BRASS, 0, baseY + 0.98, -0.168, {
+  // Low gooseneck: stem y = [0.810 .. 0.918], flattened half-loop crown tops out at 0.952
+  // (world 0.976, inside the declared 0.98 height), spout tip stops 0.02 above the basin well
+  ctx.cyl(0.013, 0.015, 0.108, 7, BRASS, 0, baseY + 0.864, -0.23, brassOpts);
+  ctx.torus(0.062, 0.013, 6, 5, BRASS, 0, baseY + 0.918, -0.168, {
+    arc: Math.PI,
     rotY: Math.PI / 2,
+    scaleY: 0.45,
     ...brassOpts,
   });
-  ctx.cyl(0.013, 0.011, 0.036, 7, BRASS, 0, baseY + 0.962, -0.106, brassOpts);
+  ctx.cyl(0.013, 0.011, 0.014, 7, BRASS, 0, baseY + 0.911, -0.106, brassOpts);
   for (const hx of [-0.09, 0.09]) {
     ctx.cyl(0.014, 0.018, 0.042, 7, BRASS, hx, baseY + 0.809, -0.23, brassOpts);
     ctx.box(0.052, 0.012, 0.014, BRASS, hx, baseY + 0.834, -0.23, brassOpts);
@@ -1327,7 +1331,7 @@ function buildBathroomSink(ctx: ModelContext): void {
 
   // Active shimmering running water stream & basin splash ring when toggled on!
   if (isActive) {
-    ctx.cyl(0.010, 0.015, 0.088, 7, '#7AD2F0', 0, baseY + 0.916, -0.106, {
+    ctx.cyl(0.010, 0.015, 0.026, 7, '#7AD2F0', 0, baseY + 0.893, -0.106, {
       opacity: 0.78,
       emissive: '#7AD2F0',
       emissiveIntensity: 0.35,
@@ -1345,106 +1349,93 @@ function buildBathroomSink(ctx: ModelContext): void {
 }
 
 function buildBathtubClawfoot(ctx: ModelContext): void {
-  const { primary, accent, shade, isActive } = ctx;
+  const { primary, accent, isActive, isGhost } = ctx;
   const baseY = FLOOR_BASE_Y;
-  const enamelOpts = { roughness: 0.30, metalness: 0.04 };
+  const enamelOpts = { roughness: 0.3, metalness: 0.04 };
   const brassOpts = { roughness: 0.26, metalness: 0.68 };
+  const TX = -0.08; // tub centre, nudged left to leave room for the filler
+  const SX = 2.1; // stretches the round lathe into a long double-ended oval
 
-  // 4 golden ball-and-claw feet resting cleanly on FLOOR_BASE_Y
-  for (const fx of [-0.56, 0.56]) {
-    for (const fz of [-0.24, 0.24]) {
-      ctx.sphere(0.036, 7, accent, fx, baseY + 0.036, fz, brassOpts);
-      ctx.cyl(0.026, 0.032, 0.10, 7, shade(accent, -0.08), fx, baseY + 0.095, fz, {
-        rotZ: fx > 0 ? 0.18 : -0.18,
-        rotX: fz > 0 ? -0.18 : 0.18,
+  // Hollow tub = two lathed shells: painted outside, white enamel roll-top + basin inside.
+  const lathe = (pts: Array<[number, number]>, color: string): void => {
+    const geo = new THREE.LatheGeometry(pts.map(([r, y]) => new THREE.Vector2(r, baseY + y)), 14);
+    const mesh = new THREE.Mesh(geo, ctx.mat(color, enamelOpts));
+    mesh.position.x = TX;
+    mesh.scale.x = SX;
+    mesh.castShadow = !isGhost;
+    mesh.receiveShadow = !isGhost;
+    ctx.group.add(mesh);
+  };
+  lathe(
+    [[0, 0.13], [0.2, 0.13], [0.27, 0.17], [0.31, 0.26], [0.33, 0.4], [0.34, 0.52]],
+    primary,
+  );
+  lathe(
+    [[0.34, 0.52], [0.36, 0.55], [0.355, 0.59], [0.33, 0.605], [0.31, 0.585], [0.305, 0.54],
+      [0.29, 0.4], [0.255, 0.27], [0.19, 0.2], [0, 0.19]],
+    '#FAF6EE',
+  );
+
+  // 4 splayed brass ball-and-claw feet meeting the curved underside
+  for (const fx of [-0.46, 0.46]) {
+    for (const fz of [-0.17, 0.17]) {
+      ctx.sphere(0.038, 6, accent, TX + fx, baseY + 0.038, fz, brassOpts);
+      ctx.cyl(0.024, 0.034, 0.15, 6, accent, TX + fx * 0.97, baseY + 0.11, fz * 0.95, {
+        rotZ: fx > 0 ? 0.22 : -0.22,
+        rotX: fz > 0 ? -0.22 : 0.22,
         ...brassOpts,
       });
     }
   }
 
-  // Sculpted stadium soaking tub hull (cylinders slightly inset vertically by 0.008 to avoid coplanar caps!)
-  ctx.box(1.04, 0.44, 0.64, primary, -0.04, baseY + 0.35, 0, enamelOpts);
-  ctx.cyl(0.34, 0.29, 0.428, 12, primary, -0.56, baseY + 0.348, 0, enamelOpts);
-  ctx.cyl(0.34, 0.29, 0.428, 12, primary, 0.48, baseY + 0.348, 0, enamelOpts);
-
-  // Thick rolled rim wrapping the entire top edge of the soaking tub
-  for (const rz of [-0.32, 0.32]) {
-    ctx.cyl(0.042, 0.042, 1.04, 8, shade(primary, 0.05), -0.04, baseY + 0.585, rz, {
-      rotZ: Math.PI / 2,
-      ...enamelOpts,
-    });
+  // Freestanding brass filler at +X: standpipe, cross handles, gooseneck over the rim
+  ctx.cyl(0.05, 0.06, 0.036, 8, accent, 0.85, baseY + 0.018, 0, brassOpts);
+  ctx.cyl(0.018, 0.022, 0.70, 8, accent, 0.85, baseY + 0.37, 0, brassOpts);
+  for (const hz of [-0.07, 0.07]) {
+    ctx.cyl(0.013, 0.013, 0.06, 6, accent, 0.85, baseY + 0.62, hz, { rotX: Math.PI / 2, ...brassOpts });
   }
-  ctx.torus(0.32, 0.044, 7, 14, shade(primary, 0.05), -0.56, baseY + 0.585, 0, {
-    rotX: Math.PI / 2,
-    ...enamelOpts,
-  });
-  ctx.torus(0.32, 0.044, 7, 14, shade(primary, 0.05), 0.48, baseY + 0.585, 0, {
-    rotX: Math.PI / 2,
-    ...enamelOpts,
-  });
+  const neck = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.016, 6, 8, Math.PI), ctx.mat(accent, brassOpts));
+  neck.position.set(0.73, baseY + 0.72, 0);
+  neck.castShadow = !isGhost;
+  ctx.group.add(neck);
+  ctx.cyl(0.016, 0.013, 0.05, 7, accent, 0.61, baseY + 0.70, 0, brassOpts);
 
-  // Warm soaking water surface recessed inside tub rim
-  ctx.box(0.98, 0.030, 0.54, '#B5E2F0', -0.04, baseY + 0.525, 0, {
-    roughness: 0.14,
-    castShadow: false,
-  });
-  ctx.cyl(0.265, 0.265, 0.024, 12, '#B5E2F0', -0.53, baseY + 0.522, 0, {
-    roughness: 0.14,
-    castShadow: false,
-  });
-  ctx.cyl(0.265, 0.265, 0.024, 12, '#B5E2F0', 0.45, baseY + 0.522, 0, {
-    roughness: 0.14,
-    castShadow: false,
-  });
-
-  // Vintage brass floor-mounted standpipe filler faucet at right end (+X = 0.87)
-  ctx.cyl(0.048, 0.058, 0.036, 8, accent, 0.87, baseY + 0.018, 0, brassOpts);
-  ctx.cyl(0.018, 0.022, 0.74, 8, accent, 0.87, baseY + 0.40, 0, brassOpts);
-  ctx.torus(0.068, 0.016, 6, 10, accent, 0.802, baseY + 0.76, 0, brassOpts);
-  ctx.cyl(0.016, 0.013, 0.04, 7, accent, 0.734, baseY + 0.74, 0, brassOpts);
-  for (const hz of [-0.075, 0.075]) {
-    ctx.cyl(0.014, 0.014, 0.055, 6, accent, 0.87, baseY + 0.67, hz, {
-      rotX: Math.PI / 2,
-      ...brassOpts,
-    });
-  }
-
-  // Adorable tiny yellow rubber ducky perched cleanly on the front-left rolled rim!
-  const dx = -0.36;
-  const dy = baseY + 0.635;
-  const dz = 0.32;
+  // Rubber duck perched on the front of the roll-top rim
+  const dx = TX - 0.25;
+  const dy = baseY + 0.642;
+  const dz = 0.31;
   ctx.sphere(0.046, 8, '#F6D45E', dx, dy, dz, { scaleX: 1.25, scaleY: 0.86, scaleZ: 0.94, roughness: 0.4 });
   ctx.sphere(0.034, 8, '#F8DB6E', dx + 0.038, dy + 0.044, dz, { roughness: 0.38 });
-  ctx.cone(0.015, 0.032, 6, '#EE8A4B', dx + 0.072, dy + 0.042, dz, {
-    rotZ: -Math.PI / 2,
-    roughness: 0.45,
-  });
+  ctx.cone(0.015, 0.032, 6, '#EE8A4B', dx + 0.072, dy + 0.042, dz, { rotZ: -Math.PI / 2, roughness: 0.45 });
   for (const ez of [-0.016, 0.016]) {
     ctx.sphere(0.006, 5, '#2E2A26', dx + 0.058, dy + 0.054, dz + ez, { roughness: 0.3 });
   }
 
-  // Fluffy pastel-white bubble foam mounds across the water when isActive!
+  // Bubble bath on: water fills the basin and foam heaps up toward the rim
   if (isActive) {
-    const bubbles: Array<[number, number, number, number]> = [
-      [-0.56, 0.56, -0.05, 0.14],
-      [-0.36, 0.57, 0.08, 0.15],
-      [-0.14, 0.56, -0.08, 0.16],
-      [0.08, 0.58, 0.06, 0.15],
-      [0.32, 0.57, -0.06, 0.14],
-      [0.48, 0.56, 0.07, 0.13],
-      [-0.24, 0.62, -0.02, 0.11],
-      [0.20, 0.63, 0.02, 0.11],
+    ctx.cyl(0.298, 0.298, 0.02, 14, '#B5E2F0', TX, baseY + 0.45, 0, {
+      scaleX: SX,
+      roughness: 0.14,
+      castShadow: false,
+    });
+    const foam: Array<[number, number, number, number]> = [
+      [-0.42, 0.48, -0.06, 0.12],
+      [-0.2, 0.48, 0.08, 0.13],
+      [0.02, 0.48, -0.07, 0.14],
+      [0.24, 0.48, 0.06, 0.13],
+      [0.42, 0.48, -0.04, 0.11],
+      [-0.08, 0.55, 0.02, 0.09],
+      [0.16, 0.55, -0.01, 0.08],
     ];
-    for (let i = 0; i < bubbles.length; i++) {
-      const [bx, by, bz, br] = bubbles[i];
-      ctx.sphere(br, 8, i % 2 === 0 ? '#FFFDF9' : '#EEF8FC', bx, baseY + by, bz, {
+    foam.forEach(([bx, by, bz, br], i) => {
+      ctx.sphere(br, 7, i % 2 === 0 ? '#FFFDF9' : '#EEF8FC', TX + bx, baseY + by, bz, {
         scaleX: 1.15,
-        scaleY: 0.68,
-        scaleZ: 1.10,
+        scaleY: 0.6,
+        scaleZ: 1.1,
         roughness: 0.24,
         castShadow: false,
       });
-    }
+    });
   }
 }
 
@@ -1610,6 +1601,8 @@ function buildBathMat(ctx: ModelContext): void {
   for (const sz of [-0.235, 0.235]) {
     for (const sx of [-0.24, -0.08, 0.08, 0.24]) {
       ctx.sphere(0.078, 8, shade(primary, 0.04), sx, matY + 0.011, sz, {
+        thetaLength: Math.PI / 2,
+        rings: 2,
         scaleX: 1.0,
         scaleY: 0.12,
         scaleZ: 0.85,
@@ -1621,6 +1614,8 @@ function buildBathMat(ctx: ModelContext): void {
   for (const sx of [-0.345, 0.345]) {
     for (const sz of [-0.11, 0.11]) {
       ctx.sphere(0.078, 8, shade(primary, 0.04), sx, matY + 0.011, sz, {
+        thetaLength: Math.PI / 2,
+        rings: 2,
         scaleX: 0.85,
         scaleY: 0.12,
         scaleZ: 1.0,

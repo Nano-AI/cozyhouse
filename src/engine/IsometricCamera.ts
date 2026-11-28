@@ -59,6 +59,10 @@ export class IsometricCamera {
     this.panLimit = Math.max(gridWidth, gridDepth) * 0.65;
   }
 
+  getPanLimit(): number {
+    return this.panLimit;
+  }
+
   isCinematicMode(): boolean {
     return this.cinematicMode;
   }
@@ -112,6 +116,21 @@ export class IsometricCamera {
 
   getZoom(): number {
     return this.desiredZoom;
+  }
+
+  getTarget(): { x: number; z: number } {
+    return { x: this.desiredTarget.x, z: this.desiredTarget.z };
+  }
+
+  /** Returns to a saved view; if the idle cinematic is running, that view is restored when it ends instead. */
+  restoreView(zoom: number, x: number, z: number): void {
+    if (this.cinematicMode) {
+      this.preCinematicZoom = THREE.MathUtils.clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+      this.preCinematicTarget.set(x, 0.5, z);
+      return;
+    }
+    this.setZoom(zoom);
+    this.focusOnWorldPoint(x, z);
   }
 
   /**

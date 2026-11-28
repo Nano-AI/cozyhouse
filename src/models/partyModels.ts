@@ -942,7 +942,7 @@ function buildBalloonArch(ctx: ModelContext): void {
   // Twin weighted anchor base plates + short gold riser stubs
   for (const sx of [-0.78, 0.78]) {
     ctx.cyl(0.16, 0.18, 0.036, 12, '#F4EDE2', sx, baseY + 0.018, 0, { roughness: 0.65 });
-    ctx.torus(0.165, 0.012, 6, 14, '#DFC388', sx, baseY + 0.034, 0, {
+    ctx.torus(0.165, 0.012, 3, 12, '#DFC388', sx, baseY + 0.034, 0, {
       rotX: Math.PI / 2,
       metalness: 0.45,
       roughness: 0.3,
@@ -1022,7 +1022,7 @@ function buildBalloonArch(ctx: ModelContext): void {
   for (const cl of clusters) {
     const col = palette[cl.c];
     const isPearl = col === '#EFE0A8';
-    ctx.sphere(cl.r, 8, col, cl.x, cl.y, cl.z, {
+    ctx.sphere(cl.r, 7, col, cl.x, cl.y, cl.z, {
       scaleX: 1.06,
       scaleY: 1.06,
       scaleZ: 0.94,

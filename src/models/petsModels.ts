@@ -41,7 +41,9 @@ function addCatTail(
   const up = new THREE.Vector3(0, 1, 0);
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i];
-    ctx.sphere(p.r, 7, p.col, p.x, p.y, p.z, { roughness: 0.92 });
+    // Inner joints only peek out at the outside of each bend, so they get fewer segments than the two ends
+    const isEnd = i === 0 || i === pts.length - 1;
+    ctx.sphere(p.r, isEnd ? 6 : 5, p.col, p.x, p.y, p.z, { roughness: 0.92 });
     if (i < pts.length - 1) {
       const n = pts[i + 1];
       const a = new THREE.Vector3(p.x, p.y, p.z);
@@ -462,9 +464,10 @@ function buildPetBedRound(ctx: ModelContext): void {
     roughness: 0.92,
   });
 
-  // Sunken soft fleece inner sleeping pillow + gentle domed top
-  ctx.cyl(0.242, 0.252, 0.050, 16, accent, 0, baseY + 0.064, 0, { roughness: 0.95 });
+  // Sunken soft fleece inner sleeping pillow: gentle domed top only (its rim and everything
+  // beneath it are sealed inside the bolster ring and base pad)
   ctx.sphere(0.242, 14, accent, 0, baseY + 0.088, 0, {
+    thetaLength: Math.PI / 2,
     scaleY: 0.22,
     roughness: 0.95,
   });
@@ -473,13 +476,38 @@ function buildPetBedRound(ctx: ModelContext): void {
     roughness: 0.9,
   });
 
-  // Plump continuous full-circle doughnut bolster ring
+  // Bolster tubes are lathed from only the exposed arc of their cross-section (36 degree steps,
+  // i.e. the same vertices as a 10-sided torus tube); the skipped arc is buried in neighbouring parts.
   const ringR = 0.285;
-  ctx.torus(ringR, 0.094, 10, 22, primary, 0, baseY + 0.106, 0, {
-    rotX: Math.PI / 2,
-    scaleZ: 0.86,
-    roughness: 0.94,
-  });
+  const addTube = (
+    tube: number,
+    squashY: number,
+    y: number,
+    fromDeg: number,
+    toDeg: number,
+    segs: number,
+    phiStart: number,
+    phiLength: number,
+    color: string,
+    roughness: number,
+  ): void => {
+    const profile: THREE.Vector2[] = [];
+    for (let deg = fromDeg; deg <= toDeg; deg += 36) {
+      const a = (deg * Math.PI) / 180;
+      profile.push(new THREE.Vector2(ringR + tube * Math.cos(a), y + tube * squashY * Math.sin(a)));
+    }
+    const mesh = new THREE.Mesh(
+      new THREE.LatheGeometry(profile, segs, phiStart, phiLength),
+      ctx.mat(color, { roughness }),
+    );
+    mesh.castShadow = !ctx.isGhost;
+    mesh.receiveShadow = !ctx.isGhost;
+    ctx.group.add(mesh);
+  };
+
+  // Plump continuous full-circle doughnut bolster ring (underside sunk in the base pad, inner
+  // flank tucked under the pillow dome)
+  addTube(0.094, 0.86, baseY + 0.106, -72, 180, 22, Math.PI / 2, Math.PI * 2, primary, 0.94);
 
   // Smooth continuous raised U-shaped rear backrest bolster (wraps back & flanks, dips open at +Z front)
   const arcTube = 0.064;
@@ -489,14 +517,8 @@ function buildPetBedRound(ctx: ModelContext): void {
   const arcLen = Math.PI * 0.96;
   const crownCol = shade(primary, 0.05);
 
-  const rearGeo = new THREE.TorusGeometry(ringR, arcTube, 10, 20, arcLen);
-  const rearMesh = new THREE.Mesh(rearGeo, ctx.mat(crownCol, { roughness: 0.95 }));
-  rearMesh.position.set(0, arcY, 0);
-  rearMesh.rotation.set(Math.PI / 2, 0, arcStart);
-  rearMesh.scale.set(1, 1, arcScaleY);
-  rearMesh.castShadow = !ctx.isGhost;
-  rearMesh.receiveShadow = !ctx.isGhost;
-  ctx.group.add(rearMesh);
+  // (underside of the tube is sunk in the doughnut ring below)
+  addTube(arcTube, arcScaleY, arcY, -36, 216, 20, Math.PI / 2 - arcStart - arcLen, arcLen, crownCol, 0.95);
 
   // Smooth hemispherical caps sealing both ends of the raised rear bolster arc
   for (const theta of [arcStart, arcStart + arcLen]) {
@@ -905,11 +927,11 @@ function buildCatCalico(ctx: ModelContext): void {
   }
 
   // Cozy collar + tiny gold bell
-  ctx.torus(0.064, 0.012, 6, 12, collarCol, 0, baseY + 0.252, 0.040, {
+  ctx.torus(0.064, 0.012, 4, 12, collarCol, 0, baseY + 0.252, 0.040, {
     rotX: Math.PI / 2 + 0.14,
     roughness: 0.7,
   });
-  ctx.sphere(0.016, 6, '#F2CA66', 0, baseY + 0.236, 0.106, {
+  ctx.sphere(0.016, 5, '#F2CA66', 0, baseY + 0.236, 0.106, {
     metalness: 0.68,
     roughness: 0.24,
   });
@@ -953,14 +975,14 @@ function buildCatCalico(ctx: ModelContext): void {
 
   // Cute muzzle cheek puffs, pink nose, and expressive sparkling eyes
   for (const sx of [-0.023, 0.023]) {
-    ctx.sphere(0.026, 7, bibCol, sx, -0.022, 0.082, { scaleZ: 0.72, parent: head });
+    ctx.sphere(0.026, 6, bibCol, sx, -0.022, 0.082, { scaleZ: 0.72, parent: head });
   }
   ctx.cone(0.013, 0.014, 3, noseCol, 0, -0.008, 0.098, {
     rotX: Math.PI / 2,
     parent: head,
   });
   for (const sx of [-0.038, 0.038]) {
-    ctx.sphere(0.015, 7, '#231F24', sx, 0.014, 0.084, { roughness: 0.12, parent: head });
+    ctx.sphere(0.015, 6, '#231F24', sx, 0.014, 0.084, { roughness: 0.12, parent: head });
     ctx.sphere(0.0055, 5, '#FFFFFF', sx + 0.004, 0.020, 0.096, {
       castShadow: false,
       parent: head,
@@ -1004,7 +1026,7 @@ function buildCatSleepy(ctx: ModelContext): void {
 
   // Soft tabby accent stripes curving gently across the cozy back
   for (let i = -1; i <= 1; i++) {
-    ctx.sphere(0.045, 7, accent, -0.035 + i * 0.068, baseY + 0.168, -0.055, {
+    ctx.sphere(0.045, 6, accent, -0.035 + i * 0.068, baseY + 0.168, -0.055, {
       scaleX: 0.45,
       scaleY: 0.55,
       scaleZ: 1.45,
@@ -1049,7 +1071,7 @@ function buildCatSleepy(ctx: ModelContext): void {
   });
 
   // Tiny tucked paw peeking under the chin
-  ctx.sphere(0.030, 7, accent, 0.018, baseY + 0.030, 0.168, {
+  ctx.sphere(0.030, 6, accent, 0.018, baseY + 0.030, 0.168, {
     scaleY: 0.62,
     scaleZ: 1.15,
     roughness: 0.92,
@@ -1090,7 +1112,7 @@ function buildCatKitten(ctx: ModelContext): void {
   // Back tucked haunches
   for (const sx of [-0.050, 0.050]) {
     ctx.sphere(0.050, 7, primary, sx, baseY + 0.054, -0.052, { roughness: 0.9 });
-    ctx.sphere(0.024, 6, pawCol, sx * 1.05, baseY + 0.021, -0.018, {
+    ctx.sphere(0.024, 5, pawCol, sx * 1.05, baseY + 0.021, -0.018, {
       scaleY: 0.65,
       scaleZ: 1.2,
     });
@@ -1098,7 +1120,7 @@ function buildCatKitten(ctx: ModelContext): void {
 
   // Left planted front leg & paw
   ctx.cyl(0.020, 0.018, 0.095, 7, primary, -0.044, baseY + 0.056, 0.062, { roughness: 0.9 });
-  ctx.sphere(0.025, 7, pawCol, -0.044, baseY + 0.021, 0.082, {
+  ctx.sphere(0.025, 6, pawCol, -0.044, baseY + 0.021, 0.082, {
     scaleY: 0.65,
     scaleZ: 1.2,
   });
@@ -1112,11 +1134,11 @@ function buildCatKitten(ctx: ModelContext): void {
     primary,
     7,
   );
-  ctx.sphere(0.026, 7, pawCol, 0.076, baseY + 0.130, 0.150, { roughness: 0.9 });
+  ctx.sphere(0.026, 6, pawCol, 0.076, baseY + 0.130, 0.150, { roughness: 0.9 });
 
   // Tiny pastel yarn ball right underneath the batting paw (seated cleanly above FLOOR_BASE_Y)
-  ctx.sphere(0.036, 8, '#F2B4C4', 0.105, baseY + 0.044, 0.175, { roughness: 0.92 });
-  ctx.torus(0.035, 0.005, 5, 10, '#E397AA', 0.105, baseY + 0.044, 0.175, {
+  ctx.sphere(0.036, 7, '#F2B4C4', 0.105, baseY + 0.044, 0.175, { roughness: 0.92 });
+  ctx.torus(0.035, 0.005, 3, 8, '#E397AA', 0.105, baseY + 0.044, 0.175, {
     rotX: 0.7,
     rotY: 0.4,
   });
@@ -1157,7 +1179,7 @@ function buildCatKitten(ctx: ModelContext): void {
 
   // Big sparkling kitten eyes, pink nose & cheeks
   for (const sx of [-0.034, 0.034]) {
-    ctx.sphere(0.017, 7, '#231F24', sx, 0.012, 0.076, { roughness: 0.1, parent: head });
+    ctx.sphere(0.017, 6, '#231F24', sx, 0.012, 0.076, { roughness: 0.1, parent: head });
     ctx.sphere(0.0065, 5, '#FFFFFF', sx + 0.005, 0.018, 0.089, {
       castShadow: false,
       parent: head,
@@ -1201,15 +1223,9 @@ function buildCatLoaf(ctx: ModelContext): void {
     roughness: 0.92,
   });
 
-  // Toasted golden crust highlight for Brioche, or cozy chest bib for Sesame
-  if (variant.id === 'brioche') {
-    ctx.sphere(0.105, 9, shade(primary, -0.10), 0, 0.138, -0.025, {
-      scaleX: 0.85,
-      scaleY: 0.52,
-      scaleZ: 1.25,
-      roughness: 0.88,
-    });
-  } else if (variant.id === 'sesame') {
+  // Cozy chest bib for Sesame (Brioche's old crust-highlight sphere sat entirely inside the torso,
+  // never visible from any angle, so it is gone)
+  if (variant.id === 'sesame') {
     ctx.sphere(0.068, 8, accent, 0, 0.082, 0.125, {
       scaleX: 0.95,
       scaleY: 0.85,
@@ -1220,7 +1236,7 @@ function buildCatLoaf(ctx: ModelContext): void {
 
   // Two tiny tucked front paw nubs peeking snugly beneath the loaf chest
   for (const sx of [-0.046, 0.046]) {
-    ctx.sphere(0.028, 7, pawCol, sx, 0.022, 0.146, {
+    ctx.sphere(0.028, 6, pawCol, sx, 0.022, 0.146, {
       scaleX: 1.15,
       scaleY: 0.65,
       scaleZ: 0.9,
@@ -1251,7 +1267,7 @@ function buildCatLoaf(ctx: ModelContext): void {
   });
 
   // Ultra-content happy arched half-moon squint eyes (◠ ◠) hugging the face cleanly
-  const eyeGeo = new THREE.TorusGeometry(0.011, 0.0034, 5, 8, Math.PI);
+  const eyeGeo = new THREE.TorusGeometry(0.011, 0.0034, 3, 8, Math.PI);
   const eyeMat = ctx.mat('#362E32', { roughness: 0.35 });
   for (const sx of [-0.036, 0.036]) {
     const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
@@ -1260,7 +1276,7 @@ function buildCatLoaf(ctx: ModelContext): void {
     eyeMesh.receiveShadow = !ctx.isGhost;
     head.add(eyeMesh);
     // Soft rosy blush dots on plump cheeks
-    ctx.sphere(0.015, 6, '#F4B2BE', sx * 1.52, -0.014, 0.066, {
+    ctx.sphere(0.015, 5, '#F4B2BE', sx * 1.52, -0.014, 0.066, {
       scaleZ: 0.45,
       castShadow: false,
       parent: head,

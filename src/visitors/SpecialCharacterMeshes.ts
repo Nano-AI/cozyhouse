@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { VisitorMood } from '../data/schemas';
+import { createHeldCoffeeCupMesh } from './VisitorMesh';
 
 export type SpecialPose =
   | 'idle'
@@ -16,15 +17,31 @@ export type SpecialPose =
   | 'squeak'
   | 'eat'
   | 'sleep'
-  | 'stare';
+  | 'stare'
+  | 'stab'
+  | 'kneel'
+  | 'collapse'
+  | 'conjure'
+  | 'gather'
+  | 'release';
 
 export interface SpecialCharacterRig {
   root: THREE.Group;
   bubbleHeight: number;
   setPose(pose: SpecialPose): void;
   setMood(mood: VisitorMood): void;
+  setHoldingCoffee?(holding: boolean): void;
   setAuraActive?(active: boolean): void;
   triggerSqueakPulse?(): void;
+  /**
+   * Showdown only: get the materials ready to be cut and faded (clipping + blending variants
+   * compile here, on a quiet frame) without changing how the figure looks.
+   */
+  armSlice?(armed: boolean): void;
+  /** Showdown only: clip away part of the body behind a glowing edge. */
+  setSliced?(on: boolean): void;
+  /** Showdown only: fade the whole figure (1 = opaque). */
+  setOpacity?(alpha: number): void;
   update(
     dt: number,
     elapsed: number,
@@ -39,6 +56,7 @@ export const SPECIAL_CHARACTER_IDS = new Set([
   'viking',
   'squeaky_chicken',
   'gojo',
+  'toji',
   'baki',
   'shakespeare',
   'philosopher',
@@ -46,9 +64,53 @@ export const SPECIAL_CHARACTER_IDS = new Set([
   'rocky',
   'homer',
   'rick',
+  'adi',
 ]);
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
+const DOWN_AXIS = new THREE.Vector3(0, -1, 0);
+const aimDir = new THREE.Vector3();
+const aimQuat = new THREE.Quaternion();
+
+/**
+ * Points a shoulder pivot's limb along `upper` and its elbow's forearm along `fore`
+ * (both directions in the torso's local frame), so hands land where a pose needs them.
+ */
+function aimArm(
+  shoulder: THREE.Object3D,
+  elbow: THREE.Object3D,
+  upper: readonly [number, number, number],
+  fore: readonly [number, number, number],
+): void {
+  shoulder.quaternion.setFromUnitVectors(DOWN_AXIS, aimDir.set(...upper).normalize());
+  aimQuat.setFromUnitVectors(DOWN_AXIS, aimDir.set(...fore).normalize());
+  elbow.quaternion.copy(shoulder.quaternion).invert().multiply(aimQuat);
+}
+
+type Dir = readonly [number, number, number];
+interface CastShape {
+  lu: Dir;
+  lf: Dir;
+  ru: Dir;
+  rf: Dir;
+}
+/**
+ * Arm shapes for the airborne casting poses (upper arm / forearm directions in torso space,
+ * left then right). Each pose eases in from the one before it: rest → conjure → gather → release.
+ */
+const CAST_REST: CastShape = { lu: [-0.55, -0.8, 0.2], lf: [-0.45, -0.7, 0.55], ru: [0.55, -0.8, 0.2], rf: [0.45, -0.7, 0.55] };
+const CAST_CONJURE: CastShape = { lu: [-0.9, -0.2, 0.3], lf: [-0.55, 0.62, 0.5], ru: [0.9, -0.2, 0.3], rf: [0.55, 0.62, 0.5] };
+const CAST_GATHER: CastShape = { lu: [-0.4, -0.42, 0.82], lf: [0.42, 0.3, 0.86], ru: [0.4, -0.42, 0.82], rf: [-0.42, 0.3, 0.86] };
+const CAST_RELEASE: CastShape = { lu: [-0.6, -0.65, -0.35], lf: [-0.35, -0.85, 0.1], ru: [0.2, -0.06, 1], rf: [0.02, 0.08, 1] };
+const castA: [number, number, number] = [0, 0, 0];
+const castB: [number, number, number] = [0, 0, 0];
+
+function mixDir(out: [number, number, number], a: Dir, b: Dir, e: number): [number, number, number] {
+  out[0] = a[0] + (b[0] - a[0]) * e;
+  out[1] = a[1] + (b[1] - a[1]) * e;
+  out[2] = a[2] + (b[2] - a[2]) * e;
+  return out;
+}
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
@@ -204,6 +266,28 @@ class RigBuilder {
     );
   }
 
+  /** Open-bottomed half sphere (helmets, hair caps) — half the triangles of a full sphere. */
+  dome(
+    parent: THREE.Object3D,
+    r: number,
+    segs: number,
+    mat: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+    opts?: { rx?: number; ry?: number; rz?: number; sx?: number; sy?: number; sz?: number; name?: string },
+  ): THREE.Mesh {
+    return this.place(
+      parent,
+      new THREE.SphereGeometry(r, segs, Math.max(3, Math.round(segs * 0.4)), 0, Math.PI * 2, 0, Math.PI / 2),
+      mat,
+      x,
+      y,
+      z,
+      opts,
+    );
+  }
+
   cone(
     parent: THREE.Object3D,
     r: number,
@@ -350,7 +434,7 @@ interface HumanoidParts {
   capeMesh?: THREE.Object3D;
   auraGroup?: THREE.Group;
   auraOrbs?: THREE.Object3D[];
-  sunglassesGroup?: THREE.Group;
+  blindfoldGroup?: THREE.Group;
   sixEyesGroup?: THREE.Group;
   donutProp?: THREE.Object3D;
   quillProp?: THREE.Object3D;
@@ -444,9 +528,10 @@ function buildHumanoidSkeleton(
 
   // 2. Pelvis bridging hips to waist
   const bellyS = pal.bellyScale ?? 1.0;
-  b.cyl(bodyPivot, 0.132 * bellyS, 0.138 * bellyS, 0.125, 10, pantsMat, 0, 0.42, 0, {
+  const hipS = 1 + (bellyS - 1) * 0.5; // hips flare half as much as the belly (no "skirt")
+  b.cyl(bodyPivot, 0.132 * hipS, 0.138 * hipS, 0.125, 10, pantsMat, 0, 0.42, 0, {
     sx: 1.05,
-    sz: 0.88 * bellyS,
+    sz: 0.88 * hipS,
   });
 
   // 3. Torso pivot at waist y = 0.46
@@ -462,7 +547,7 @@ function buildHumanoidSkeleton(
   });
   if (bellyS > 1.05) {
     // Cozy Homer round belly protrusion!
-    b.sphere(torsoPivot, 0.135, 9, torsoMat, 0, 0.115, 0.052, { sx: 1.05, sy: 0.92, sz: 0.88 });
+    b.sphere(torsoPivot, 0.13 * bellyS, 9, torsoMat, 0, 0.11, 0.06, { sx: 1.05, sy: 0.95, sz: 0.92 });
   }
 
   // 4. Articulated 2-segment arms with elbows & hand anchors
@@ -511,6 +596,7 @@ function buildHumanoidSkeleton(
     // Hand sphere + prop anchor
     b.sphere(elbowPivot, 0.036, 7, handMat, 0, -0.162, 0);
     handAnchor.position.set(0, -0.162, 0.015);
+    handAnchor.name = handAnchor === leftHandAnchor ? 'HandL' : 'HandR';
     elbowPivot.add(handAnchor);
   }
 
@@ -654,14 +740,20 @@ function createHumanoidRigController(
   let squeakPulse = 0;
   let animPhase = Math.random() * Math.PI * 2;
   let blabberPhase = 0;
+  let poseAge = 0;
+  let holdingCoffee = false;
+  let coffeeSipTimer = 2.0 + Math.random() * 2.2;
+  const coffeeCup = createHeldCoffeeCupMesh();
+  coffeeCup.group.position.set(0, 0.015, 0.048);
+  parts.rightHandAnchor.add(coffeeCup.group);
   const baseBubble = opts.baseBubbleHeight ?? 1.68;
   const baseScale = opts.baseScale ?? 1.06;
   const seatPelvisOffset = 0.365 * baseScale;
 
   const syncGojoEyes = (): void => {
     const unveiled = auraActive || pose === 'levitate' || levitateHeight > 0.08;
-    if (parts.sunglassesGroup) {
-      parts.sunglassesGroup.visible = !unveiled;
+    if (parts.blindfoldGroup) {
+      parts.blindfoldGroup.visible = !unveiled;
     }
     if (parts.sixEyesGroup) {
       parts.sixEyesGroup.visible = unveiled;
@@ -674,6 +766,7 @@ function createHumanoidRigController(
 
     setPose(nextPose: SpecialPose): void {
       pose = nextPose;
+      poseAge = 0;
       syncGojoEyes();
     },
 
@@ -700,6 +793,14 @@ function createHumanoidRigController(
       syncGojoEyes();
     },
 
+    setHoldingCoffee(holding: boolean): void {
+      holdingCoffee = holding;
+      coffeeCup.group.visible = holding;
+      if (holding) {
+        coffeeSipTimer = 2.0 + Math.random() * 2.2;
+      }
+    },
+
     triggerSqueakPulse(): void {
       squeakPulse = 1.0;
     },
@@ -715,16 +816,19 @@ function createHumanoidRigController(
       const safeElapsed = Number.isFinite(elapsed) ? elapsed : 0;
       const speed = Number.isFinite(moveSpeed) && moveSpeed > 0 ? moveSpeed : 1.45;
 
+      poseAge += safeDt;
+
       // Decay any squeak bounce pulse
       if (squeakPulse > 0) {
         squeakPulse = Math.max(0, squeakPulse - safeDt * 2.1);
       }
 
       // Smooth Gojo levitation elevation (+1.65 units when levitating)
-      const targetLev = pose === 'levitate' ? 1.65 : 0;
+      const airborne = pose === 'levitate' || pose === 'conjure' || pose === 'gather' || pose === 'release';
+      const targetLev = airborne ? 1.65 : 0;
       levitateHeight = damp(levitateHeight, targetLev, 5.2, safeDt);
 
-      // Update aura visuals & Gojo sunglasses ↔ crystalline cyan Six Eyes reveal!
+      // Update aura visuals & Gojo blindfold ↔ crystalline cyan Six Eyes reveal!
       syncGojoEyes();
       if (parts.auraGroup) {
         const showAura = auraActive || pose === 'levitate' || levitateHeight > 0.08;
@@ -822,6 +926,28 @@ function createHumanoidRigController(
           break;
         }
 
+        case 'conjure':
+        case 'gather':
+        case 'release': {
+          // Casting in mid-air: same floating body as `levitate`, hands doing the work.
+          const e0 = clamp(poseAge / (pose === 'release' ? 0.16 : 0.8), 0, 1);
+          const e = e0 * e0 * (3 - 2 * e0);
+          const from = pose === 'conjure' ? CAST_REST : pose === 'gather' ? CAST_CONJURE : CAST_GATHER;
+          const to = pose === 'conjure' ? CAST_CONJURE : pose === 'gather' ? CAST_GATHER : CAST_RELEASE;
+          const strain = pose === 'gather' ? Math.sin(safeElapsed * 23) * 0.012 : 0;
+          parts.bodyPivot.position.y = levitateHeight + Math.sin(safeElapsed * 2.1) * 0.06;
+          parts.bodyPivot.rotation.set(-0.06, 0, 0);
+          parts.leftLegPivot.rotation.set(-0.22 + Math.sin(safeElapsed * 1.4) * 0.05, 0.12, 0.1);
+          parts.rightLegPivot.rotation.set(-0.55 - Math.sin(safeElapsed * 1.4) * 0.05, -0.18, -0.12);
+          parts.leftKneePivot.rotation.set(0.32, 0, 0);
+          parts.rightKneePivot.rotation.set(0.95, 0, 0);
+          parts.torsoPivot.rotation.set(pose === 'release' ? 0.1 * e : -0.1, pose === 'release' ? -0.3 * e : 0, strain);
+          aimArm(parts.leftArmPivot, parts.leftElbowPivot, mixDir(castA, from.lu, to.lu, e), mixDir(castB, from.lf, to.lf, e));
+          aimArm(parts.rightArmPivot, parts.rightElbowPivot, mixDir(castA, from.ru, to.ru, e), mixDir(castB, from.rf, to.rf, e));
+          parts.headPivot.rotation.set(pose === 'conjure' ? -0.16 : 0.02, 0, 0);
+          break;
+        }
+
         case 'levitate': {
           const floatBob = Math.sin(safeElapsed * 2.1) * 0.09;
           parts.bodyPivot.position.y = levitateHeight + floatBob;
@@ -842,6 +968,63 @@ function createHumanoidRigController(
           break;
         }
 
+        case 'stab': {
+          // Low lunge with an underhand thrust: the blade leads, forward and slightly up.
+          const k = clamp(poseAge / 0.12, 0, 1);
+          parts.bodyPivot.position.y = -0.05 * k;
+          parts.bodyPivot.rotation.set(0.08 * k, 0, 0);
+          parts.leftLegPivot.rotation.set(-0.7 * k, 0, 0);
+          parts.leftKneePivot.rotation.set(0.75 * k, 0, 0);
+          parts.rightLegPivot.rotation.set(0.45 * k, 0, 0);
+          parts.rightKneePivot.rotation.set(0.15 * k, 0, 0);
+          parts.torsoPivot.rotation.set(0.3 * k, -0.22 * k, 0);
+          aimArm(
+            parts.rightArmPivot,
+            parts.rightElbowPivot,
+            [0.04, -0.8 + 0.15 * k, 0.25 + 0.5 * k],
+            [0, -0.6, 0.8],
+          );
+          parts.leftArmPivot.rotation.set(0.55 * k, 0, 0.28);
+          parts.leftElbowPivot.rotation.set(-0.9 * k, 0, 0);
+          parts.headPivot.rotation.set(-0.2 * k, 0.1 * k, 0);
+          break;
+        }
+
+        case 'kneel': {
+          // Dropped to one knee: front shin upright, rear knee on the floor, one hand to the wound.
+          const k = clamp(poseAge / 0.35, 0, 1);
+          const e = k * k * (3 - 2 * k);
+          const breathe = Math.sin(safeElapsed * 4.2) * 0.012;
+          parts.bodyPivot.position.y = -0.165 * baseScale * e + levitateHeight;
+          parts.leftLegPivot.rotation.set(-1.45 * e, 0.1 * e, 0);
+          parts.leftKneePivot.rotation.set(1.45 * e, 0, 0);
+          parts.rightLegPivot.rotation.set(0.05 * e, 0, 0);
+          parts.rightKneePivot.rotation.set(1.5 * e, 0, 0);
+          parts.torsoPivot.rotation.set(0.4 * e + breathe, 0, 0.05 * e);
+          parts.rightArmPivot.rotation.set(-0.55 * e, 0, -0.12);
+          parts.rightElbowPivot.rotation.set(-0.3 * e, 0, 0);
+          aimArm(parts.leftArmPivot, parts.leftElbowPivot, [-0.3, -0.8, 0.5], [0.75, -0.1, 0.65]);
+          parts.headPivot.rotation.set(0.34 * e, 0, 0.06 * e);
+          break;
+        }
+
+        case 'collapse': {
+          // Both knees down, sat back on the heels, head hanging, arms slack.
+          const k = clamp(poseAge / 0.5, 0, 1);
+          const e = k * k * (3 - 2 * k);
+          const sway = Math.sin(safeElapsed * 1.3) * 0.03;
+          parts.bodyPivot.position.y = -0.185 * baseScale * e;
+          parts.leftLegPivot.rotation.set(-0.5 * e, 0.12 * e, 0);
+          parts.rightLegPivot.rotation.set(-0.5 * e, -0.12 * e, 0);
+          parts.leftKneePivot.rotation.set(2.0 * e, 0, 0);
+          parts.rightKneePivot.rotation.set(2.0 * e, 0, 0);
+          parts.torsoPivot.rotation.set(0.26 * e, 0, sway * e);
+          parts.leftArmPivot.rotation.set(0.1 * e, 0, 0.3 * e);
+          parts.rightArmPivot.rotation.set(0.1 * e, 0, -0.14);
+          parts.headPivot.rotation.set(0.5 * e, 0, -sway * e);
+          break;
+        }
+
         case 'kick': {
           // Baki Hanma iconic flying high roundhouse kick!
           const cycle = Math.sin(safeElapsed * 5.2);
@@ -851,7 +1034,7 @@ function createHumanoidRigController(
           parts.bodyPivot.rotation.set(-0.12, -0.45 * snap, 0.36 * snap);
 
           // Extended kicking right leg snapping high & straight forward-outward!
-          parts.rightLegPivot.rotation.set(-1.58 * snap, -0.32, -0.58 * snap);
+          parts.rightLegPivot.rotation.set(-1.95 * snap, -0.32, -0.58 * snap);
           parts.rightKneePivot.rotation.set(0.06, 0, 0);
 
           // Left support/chambered leg tucked dynamically
@@ -904,9 +1087,13 @@ function createHumanoidRigController(
 
           // Deep contemplative forward lean
           parts.torsoPivot.rotation.set(0.36, 0.06, 0);
-          // Right elbow propped forward toward knee, forearm flexed sharply upward so fist rests right beneath chin!
-          parts.rightArmPivot.rotation.set(-1.05, 0.28, 0.22);
-          parts.rightElbowPivot.rotation.set(-1.55, -0.25, 0.18);
+          // Right elbow forward over the knee, forearm folded back up so the fist props the chin.
+          aimArm(
+            parts.rightArmPivot,
+            parts.rightElbowPivot,
+            [-0.2, -0.5, 0.85],
+            [-0.62, 0.76, 0.2],
+          );
           // Left forearm resting relaxed across left thigh
           parts.leftArmPivot.rotation.set(-0.68, -0.18, 0.16);
           parts.leftElbowPivot.rotation.set(-0.72, 0, 0);
@@ -945,12 +1132,21 @@ function createHumanoidRigController(
           parts.rightKneePivot.rotation.set(0.05, 0, 0);
 
           parts.torsoPivot.rotation.set(-0.04 + eatLift * 0.05, 0, chompCycle * 0.03);
-          // Right arm repeatedly bringing donut right up to mouth!
-          parts.rightArmPivot.rotation.set(-0.85 - eatLift * 0.55, 0.34, 0.16);
-          parts.rightElbowPivot.rotation.set(-1.05 - eatLift * 0.55, 0, 0.14);
-          // Left hand patting happy belly
-          parts.leftArmPivot.rotation.set(-0.46, -0.35, -0.18);
-          parts.leftElbowPivot.rotation.set(-0.92 + Math.sin(safeElapsed * 6) * 0.15, 0, 0);
+          // Right arm brings the donut up to the mouth and back down to chest height.
+          aimArm(
+            parts.rightArmPivot,
+            parts.rightElbowPivot,
+            [-0.25, -0.35 + eatLift * 0.45, 0.9],
+            [-0.75, 0.15 + eatLift * 0.6, 0.55],
+          );
+          // Left hand pats the belly.
+          const pat = Math.sin(safeElapsed * 6) * 0.12;
+          aimArm(
+            parts.leftArmPivot,
+            parts.leftElbowPivot,
+            [-0.2, -0.85, 0.45],
+            [0.8, -0.25 + pat, 0.55],
+          );
           parts.headPivot.rotation.set(0.06 - eatLift * 0.14, 0, chompCycle * 0.05);
           break;
         }
@@ -1149,9 +1345,35 @@ function createHumanoidRigController(
           break;
         }
       }
+
+      // Held 3D coffee cup override for humanoid legends (upright + cozy periodic sip!)
+      const canHoldCoffee = pose === 'idle' || pose === 'walk' || pose === 'sit' || pose === 'admire';
+      if (holdingCoffee && canHoldCoffee) {
+        coffeeCup.group.visible = true;
+        coffeeSipTimer += safeDt;
+        const cyclePos = coffeeSipTimer % 5.2;
+        const sipFactor = cyclePos < 1.1 ? Math.sin((cyclePos / 1.1) * Math.PI) : 0;
+
+        const baseShoulderX = pose === 'sit' ? -0.34 : -0.4;
+        const baseElbowX = -0.66;
+        const bob = pose === 'walk' ? Math.sin(animPhase) * 0.04 : Math.sin(safeElapsed * 2.2) * 0.02;
+        const shoulderX = baseShoulderX + bob + (-0.72 - baseShoulderX) * sipFactor;
+        const elbowX = baseElbowX + (-0.86 - baseElbowX) * sipFactor;
+        const shoulderZ = -0.08 + (-0.28 - -0.08) * sipFactor;
+
+        parts.rightArmPivot.rotation.set(shoulderX, -0.12 * sipFactor, shoulderZ);
+        parts.rightElbowPivot.rotation.set(elbowX, 0, 0);
+        // Counter-rotate total X pitch so cup stays upright (tilting gently toward face during sip)
+        coffeeCup.group.rotation.set(-(shoulderX + elbowX) + sipFactor * 0.22, 0, -shoulderZ * 0.55);
+        parts.headPivot.rotation.x += sipFactor * 0.14;
+        coffeeCup.updateSteam(coffeeSipTimer);
+      } else {
+        coffeeCup.group.visible = false;
+      }
     },
 
     dispose(): void {
+      coffeeCup.dispose();
       b.dispose();
     },
   };
@@ -1173,8 +1395,8 @@ function buildVikingRig(): SpecialCharacterRig {
     torso: '#7D5438',
     sleeve: '#6B462E',
     forearm: '#593A27',
-    browColor: '#C8552B',
-    shoulderWidth: 0.214,
+    browColor: '#A9441F',
+    shoulderWidth: 0.226,
     stompWalk: true,
     hideMouth: true, // hidden beneath majestic braided beard & mustache!
   });
@@ -1182,82 +1404,54 @@ function buildVikingRig(): SpecialCharacterRig {
   const ironMat = b.mat('#5D6570', 0.42, 0.5);
   const brassMat = b.mat('#CFA75A', 0.36, 0.52);
   const hornMat = b.mat('#F5EDD8', 0.58);
-  const beardMat = b.mat('#C8552B', 0.86);
-  const beardDarkMat = b.mat('#A8411E', 0.86);
+  const beardMat = b.mat('#D9662C', 0.86);
+  const beardDarkMat = b.mat('#AE4A20', 0.86);
   const furMat = b.mat('#EAE0D0', 0.92);
   const capeMat = b.mat('#9B3B32', 0.86);
   const beltMat = b.mat('#3D2B20', 0.72);
   const woodMat = b.mat('#B38252', 0.78);
 
-  // Gleaming forged-iron Viking Spangenhelm helmet + brass brow band + decorative rivets + nose guard
-  b.sphere(parts.headPivot, 0.172, 12, ironMat, 0, 0.214, -0.006, {
-    sx: 1.03,
-    sy: 0.74,
-    sz: 1.02,
-  });
-  b.torus(parts.headPivot, 0.168, 0.018, 6, 16, brassMat, 0, 0.222, -0.004, {
+  // Forged-iron dome helmet sitting above the brows (eyes stay visible from the iso camera),
+  // brass brow band, crest ridge and nose guard.
+  b.dome(parts.headPivot, 0.176, 12, ironMat, 0, 0.226, -0.004, { sy: 0.74 });
+  b.torus(parts.headPivot, 0.172, 0.019, 5, 12, brassMat, 0, 0.232, -0.004, {
     rx: Math.PI / 2,
   });
-  // Gleaming brass rivets around helmet brow band (pops in 3D PFP!)
-  for (const a of [-0.55, 0, 0.55]) {
-    b.sphere(parts.headPivot, 0.012, 6, brassMat, Math.sin(a) * 0.176, 0.224, Math.cos(a) * 0.172);
-  }
-  // Vertical helmet crest ridge & crisp iron nose guard
-  b.box(parts.headPivot, 0.026, 0.145, 0.028, brassMat, 0, 0.295, 0.02, { rx: 0.18 });
-  b.box(parts.headPivot, 0.024, 0.072, 0.02, ironMat, 0, 0.184, 0.168);
+  b.box(parts.headPivot, 0.03, 0.03, 0.2, brassMat, 0, 0.352, -0.004);
+  b.box(parts.headPivot, 0.026, 0.085, 0.02, ironMat, 0, 0.19, 0.17);
 
-  // 2 iconic gleaming curved ivory Viking horns (2-segment swept horns on left & right!)
+  // Two big ivory horns: thick base sweeping outward, then curling up to a point.
   for (const side of [-1, 1]) {
-    b.rod(
-      parts.headPivot,
-      side * 0.158,
-      0.240,
-      0.0,
-      side * 0.258,
-      0.285,
-      0.018,
-      0.024,
-      0.038,
-      7,
-      hornMat,
-    );
-    b.cone(parts.headPivot, 0.024, 0.128, 7, hornMat, side * 0.268, 0.348, 0.025, {
-      rz: -side * 0.26,
-      rx: 0.08,
+    b.rod(parts.headPivot, side * 0.15, 0.262, -0.004, side * 0.262, 0.292, -0.004, 0.038, 0.05, 6, hornMat);
+    b.rod(parts.headPivot, side * 0.25, 0.286, -0.004, side * 0.318, 0.388, -0.004, 0.026, 0.04, 6, hornMat);
+    b.cone(parts.headPivot, 0.028, 0.13, 6, hornMat, side * 0.326, 0.452, -0.004, {
+      rz: side * 0.16,
     });
-    // Brass horn cuff ring
-    b.torus(parts.headPivot, 0.038, 0.01, 5, 10, brassMat, side * 0.166, 0.244, 0.002, {
-      ry: Math.PI / 2,
-      rz: side * 0.35,
+    b.cyl(parts.headPivot, 0.054, 0.054, 0.03, 6, brassMat, side * 0.17, 0.266, -0.004, {
+      rz: side * 1.31,
     });
   }
 
-  // Rich braided fiery-red beard + sculpted curling mustache + twin braided tails with gold rings
-  b.sphere(parts.headPivot, 0.108, 8, beardMat, 0, 0.070, 0.118, {
-    sx: 1.24,
-    sy: 0.96,
+  // Full ginger beard: jaw-wide bib, sideburns up to the helmet, drooping moustache and
+  // two ring-tied braids.
+  b.sphere(parts.headPivot, 0.112, 8, beardMat, 0, 0.04, 0.108, {
+    sx: 1.34,
+    sy: 1.08,
     sz: 0.74,
   });
-  // Curling twin mustache wings
-  b.sphere(parts.headPivot, 0.042, 7, beardDarkMat, -0.052, 0.116, 0.156, {
-    sx: 1.45,
-    sy: 0.56,
-    sz: 0.65,
-    rz: 0.18,
-  });
-  b.sphere(parts.headPivot, 0.042, 7, beardDarkMat, 0.052, 0.116, 0.156, {
-    sx: 1.45,
-    sy: 0.56,
-    sz: 0.65,
-    rz: -0.18,
-  });
   for (const side of [-1, 1]) {
-    b.cyl(parts.headPivot, 0.038, 0.024, 0.15, 7, beardMat, side * 0.052, -0.026, 0.142, {
-      rz: side * 0.08,
+    b.sphere(parts.headPivot, 0.058, 6, beardMat, side * 0.128, 0.112, 0.062, { sy: 1.25 });
+    b.sphere(parts.headPivot, 0.04, 6, beardDarkMat, side * 0.05, 0.112, 0.168, {
+      sx: 1.5,
+      sy: 0.6,
+      sz: 0.6,
+      rz: -side * 0.42,
     });
-    b.torus(parts.headPivot, 0.028, 0.009, 5, 8, brassMat, side * 0.056, -0.068, 0.142, {
-      rx: Math.PI / 2,
+    b.cyl(parts.headPivot, 0.04, 0.026, 0.15, 6, beardMat, side * 0.056, -0.085, 0.13, {
+      rz: side * 0.1,
     });
+    b.cyl(parts.headPivot, 0.034, 0.034, 0.028, 6, brassMat, side * 0.063, -0.142, 0.13);
+    b.cone(parts.headPivot, 0.03, 0.05, 6, beardDarkMat, side * 0.066, -0.18, 0.13, { rx: Math.PI });
   }
 
   // Thick leather Viking belt + large square brass buckle
@@ -1454,6 +1648,12 @@ function buildSqueakyChickenRig(): SpecialCharacterRig {
   let levitateHeight = 0;
   let animPhase = Math.random() * Math.PI * 2;
 
+  let holdingCoffee = false;
+  let coffeeSipTimer = 2.0 + Math.random() * 2.0;
+  const coffeeCup = createHeldCoffeeCupMesh();
+  coffeeCup.group.position.set(0.15, 0.36, 0.22);
+  bodyPivot.add(coffeeCup.group);
+
   const rig: SpecialCharacterRig = {
     root,
     bubbleHeight: 1.62,
@@ -1464,6 +1664,14 @@ function buildSqueakyChickenRig(): SpecialCharacterRig {
 
     setMood(_mood: VisitorMood): void {
       // Chicken's screaming joy is eternal!
+    },
+
+    setHoldingCoffee(holding: boolean): void {
+      holdingCoffee = holding;
+      coffeeCup.group.visible = holding;
+      if (holding) {
+        coffeeSipTimer = 2.0 + Math.random() * 2.0;
+      }
     },
 
     triggerSqueakPulse(): void {
@@ -1628,9 +1836,20 @@ function buildSqueakyChickenRig(): SpecialCharacterRig {
           break;
         }
       }
+
+      const chickenCanHold = pose === 'idle' || pose === 'walk' || pose === 'sit' || pose === 'admire';
+      if (holdingCoffee && chickenCanHold) {
+        coffeeCup.group.visible = true;
+        coffeeSipTimer += safeDt;
+        coffeeCup.group.rotation.set(-bodyPivot.rotation.x, 0, -bodyPivot.rotation.z);
+        coffeeCup.updateSteam(coffeeSipTimer);
+      } else {
+        coffeeCup.group.visible = false;
+      }
     },
 
     dispose(): void {
+      coffeeCup.dispose();
       b.dispose();
     },
   };
@@ -1649,18 +1868,17 @@ function buildGojoRig(): SpecialCharacterRig {
     pants: '#1B2130',
     shoe: '#16181F',
     sole: '#2B2F3B',
-    torso: '#1D2436',
-    sleeve: '#1D2436',
-    hideEyes: true, // custom JJK S2 round dark sunglasses ↔ glowing crystalline cyan Six Eyes!
+    torso: '#222A40',
+    sleeve: '#222A40',
+    hideEyes: true, // black blindfold ↔ glowing crystalline cyan Six Eyes!
     mouthColor: '#7B4C48',
   });
 
-  const hairMat = b.mat('#F6F9FF', 0.64);
-  const hairShadeMat = b.mat('#E0E8F6', 0.68);
-  const collarMat = b.mat('#263047', 0.76);
+  const hairMat = b.mat('#FFFFFF', 0.6);
+  const hairShadeMat = b.mat('#E8EEF9', 0.64);
+  const collarMat = b.mat('#2C3650', 0.76);
   const buttonMat = b.mat('#D8DCE6', 0.28, 0.68);
-  const lensMat = b.mat('#12151E', 0.16, 0.36);
-  const frameMat = b.mat('#3A3F4D', 0.3, 0.55);
+  const blindfoldMat = b.mat('#15171E', 0.86);
   const whiteMat = b.mat('#FFFFFF', 0.22);
   const sixEyeCyanMat = b.mat('#5CE1FF', 0.14, 0.05, '#38D6FF', 1.55);
   const pupilMat = b.mat('#0B2738', 0.2);
@@ -1676,26 +1894,12 @@ function buildGojoRig(): SpecialCharacterRig {
   parts.mouthMesh.position.set(0.004, 0.104, 0.160);
   parts.mouthMesh.rotation.z = 0.09;
 
-  // JJK Season 2 small round dark tinted sunglasses (visible when walking/idle, hidden when ascending!)
-  const sunglassesGroup = new THREE.Group();
-  sunglassesGroup.name = 'GojoSunglasses';
-  parts.headPivot.add(sunglassesGroup);
-  for (const sx of [-0.058, 0.058]) {
-    b.cyl(sunglassesGroup, 0.042, 0.042, 0.012, 12, lensMat, sx, 0.168, 0.174, {
-      rx: Math.PI / 2,
-    });
-    b.torus(sunglassesGroup, 0.043, 0.006, 5, 14, frameMat, sx, 0.168, 0.175);
-    // Crisp tiny white glass glint on lens
-    b.box(sunglassesGroup, 0.014, 0.006, 0.004, whiteMat, sx - 0.012, 0.180, 0.182, {
-      rz: 0.45,
-      castShadow: false,
-    });
-  }
-  // Nose bridge & sleek side temple arms reaching ears
-  b.box(sunglassesGroup, 0.036, 0.008, 0.008, frameMat, 0, 0.172, 0.175);
-  b.rod(sunglassesGroup, -0.098, 0.170, 0.172, -0.162, 0.168, 0.006, 0.005, 0.005, 5, frameMat);
-  b.rod(sunglassesGroup, 0.098, 0.170, 0.172, 0.162, 0.168, 0.006, 0.005, 0.005, 5, frameMat);
-  parts.sunglassesGroup = sunglassesGroup;
+  // Signature black blindfold wrapped right round the head (hidden when the Six Eyes are unveiled).
+  const blindfoldGroup = new THREE.Group();
+  blindfoldGroup.name = 'GojoBlindfold';
+  parts.headPivot.add(blindfoldGroup);
+  b.cyl(blindfoldGroup, 0.171, 0.169, 0.072, 12, blindfoldMat, 0, 0.172, 0, { sz: 0.97 });
+  parts.blindfoldGroup = blindfoldGroup;
 
   // Glowing bright crystalline cyan Six Eyes (#5CE1FF) + snow-white lashes (unveiled on levitate / setAuraActive!)
   const sixEyesGroup = new THREE.Group();
@@ -1731,27 +1935,25 @@ function buildGojoRig(): SpecialCharacterRig {
   }
   parts.sixEyesGroup = sixEyesGroup;
 
-  // Wild fluffed/spiky snow-white hair (JJK Season 2 Honored One silhouette!)
-  b.sphere(parts.headPivot, 0.168, 11, hairShadeMat, 0, 0.228, -0.025, {
-    sx: 1.07,
-    sy: 0.82,
-    sz: 1.03,
-  });
+  // Snow-white hair pushed up into tall spikes by the blindfold: the silhouette that says Gojo.
+  b.dome(parts.headPivot, 0.176, 10, hairShadeMat, 0, 0.202, -0.012, { sy: 0.9 });
   const spikes: Array<[number, number, number, number, number, number, number, boolean]> = [
-    [0, 0.365, 0.015, 0.066, 0.185, -0.06, 0.0, true],
-    [-0.086, 0.355, 0.04, 0.058, 0.17, 0.16, 0.34, true],
-    [0.086, 0.355, 0.04, 0.058, 0.17, 0.16, -0.34, true],
-    [-0.142, 0.315, -0.01, 0.054, 0.15, -0.05, 0.58, false],
-    [0.142, 0.315, -0.01, 0.054, 0.15, -0.05, -0.58, false],
-    // Windswept white bangs & temple locks framing his sunglasses / Six Eyes!
-    [-0.072, 0.275, 0.128, 0.042, 0.115, 0.78, 0.28, true],
-    [0.015, 0.285, 0.132, 0.044, 0.11, 0.72, -0.1, true],
-    [0.084, 0.268, 0.124, 0.040, 0.11, 0.76, -0.32, true],
-    [-0.155, 0.205, 0.045, 0.036, 0.11, 0.32, 0.92, false],
-    [0.155, 0.205, 0.045, 0.036, 0.11, 0.32, -0.92, false],
-    [-0.068, 0.335, -0.095, 0.056, 0.16, -0.46, 0.28, false],
-    [0.068, 0.335, -0.095, 0.056, 0.16, -0.46, -0.28, false],
-    [0, 0.255, -0.15, 0.068, 0.15, -0.84, 0, false],
+    // crown
+    [0, 0.42, -0.01, 0.072, 0.22, -0.05, 0.0, true],
+    [-0.088, 0.4, 0.03, 0.066, 0.21, 0.14, 0.3, true],
+    [0.088, 0.4, 0.03, 0.066, 0.21, 0.14, -0.3, true],
+    [-0.062, 0.395, -0.085, 0.064, 0.2, -0.36, 0.24, false],
+    [0.062, 0.395, -0.085, 0.064, 0.2, -0.36, -0.24, false],
+    // sides flaring out above the blindfold
+    [-0.156, 0.33, -0.005, 0.06, 0.19, -0.04, 0.72, false],
+    [0.156, 0.33, -0.005, 0.06, 0.19, -0.04, -0.72, false],
+    [-0.13, 0.31, -0.105, 0.058, 0.17, -0.5, 0.6, false],
+    [0.13, 0.31, -0.105, 0.058, 0.17, -0.5, -0.6, false],
+    [0, 0.31, -0.165, 0.068, 0.17, -0.9, 0, false],
+    // fringe tufts lifting off the top edge of the blindfold
+    [-0.095, 0.315, 0.118, 0.05, 0.16, 0.5, 0.36, true],
+    [-0.005, 0.335, 0.132, 0.054, 0.17, 0.44, -0.06, true],
+    [0.092, 0.315, 0.118, 0.05, 0.16, 0.5, -0.38, true],
   ];
   for (const [x, y, z, r, h, rx, rz, bright] of spikes) {
     b.cone(parts.headPivot, r, h, 5, bright ? hairMat : hairShadeMat, x, y, z, { rx, rz });
@@ -1764,8 +1966,12 @@ function buildGojoRig(): SpecialCharacterRig {
 
   const haloMat = b.mat('#C8F6FF', 0.15, 0.1, '#5CE1FF', 1.6);
   const goldHaloMat = b.mat('#FFF0B8', 0.15, 0.2, '#FFD97A', 1.45);
-  b.torus(auraGroup, 0.34, 0.022, 8, 22, haloMat, 0, 1.08, -0.18, { castShadow: false });
-  b.torus(auraGroup, 0.42, 0.013, 6, 22, goldHaloMat, 0, 1.08, -0.18, { castShadow: false });
+  // Two flat Infinity rings spinning under his feet read as "floating on power" from above.
+  b.torus(auraGroup, 0.34, 0.022, 5, 18, haloMat, 0, 0.03, 0, { rx: Math.PI / 2, castShadow: false });
+  b.torus(auraGroup, 0.46, 0.013, 4, 18, goldHaloMat, 0, 0.012, 0, {
+    rx: Math.PI / 2,
+    castShadow: false,
+  });
 
   const orbBlue = b.sphere(
     auraGroup,
@@ -1803,9 +2009,223 @@ function buildGojoRig(): SpecialCharacterRig {
 
   return createHumanoidRigController(b, parts, {
     id: 'gojo',
-    baseBubbleHeight: 1.72,
+    baseBubbleHeight: 1.84,
+    baseScale: 1.1, // the tallest in the room
     hasAura: true,
   });
+}
+
+/* ============================================================================
+ * 3b. TOJI FUSHIGURO (`toji`) — black tee, loose pale trousers, short spear, pet worm
+ * ============================================================================ */
+
+function buildTojiRig(): SpecialCharacterRig {
+  const b = new RigBuilder();
+  const parts = buildHumanoidSkeleton(b, 'toji', {
+    skin: '#EBC9AE',
+    pants: '#DAD7CF', // loose off-white trousers
+    shoe: '#1D1D22',
+    sole: '#2E2E34',
+    torso: '#1C1C20', // fitted black tee
+    sleeve: '#1C1C20',
+    forearm: '#EBC9AE', // short sleeves: bare forearms
+    browColor: '#17161A',
+    mouthColor: '#6E4038',
+    shoulderWidth: 0.236,
+  });
+
+  const skinMat = b.mat('#EBC9AE', 0.82);
+  const shirtMat = b.mat('#1C1C20', 0.8);
+  const shirtLiftMat = b.mat('#2A2A31', 0.78);
+  const trouserMat = b.mat('#DAD7CF', 0.9);
+  const trouserShadeMat = b.mat('#C4C0B6', 0.9);
+  const hairMat = b.mat('#141318', 0.74);
+  const hairLiftMat = b.mat('#25232B', 0.74);
+  const scarMat = b.mat('#C58A78', 0.78);
+  const bladeMat = b.mat('#2B2D36', 0.38, 0.6);
+  const bladeEdgeMat = b.mat('#8D93A6', 0.3, 0.7);
+  const gripMat = b.mat('#4A3B33', 0.86);
+  const wormMat = b.mat('#EAE4F3', 0.7);
+  const wormBandMat = b.mat('#CFC6E2', 0.72);
+  const wormEyeMat = b.mat('#2A2530', 0.3);
+
+  // Fitted tee over a heavy build: slab pecs, sloped traps, boulder delts, crew neck.
+  b.box(parts.torsoPivot, 0.128, 0.098, 0.046, shirtLiftMat, -0.072, 0.25, 0.124);
+  b.box(parts.torsoPivot, 0.128, 0.098, 0.046, shirtLiftMat, 0.072, 0.25, 0.124);
+  b.cyl(parts.torsoPivot, 0.068, 0.078, 0.022, 8, shirtLiftMat, 0, 0.338, 0);
+  for (const side of [-1, 1]) {
+    const arm = side < 0 ? parts.leftArmPivot : parts.rightArmPivot;
+    const leg = side < 0 ? parts.leftLegPivot : parts.rightLegPivot;
+    const knee = side < 0 ? parts.leftKneePivot : parts.rightKneePivot;
+    b.box(parts.torsoPivot, 0.12, 0.05, 0.11, shirtMat, side * 0.104, 0.342, -0.008, {
+      rz: -side * 0.36,
+    });
+    b.sphere(arm, 0.064, 7, shirtMat, side * 0.006, 0.004, 0);
+    // sleeve hem, then bare biceps below it
+    b.cyl(arm, 0.05, 0.048, 0.03, 8, shirtLiftMat, 0, -0.07, 0);
+    b.sphere(arm, 0.047, 6, skinMat, 0, -0.112, 0.01, { sy: 1.25 });
+    // loose trousers: roomy thigh and shin, gathered at the ankle
+    b.cyl(leg, 0.066, 0.072, 0.2, 8, trouserMat, 0, -0.1, 0);
+    b.cyl(knee, 0.07, 0.058, 0.15, 8, trouserMat, 0, -0.078, 0);
+    b.cyl(knee, 0.05, 0.05, 0.022, 8, trouserShadeMat, 0, -0.154, 0);
+  }
+  b.cyl(parts.torsoPivot, 0.142, 0.146, 0.04, 10, trouserShadeMat, 0, 0.012, 0, { sx: 1.05, sz: 0.88 });
+
+  // Lazy smirk, with the scar nicking the right corner of the mouth.
+  parts.mouthMesh.position.set(0.004, 0.104, 0.16);
+  parts.mouthMesh.rotation.z = 0.1;
+  b.box(parts.headPivot, 0.01, 0.044, 0.01, scarMat, 0.033, 0.106, 0.159, { rz: -0.22 });
+
+  // Short messy black hair: a close cap, a scruffy crown and a fringe falling over the brow.
+  b.sphere(parts.headPivot, 0.168, 10, hairMat, 0, 0.205, -0.025, { sx: 1.04, sy: 0.84, sz: 1.02 });
+  const tufts: Array<[number, number, number, number, number, number, number, boolean]> = [
+    [0.01, 0.335, -0.01, 0.06, 0.1, -0.15, 0.1, true],
+    [-0.085, 0.318, 0.02, 0.055, 0.1, 0.1, 0.5, false],
+    [0.09, 0.316, 0.01, 0.055, 0.105, 0.05, -0.55, true],
+    [-0.05, 0.32, -0.09, 0.056, 0.1, -0.6, 0.25, false],
+    [0.06, 0.318, -0.095, 0.056, 0.1, -0.65, -0.3, false],
+    [-0.15, 0.25, -0.02, 0.05, 0.095, -0.1, 1.0, false],
+    [0.15, 0.25, -0.02, 0.05, 0.095, -0.1, -1.0, false],
+    [0, 0.22, -0.165, 0.058, 0.11, -1.3, 0, false],
+    // fringe: tips pointing down over the forehead
+    [-0.075, 0.262, 0.135, 0.042, 0.1, 2.5, 0.25, true],
+    [-0.012, 0.268, 0.15, 0.044, 0.115, 2.6, -0.08, false],
+    [0.058, 0.264, 0.14, 0.042, 0.1, 2.5, -0.3, true],
+    [0.12, 0.256, 0.1, 0.038, 0.09, 2.4, -0.6, false],
+  ];
+  for (const [x, y, z, r, h, rx, rz, lift] of tufts) {
+    b.cone(parts.headPivot, r, h, 5, lift ? hairLiftMat : hairMat, x, y, z, { rx, rz });
+  }
+
+  // Short dark spear held in the right fist, blade forward: wrapped grip, guard prong, flat blade.
+  const spear = new THREE.Group();
+  spear.name = 'TojiSpear';
+  spear.rotation.x = 0.22;
+  parts.rightHandAnchor.add(spear);
+  b.cyl(spear, 0.014, 0.014, 0.12, 6, gripMat, 0, 0, 0, { rx: Math.PI / 2 });
+  b.sphere(spear, 0.02, 5, bladeMat, 0, 0, -0.066);
+  b.box(spear, 0.016, 0.06, 0.014, bladeMat, 0, 0.012, 0.064);
+  b.box(spear, 0.012, 0.012, 0.05, bladeMat, 0, 0.04, 0.09);
+  b.cone(spear, 0.036, 0.27, 4, bladeMat, 0, 0, 0.2, { rx: Math.PI / 2, sx: 0.3 });
+  b.box(spear, 0.004, 0.006, 0.2, bladeEdgeMat, 0, -0.022, 0.17, { rx: -0.115 });
+
+  // Pale segmented "inventory" worm draped round the shoulders, head resting on the right one.
+  const wormSegs = 12;
+  for (let i = 0; i < wormSegs; i++) {
+    const a = 0.75 - (i / (wormSegs - 1)) * 4.4; // front-right, round the back, down the left chest
+    const tail = i / (wormSegs - 1);
+    const r = 0.054 - tail * 0.024;
+    const droop = Math.max(0, tail - 0.68) * 0.62;
+    b.sphere(
+      parts.torsoPivot,
+      r,
+      5,
+      i % 3 === 2 ? wormBandMat : wormMat,
+      Math.sin(a) * 0.17,
+      0.35 - droop,
+      Math.cos(a) * 0.12 - 0.012,
+      { sy: 0.8, ry: a },
+    );
+  }
+  b.sphere(parts.torsoPivot, 0.058, 6, wormMat, 0.118, 0.372, 0.128, { sy: 0.88 });
+  b.sphere(parts.torsoPivot, 0.011, 5, wormEyeMat, 0.098, 0.386, 0.176);
+  b.sphere(parts.torsoPivot, 0.011, 5, wormEyeMat, 0.142, 0.386, 0.17);
+
+  // ---- Showdown cut: one diagonal plane (torso space) takes the blade-free side of the upper
+  // body. Legs and pelvis hang off bodyPivot, so they are never clipped; the head sits clear of it.
+  const clipMats = new Set<THREE.Material>();
+  parts.torsoPivot.traverse((o) => {
+    const m = (o as THREE.Mesh).material;
+    if (m && !Array.isArray(m)) clipMats.add(m);
+  });
+  const cutNormal = new THREE.Vector3(0.861, 0.509, 0).normalize();
+  const cutLocal = new THREE.Plane().setFromNormalAndCoplanarPoint(
+    cutNormal,
+    new THREE.Vector3(-0.16, 0.44, 0),
+  );
+  const cutWorld = new THREE.Plane();
+  const cutPlanes = [cutWorld];
+  // Glowing cap filling the cross-section, nudged onto the kept side so it never z-fights.
+  const cutCap = new THREE.Group();
+  cutCap.name = 'TojiCutCap';
+  cutCap.visible = false;
+  cutCap.position.set(-0.002, 0.172, 0).addScaledVector(cutNormal, 0.004);
+  cutCap.quaternion.setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(0.509, -0.861, 0).normalize(),
+      cutNormal,
+    ),
+  );
+  cutCap.scale.set(0.134, 0.2, 0.134);
+  parts.torsoPivot.add(cutCap);
+  const capCoreMat = b.trackMat(
+    new THREE.MeshBasicMaterial({ color: 0xa24dff, side: THREE.DoubleSide }),
+  );
+  const capRimMat = b.trackMat(
+    new THREE.MeshBasicMaterial({ color: 0xf1d6ff, side: THREE.DoubleSide }),
+  );
+  cutCap.add(new THREE.Mesh(b.trackGeo(new THREE.CircleGeometry(1, 14)), capCoreMat));
+  cutCap.add(new THREE.Mesh(b.trackGeo(new THREE.RingGeometry(0.84, 1.2, 14)), capRimMat));
+
+  const rig = createHumanoidRigController(b, parts, {
+    id: 'toji',
+    baseBubbleHeight: 1.74,
+    baseScale: 1.09,
+    defaultBrowTilt: -0.16, // heavy, unbothered brow
+  });
+
+  let sliced = false;
+  let armed = false;
+  const parkCut = (): void => {
+    cutWorld.normal.set(0, 1, 0);
+    cutWorld.constant = 1e4; // keeps everything
+  };
+  const baseUpdate = rig.update;
+  rig.update = (dt, elapsed, moveSpeed, isBlabbering, seatY) => {
+    baseUpdate(dt, elapsed, moveSpeed, isBlabbering, seatY);
+    if (sliced) {
+      parts.torsoPivot.updateWorldMatrix(true, false);
+      cutWorld.copy(cutLocal).applyMatrix4(parts.torsoPivot.matrixWorld);
+      capRimMat.color.setHex(0xf1d6ff).multiplyScalar(0.82 + 0.18 * Math.sin(elapsed * 9));
+    }
+  };
+  rig.armSlice = (on) => {
+    if (armed === on) return;
+    armed = on;
+    parkCut();
+    for (const m of clipMats) {
+      m.clippingPlanes = on ? cutPlanes : null;
+      m.clipShadows = on;
+      m.side = on ? THREE.DoubleSide : THREE.FrontSide;
+      m.needsUpdate = true;
+    }
+    for (const m of b.materials) {
+      const base = (m.userData.baseOpacity ??= m.opacity) as number;
+      m.transparent = on || base < 1;
+      m.needsUpdate = true;
+    }
+  };
+  rig.setSliced = (on) => {
+    if (sliced === on) return;
+    if (on) rig.armSlice?.(true);
+    sliced = on;
+    cutCap.visible = on;
+    if (!on) parkCut();
+  };
+  rig.setOpacity = (alpha) => {
+    const a = clamp(alpha, 0, 1);
+    for (const m of b.materials) {
+      const base = (m.userData.baseOpacity ??= m.opacity) as number;
+      const wantTransparent = armed || a < 1 || base < 1;
+      if (m.transparent !== wantTransparent) {
+        m.transparent = wantTransparent;
+        m.needsUpdate = true;
+      }
+      m.opacity = base * a;
+    }
+  };
+  return rig;
 }
 
 /* ============================================================================
@@ -1826,19 +2246,26 @@ function buildBakiRig(): SpecialCharacterRig {
     wristWrap: '#F6F3EC',
     ankleWrap: '#F6F3EC',
     browColor: '#582B1B',
-    shoulderWidth: 0.22,
+    shoulderWidth: 0.232,
   });
 
   const skinShadeMat = b.mat('#D8A27D', 0.8);
   const scarMat = b.mat('#C27C68', 0.78);
   const trunksMat = b.mat('#D62828', 0.76);
   const whiteTrimMat = b.mat('#F7F4EE', 0.82);
-  const hairMat = b.mat('#763E28', 0.74);
-  const hairDarkMat = b.mat('#582B1B', 0.78);
+  const hairMat = b.mat('#8C3F25', 0.74);
+  const hairDarkMat = b.mat('#662A1B', 0.78);
+  const skinMat = b.mat('#E6B48F', 0.82);
 
-  // Sculpted muscular pectorals, defined abs & trapezius shoulder caps
-  b.box(parts.torsoPivot, 0.11, 0.095, 0.042, skinShadeMat, -0.064, 0.252, 0.118);
-  b.box(parts.torsoPivot, 0.11, 0.095, 0.042, skinShadeMat, 0.064, 0.252, 0.118);
+  // Fighter's build: slab pecs, abs, sloping traps, boulder delts and biceps.
+  b.box(parts.torsoPivot, 0.128, 0.1, 0.05, skinShadeMat, -0.072, 0.25, 0.124);
+  b.box(parts.torsoPivot, 0.128, 0.1, 0.05, skinShadeMat, 0.072, 0.25, 0.124);
+  for (const side of [-1, 1]) {
+    const arm = side < 0 ? parts.leftArmPivot : parts.rightArmPivot;
+    b.box(parts.torsoPivot, 0.12, 0.05, 0.11, skinMat, side * 0.1, 0.342, -0.008, { rz: -side * 0.36 });
+    b.sphere(arm, 0.064, 7, skinMat, side * 0.006, 0.004, 0);
+    b.sphere(arm, 0.05, 6, skinShadeMat, 0, -0.092, 0.012, { sy: 1.3 });
+  }
   for (const ay of [0.168, 0.112, 0.062]) {
     b.box(parts.torsoPivot, 0.056, 0.04, 0.024, skinShadeMat, -0.036, ay, 0.116);
     b.box(parts.torsoPivot, 0.056, 0.04, 0.024, skinShadeMat, 0.036, ay, 0.116);
@@ -1973,12 +2400,20 @@ function buildShakespeareRig(): SpecialCharacterRig {
   quillGroup.position.set(0.01, 0.01, 0.02);
   quillGroup.rotation.set(0.35, 0, -0.25);
   parts.rightHandAnchor.add(quillGroup);
-  b.cyl(quillGroup, 0.006, 0.003, 0.24, 6, goldMat, 0, 0.09, 0);
-  b.cone(quillGroup, 0.036, 0.19, 5, quillMat, 0.008, 0.21, -0.005, {
-    rz: -0.18,
-    sz: 0.28,
+  b.cyl(quillGroup, 0.008, 0.004, 0.26, 5, goldMat, 0, 0.09, 0);
+  b.cone(quillGroup, 0.058, 0.27, 5, quillMat, 0.012, 0.25, -0.005, {
+    rz: -0.16,
+    sz: 0.24,
   });
   parts.quillProp = quillGroup;
+
+  // Rolled parchment with a red ribbon in the left fist.
+  b.cyl(parts.leftHandAnchor, 0.026, 0.026, 0.17, 6, b.mat('#F2E6C8', 0.86), 0, -0.005, 0.02, {
+    rx: Math.PI / 2,
+  });
+  b.cyl(parts.leftHandAnchor, 0.029, 0.029, 0.026, 6, b.mat('#B23A3A', 0.7), 0, -0.005, 0.02, {
+    rx: Math.PI / 2,
+  });
 
   return createHumanoidRigController(b, parts, {
     id: 'shakespeare',
@@ -2014,10 +2449,13 @@ function buildPhilosopherRig(): SpecialCharacterRig {
   const leatherMat = b.mat('#8D6242', 0.78);
 
   // Draped cream Greek toga wrap over left shoulder + diagonal fold across chest + gold key border!
-  b.rod(parts.torsoPivot, -0.145, 0.33, 0.085, 0.125, 0.04, 0.132, 0.044, 0.048, 7, togaFoldMat);
-  b.rod(parts.torsoPivot, -0.145, 0.33, -0.075, 0.125, 0.04, -0.118, 0.044, 0.048, 7, togaFoldMat);
-  // Left shoulder draped sleeve fold + gleaming golden Greek fibula clasp
-  b.sphere(parts.leftArmPivot, 0.062, 8, togaMat, 0.01, -0.02, 0, { sx: 1.12, sy: 1.05 });
+  // (flattened into wide cloth bands rather than round poles)
+  b.rod(parts.torsoPivot, -0.15, 0.345, 0.07, 0.13, 0.03, 0.118, 0.05, 0.058, 6, togaFoldMat).scale.set(1.9, 1, 0.5);
+  b.rod(parts.torsoPivot, -0.15, 0.345, -0.065, 0.13, 0.03, -0.108, 0.05, 0.058, 6, togaFoldMat).scale.set(1.9, 1, 0.5);
+  // Himation thrown over the left shoulder and hanging down that arm (right arm bare), pinned by a gold fibula clasp.
+  b.sphere(parts.leftArmPivot, 0.066, 7, togaMat, 0.006, -0.012, 0, { sx: 1.12, sy: 1.05 });
+  b.box(parts.leftArmPivot, 0.092, 0.2, 0.11, togaMat, -0.006, -0.1, 0);
+  b.box(parts.leftElbowPivot, 0.084, 0.1, 0.1, togaFoldMat, -0.004, -0.035, 0);
   b.cyl(parts.torsoPivot, 0.024, 0.024, 0.012, 8, goldTrimMat, -0.132, 0.335, 0.078, {
     rx: Math.PI / 2 - 0.25,
   });
@@ -2059,8 +2497,9 @@ function buildPhilosopherRig(): SpecialCharacterRig {
   });
   b.sphere(parts.headPivot, 0.054, 6, hairSilverMat, -0.068, 0.045, 0.115);
   b.sphere(parts.headPivot, 0.054, 6, hairSilverMat, 0.068, 0.045, 0.115);
-  // Thick thoughtful white mustache
+  // Thick thoughtful white mustache and a pointed beard tip
   b.box(parts.headPivot, 0.135, 0.028, 0.036, hairWhiteMat, 0, 0.115, 0.158);
+  b.cone(parts.headPivot, 0.06, 0.1, 6, hairWhiteMat, 0, -0.07, 0.126, { rx: Math.PI, sz: 0.7 });
 
   return createHumanoidRigController(b, parts, {
     id: 'philosopher',
@@ -2078,21 +2517,21 @@ function buildJohnWickRig(): SpecialCharacterRig {
   const b = new RigBuilder();
   const parts = buildHumanoidSkeleton(b, 'john_wick', {
     skin: '#EED2BE',
-    pants: '#1A1C21',
+    pants: '#2A2D37',
     shoe: '#131418',
     sole: '#22242C',
-    torso: '#1B1D22', // jet-black tailored Continental suit
-    sleeve: '#1B1D22',
-    forearm: '#1B1D22',
-    browColor: '#1E1F26',
+    torso: '#2E323D', // black tailored suit, lifted to charcoal so its shape still reads
+    sleeve: '#2E323D',
+    forearm: '#2E323D',
+    browColor: '#2A2220',
   });
 
   const shirtMat = b.mat('#F7F7FA', 0.78);
-  const lapelMat = b.mat('#262932', 0.68);
-  const tieMat = b.mat('#121318', 0.42);
-  const silverMat = b.mat('#D0D5DE', 0.25, 0.75);
-  const hairMat = b.mat('#1D1E24', 0.74);
-  const beardMat = b.mat('#25262E', 0.82);
+  const lapelMat = b.mat('#3F4452', 0.68);
+  const tieMat = b.mat('#101116', 0.5);
+  const silverMat = b.mat('#D0D5DE', 0.3, 0.3);
+  const hairMat = b.mat('#2E2522', 0.74);
+  const beardMat = b.mat('#4A3A33', 0.86);
 
   // Tailored black suit details: crisp white collar points, V-shirt front, sleek black tie + silver tie bar, notched lapels!
   b.box(parts.torsoPivot, 0.105, 0.195, 0.016, shirtMat, 0, 0.248, 0.128);
@@ -2104,7 +2543,7 @@ function buildJohnWickRig(): SpecialCharacterRig {
   b.box(parts.torsoPivot, 0.044, 0.21, 0.018, lapelMat, -0.064, 0.235, 0.132, { rz: -0.18 });
   b.box(parts.torsoPivot, 0.044, 0.21, 0.018, lapelMat, 0.064, 0.235, 0.132, { rz: 0.18 });
   // Lower suit jacket hem
-  b.cyl(parts.torsoPivot, 0.146, 0.156, 0.12, 10, b.mat('#1B1D22', 0.74), 0, 0.015, 0, {
+  b.cyl(parts.torsoPivot, 0.146, 0.156, 0.12, 10, b.mat('#2E323D', 0.74), 0, 0.015, 0, {
     sx: 1.05,
     sz: 0.88,
   });
@@ -2112,28 +2551,25 @@ function buildJohnWickRig(): SpecialCharacterRig {
   b.cyl(parts.leftElbowPivot, 0.034, 0.034, 0.022, 8, shirtMat, 0, -0.136, 0);
   b.cyl(parts.rightElbowPivot, 0.034, 0.034, 0.022, 8, shirtMat, 0, -0.136, 0);
 
-  // Sleek shoulder-length dark parted hair sweeping smoothly past jaw & behind neck!
-  b.sphere(parts.headPivot, 0.168, 11, hairMat, 0, 0.202, -0.018, {
-    sx: 1.04,
-    sy: 0.88,
-    sz: 1.02,
-  });
-  // Long sleek side curtain locks framing jaw
-  b.box(parts.headPivot, 0.046, 0.255, 0.132, hairMat, -0.156, 0.105, -0.012, { rz: 0.06 });
-  b.box(parts.headPivot, 0.046, 0.255, 0.132, hairMat, 0.156, 0.105, -0.012, { rz: -0.06 });
-  // Swept center-parted front bangs
-  b.box(parts.headPivot, 0.095, 0.048, 0.052, hairMat, -0.062, 0.268, 0.114, { rx: 0.22, rz: 0.22 });
-  b.box(parts.headPivot, 0.095, 0.048, 0.052, hairMat, 0.062, 0.268, 0.114, { rx: 0.22, rz: -0.22 });
-  // Back curtain hair down to collar
-  b.box(parts.headPivot, 0.265, 0.265, 0.075, hairMat, 0, 0.10, -0.142);
+  // Long dark centre-parted hair: swept back off the forehead, two curtains framing the
+  // face down to the jaw, and a back sheet to the collar. The face stays open.
+  b.sphere(parts.headPivot, 0.168, 10, hairMat, 0, 0.205, -0.034, { sx: 1.02, sy: 0.86 });
+  for (const side of [-1, 1]) {
+    b.box(parts.headPivot, 0.04, 0.2, 0.1, hairMat, side * 0.158, 0.13, 0.012, { rz: side * 0.05 });
+    b.box(parts.headPivot, 0.05, 0.13, 0.036, hairMat, side * 0.098, 0.262, 0.118, {
+      rz: side * 0.62,
+      rx: 0.2,
+    });
+  }
+  b.box(parts.headPivot, 0.25, 0.2, 0.07, hairMat, 0, 0.09, -0.128);
 
-  // Tidy sculpted dark beard & mustache
-  b.sphere(parts.headPivot, 0.095, 8, beardMat, 0, 0.088, 0.092, {
-    sx: 1.28,
-    sy: 0.72,
-    sz: 0.78,
+  // Short boxed beard and moustache, a shade lighter than the hair so the jaw reads.
+  b.sphere(parts.headPivot, 0.094, 8, beardMat, 0, 0.074, 0.082, {
+    sx: 1.3,
+    sy: 0.74,
+    sz: 0.82,
   });
-  b.box(parts.headPivot, 0.092, 0.016, 0.016, beardMat, 0, 0.122, 0.158);
+  b.box(parts.headPivot, 0.088, 0.02, 0.016, beardMat, 0, 0.124, 0.158);
 
   return createHumanoidRigController(b, parts, {
     id: 'john_wick',
@@ -2159,10 +2595,10 @@ function buildRockyRig(): SpecialCharacterRig {
   const bodyPivot = new THREE.Group();
   root.add(bodyPivot);
 
-  const rockDarkMat = b.mat('#47433F', 0.92, 0.08); // heavy dark basalt grey
-  const rockBrownMat = b.mat('#6E5B4B', 0.9, 0.1); // warm mineral umber-brown
-  const rockHematiteMat = b.mat('#8A5342', 0.88, 0.14); // subtle rust-hematite rock facets!
-  const rockFacetMat = b.mat('#746B62', 0.88, 0.12);
+  const rockDarkMat = b.mat('#5B554F', 0.92, 0.08); // basalt grey, light enough to show facets
+  const rockBrownMat = b.mat('#8B715A', 0.9, 0.1); // warm mineral umber-brown
+  const rockHematiteMat = b.mat('#A85F48', 0.88, 0.14); // rust-hematite rock facets
+  const rockFacetMat = b.mat('#93887C', 0.88, 0.12);
   const shirtMat = b.mat('#5F6B50', 0.86, 0.04); // Ryland Grace's custom greenish-brown 5-armhole cloth shirt!
   const shirtHemMat = b.mat('#4C573F', 0.88, 0.04);
   const toolMetalMat = b.mat('#C6A778', 0.38, 0.45);
@@ -2194,13 +2630,21 @@ function buildRockyRig(): SpecialCharacterRig {
       { sx: 1.28, sy: 0.68, sz: 0.96, ry: -a },
     );
   }
+  // Loose tilted slabs so the shell silhouette is rough stone, not a clean pentagon
+  for (const [x, z, size, ry] of [
+    [0.12, 0.06, 0.09, 0.5],
+    [-0.1, 0.1, 0.075, 1.3],
+    [-0.03, -0.13, 0.085, 2.2],
+  ] as const) {
+    b.box(carapaceGroup, size * 1.4, size * 0.7, size, rockFacetMat, x, 0.205, z, { ry, rz: 0.28 });
+  }
   // Central radiator vent ridge on top of carapace
   b.cyl(carapaceGroup, 0.084, 0.108, 0.048, 5, rockFacetMat, 0, 0.222, 0);
   b.cyl(carapaceGroup, 0.052, 0.068, 0.025, 5, rockHematiteMat, 0, 0.252, 0);
 
   // Ryland Grace's custom greenish-brown 5-armhole cloth shirt (#5F6B50) wrapped cleanly around mid-carapace!
-  b.cyl(carapaceGroup, 0.262, 0.286, 0.132, 5, shirtMat, 0, -0.008, 0);
-  b.torus(carapaceGroup, 0.258, 0.02, 5, 5, shirtHemMat, 0, 0.058, 0, { rx: Math.PI / 2 });
+  b.cyl(carapaceGroup, 0.266, 0.286, 0.108, 5, shirtMat, 0, -0.02, 0);
+  b.torus(carapaceGroup, 0.262, 0.02, 5, 5, shirtHemMat, 0, 0.034, 0, { rx: Math.PI / 2 });
   b.torus(carapaceGroup, 0.282, 0.02, 5, 5, shirtHemMat, 0, -0.072, 0, { rx: Math.PI / 2 });
   // Small woven utility pocket & xenonite clasp pinned onto shirt front
   b.box(carapaceGroup, 0.076, 0.068, 0.026, shirtHemMat, 0, 0.005, 0.268);
@@ -2239,25 +2683,25 @@ function buildRockyRig(): SpecialCharacterRig {
     hipPivot.position.set(0, -0.02, 0.225);
     legRoot.add(hipPivot);
 
-    b.sphere(hipPivot, 0.048, 6, rockDarkMat, 0, 0, 0);
+    b.sphere(hipPivot, 0.06, 6, rockDarkMat, 0, 0, 0);
     // Upper rocky femur angling slightly up-and-outward to knee at (0, +0.08, +0.21)
-    b.rod(hipPivot, 0, 0, 0, 0, 0.08, 0.21, 0.036, 0.045, 6, i % 2 === 0 ? rockBrownMat : rockDarkMat);
+    b.rod(hipPivot, 0, 0, 0, 0, 0.08, 0.21, 0.048, 0.058, 6, i % 2 === 0 ? rockBrownMat : rockDarkMat);
 
     const kneePivot = new THREE.Group();
     kneePivot.position.set(0, 0.08, 0.21);
     hipPivot.add(kneePivot);
 
-    b.sphere(kneePivot, 0.045, 6, rockHematiteMat, 0, 0, 0);
+    b.sphere(kneePivot, 0.06, 6, rockHematiteMat, 0, 0, 0);
     // Lower rocky tibia descending from knee down to 3-fingered rocky hand/claw resting at y = 0.000!
-    b.rod(kneePivot, 0, 0, 0, 0, -0.47, 0.07, 0.024, 0.036, 6, rockDarkMat);
-    // Wrist knuckle + 3 distinct small triangular rock fingers/claws (visible during jazz hands!)
-    b.sphere(kneePivot, 0.032, 6, rockFacetMat, 0, -0.478, 0.07, { sy: 0.62, sz: 1.15 });
+    b.rod(kneePivot, 0, 0, 0, 0, -0.46, 0.07, 0.034, 0.05, 6, rockDarkMat);
+    // Wrist knuckle + 3 stubby rock fingers (they splay during jazz hands)
+    b.sphere(kneePivot, 0.042, 6, rockFacetMat, 0, -0.472, 0.07, { sy: 0.62, sz: 1.15 });
     for (const [cx, cry] of [
-      [-0.028, 0.36],
+      [-0.036, 0.42],
       [0, 0],
-      [0.028, -0.36],
+      [0.036, -0.42],
     ] as const) {
-      b.cone(kneePivot, 0.014, 0.056, 3, rockBrownMat, cx, -0.486, 0.114, {
+      b.cone(kneePivot, 0.02, 0.075, 4, rockBrownMat, cx, -0.48, 0.125, {
         rx: Math.PI / 2,
         ry: cry,
       });
@@ -2270,6 +2714,12 @@ function buildRockyRig(): SpecialCharacterRig {
   let levitateHeight = 0;
   let animPhase = Math.random() * Math.PI * 2;
 
+  let holdingCoffee = false;
+  let coffeeSipTimer = 2.0 + Math.random() * 2.0;
+  const coffeeCup = createHeldCoffeeCupMesh();
+  coffeeCup.group.position.set(0, 0.1, 0.34);
+  carapaceGroup.add(coffeeCup.group);
+
   const rig: SpecialCharacterRig = {
     root,
     bubbleHeight: 1.22,
@@ -2280,6 +2730,14 @@ function buildRockyRig(): SpecialCharacterRig {
 
     setMood(_mood: VisitorMood): void {
       // Eridian mood shines through joyful carapace tilt & jazz hands!
+    },
+
+    setHoldingCoffee(holding: boolean): void {
+      holdingCoffee = holding;
+      coffeeCup.group.visible = holding;
+      if (holding) {
+        coffeeSipTimer = 2.0 + Math.random() * 2.0;
+      }
     },
 
     update(
@@ -2404,9 +2862,20 @@ function buildRockyRig(): SpecialCharacterRig {
           break;
         }
       }
+
+      const rockyCanHold = pose === 'idle' || pose === 'walk' || pose === 'sit' || pose === 'admire';
+      if (holdingCoffee && rockyCanHold) {
+        coffeeCup.group.visible = true;
+        coffeeSipTimer += safeDt;
+        coffeeCup.group.rotation.set(-carapaceGroup.rotation.x, 0, -carapaceGroup.rotation.z);
+        coffeeCup.updateSteam(coffeeSipTimer);
+      } else {
+        coffeeCup.group.visible = false;
+      }
     },
 
     dispose(): void {
+      coffeeCup.dispose();
       b.dispose();
     },
   };
@@ -2428,68 +2897,70 @@ function buildHomerRig(): SpecialCharacterRig {
     torso: '#F7F6F2', // crisp white polo shirt
     sleeve: '#F7F6F2',
     forearm: '#FFD93D', // short-sleeve yellow forearms!
-    bellyScale: 1.18, // cozy Homer belly!
+    bellyScale: 1.3, // cozy Homer belly!
+    shoulderWidth: 0.214,
     headScaleY: 1.14, // iconic taller bald Simpson cranium!
     eyeWhite: true,
     mouthColor: '#693B2C',
   });
 
   const blackMat = b.mat('#1D1D22', 0.65);
-  const muzzleMat = b.mat('#D9B382', 0.86);
+  const muzzleMat = b.mat('#CDAA6D', 0.86);
   const poloCollarMat = b.mat('#ECEAE3', 0.82);
   const yellowMat = b.mat('#FFD93D', 0.82);
 
-  // Iconic tan circular beard stubble muzzle wrapping lower jaw!
-  b.sphere(parts.headPivot, 0.106, 10, muzzleMat, 0, 0.105, 0.095, {
-    sx: 1.08,
-    sy: 0.78,
-    sz: 0.88,
+  // Big five-o'clock-shadow muzzle bulging out below the eyes, mouth sitting on its front.
+  b.sphere(parts.headPivot, 0.122, 10, muzzleMat, 0, 0.082, 0.082, {
+    sx: 1.1,
+    sy: 0.8,
+    sz: 0.96,
   });
-  // Shift mouth slightly proud of muzzle front!
-  parts.mouthMesh.position.set(0, 0.095, 0.192);
+  parts.mouthMesh.position.set(0, 0.078, 0.2);
 
   // Sleepy yellow upper eyelids over cartoon white eyes
   b.box(parts.headPivot, 0.072, 0.022, 0.032, yellowMat, -0.046, 0.228, 0.165, { rx: 0.18 });
   b.box(parts.headPivot, 0.072, 0.022, 0.032, yellowMat, 0.046, 0.228, 0.165, { rx: 0.18 });
   // Plump yellow cartoon nose sitting cleanly above muzzle
-  b.sphere(parts.headPivot, 0.028, 7, yellowMat, 0, 0.162, 0.188, { sx: 0.9, sy: 0.85, sz: 1.25 });
+  b.sphere(parts.headPivot, 0.03, 7, yellowMat, 0, 0.158, 0.196, { sx: 0.9, sy: 0.85, sz: 1.3 });
 
-  // THE TWO ICONIC CURVED BLACK TOP HAIRS on bald yellow dome (bold enough to read crisply in 3D PFPs!)
-  b.torus(parts.headPivot, 0.06, 0.011, 6, 12, blackMat, 0, 0.354, 0.024, {
-    arc: Math.PI,
-    ry: Math.PI / 2,
-  });
-  b.torus(parts.headPivot, 0.06, 0.011, 6, 12, blackMat, 0, 0.354, -0.034, {
-    arc: Math.PI,
-    ry: Math.PI / 2,
-  });
+  // The two hairs: separate arcs side by side over the bald dome.
+  for (const hx of [-0.034, 0.034]) {
+    b.torus(parts.headPivot, 0.066, 0.01, 4, 8, blackMat, hx, 0.348, -0.006, {
+      arc: Math.PI,
+      ry: Math.PI / 2 + hx * 6,
+    });
+  }
 
-  // ICONIC ZIG-ZAG "M" SIDE HAIRS over both ears!
+  // Zig-zag "M" side hair over both ears
   for (const side of [-1, 1]) {
-    const sx = side * 0.165;
-    b.rod(parts.headPivot, sx, 0.212, 0.032, sx, 0.268, 0.008, 0.0085, 0.0085, 5, blackMat);
-    b.rod(parts.headPivot, sx, 0.268, 0.008, sx, 0.215, -0.018, 0.0085, 0.0085, 5, blackMat);
-    b.rod(parts.headPivot, sx, 0.215, -0.018, sx, 0.265, -0.044, 0.0085, 0.0085, 5, blackMat);
-    b.rod(parts.headPivot, sx, 0.265, -0.044, sx, 0.210, -0.068, 0.0085, 0.0085, 5, blackMat);
+    const sx = side * 0.166;
+    b.rod(parts.headPivot, sx, 0.2, 0.04, sx, 0.272, 0.012, 0.012, 0.012, 4, blackMat);
+    b.rod(parts.headPivot, sx, 0.272, 0.012, sx, 0.206, -0.016, 0.012, 0.012, 4, blackMat);
+    b.rod(parts.headPivot, sx, 0.206, -0.016, sx, 0.268, -0.046, 0.012, 0.012, 4, blackMat);
+    b.rod(parts.headPivot, sx, 0.268, -0.046, sx, 0.198, -0.074, 0.012, 0.012, 4, blackMat);
   }
 
   // Folded white polo shirt V-collar flaps
-  b.box(parts.torsoPivot, 0.068, 0.045, 0.028, poloCollarMat, -0.052, 0.335, 0.125, {
-    rz: 0.35,
-    rx: -0.18,
+  b.box(parts.torsoPivot, 0.085, 0.05, 0.03, poloCollarMat, -0.06, 0.34, 0.118, {
+    rz: 0.4,
+    rx: -0.3,
   });
-  b.box(parts.torsoPivot, 0.068, 0.045, 0.028, poloCollarMat, 0.052, 0.335, 0.125, {
-    rz: -0.35,
-    rx: -0.18,
+  b.box(parts.torsoPivot, 0.085, 0.05, 0.03, poloCollarMat, 0.06, 0.34, 0.118, {
+    rz: -0.4,
+    rx: -0.3,
   });
+  // Sleeve hems, so the polo sleeves end in a clear cuff above the yellow forearms.
+  b.cyl(parts.leftArmPivot, 0.046, 0.048, 0.03, 8, poloCollarMat, 0, -0.145, 0);
+  b.cyl(parts.rightArmPivot, 0.046, 0.048, 0.03, 8, poloCollarMat, 0, -0.145, 0);
 
   // Pink-frosted sprinkled donut held in right hand!
   const donutGroup = new THREE.Group();
   donutGroup.position.set(0, -0.01, 0.038);
   donutGroup.rotation.x = Math.PI / 3;
   parts.rightHandAnchor.add(donutGroup);
-  b.torus(donutGroup, 0.044, 0.019, 7, 12, b.mat('#E6B67A', 0.8), 0, 0, 0);
-  b.torus(donutGroup, 0.044, 0.016, 6, 12, b.mat('#F58FB3', 0.45), 0, 0, 0.009);
+  donutGroup.scale.setScalar(1.3);
+  b.torus(donutGroup, 0.044, 0.019, 6, 10, b.mat('#E6B67A', 0.8), 0, 0, 0);
+  b.torus(donutGroup, 0.044, 0.016, 5, 10, b.mat('#F58FB3', 0.45), 0, 0, 0.009);
   b.box(donutGroup, 0.014, 0.006, 0.008, b.mat('#FFF394', 0.4), 0.032, 0.022, 0.025, { rz: 0.5 });
   b.box(donutGroup, 0.014, 0.006, 0.008, b.mat('#7ED8F7', 0.4), -0.034, 0.014, 0.025, { rz: -0.4 });
   b.box(donutGroup, 0.014, 0.006, 0.008, b.mat('#9AF09A', 0.4), 0.008, -0.038, 0.025, { rz: 0.2 });
@@ -2568,8 +3039,9 @@ function buildRickRig(): SpecialCharacterRig {
 
   // Iconic GLOWING GREEN PORTAL GUN held in right hand!
   const gunGroup = new THREE.Group();
-  gunGroup.position.set(0, -0.015, 0.045);
+  gunGroup.position.set(0, -0.015, 0.05);
   gunGroup.rotation.x = Math.PI / 2;
+  gunGroup.scale.setScalar(1.45);
   parts.rightHandAnchor.add(gunGroup);
 
   // Grip + white futuristic chassis + red dimension dial
@@ -2597,6 +3069,121 @@ function buildRickRig(): SpecialCharacterRig {
 }
 
 /* ============================================================================
+ * 11. ADI (`adi`) — big dark curls, round wire glasses, cow-print hoodie
+ * ============================================================================ */
+
+function buildAdiRig(): SpecialCharacterRig {
+  const b = new RigBuilder();
+  const parts = buildHumanoidSkeleton(b, 'adi', {
+    skin: '#B27C54', // warm medium brown
+    pants: '#2F3542', // dark joggers
+    shoe: '#F2EFE8', // plain white sneakers
+    sole: '#D8D2C6',
+    torso: '#F2ECDD', // cream hoodie
+    sleeve: '#F2ECDD',
+    forearm: '#F2ECDD',
+    browColor: '#1F1A19',
+    mouthColor: '#7C4636',
+    shoulderWidth: 0.208,
+  });
+
+  const hoodieMat = b.mat('#F2ECDD', 0.88);
+  const ribMat = b.mat('#E1D8C5', 0.9);
+  const blotchMat = b.mat('#877C72', 0.9); // soft grey-brown cow print
+  const hairMat = b.mat('#211C1C', 0.82);
+  const hairLiftMat = b.mat('#332B2A', 0.82);
+  const wireMat = b.mat('#C3C8D0', 0.35, 0.3);
+  const stubbleMat = b.mat('#93623F', 0.86);
+
+  // Oversized hoodie: roomy body, ribbed hem, baggy sleeves with cuffs, front pocket.
+  b.cyl(parts.torsoPivot, 0.158, 0.17, 0.36, 10, hoodieMat, 0, 0.17, 0, { sx: 1.06, sz: 0.88 });
+  b.cyl(parts.torsoPivot, 0.168, 0.162, 0.045, 10, ribMat, 0, -0.012, 0, { sx: 1.06, sz: 0.88 });
+  b.box(parts.torsoPivot, 0.17, 0.075, 0.02, ribMat, 0, 0.08, 0.146);
+  for (const side of [-1, 1]) {
+    const arm = side < 0 ? parts.leftArmPivot : parts.rightArmPivot;
+    const elbow = side < 0 ? parts.leftElbowPivot : parts.rightElbowPivot;
+    b.cyl(arm, 0.055, 0.05, 0.19, 7, hoodieMat, 0, -0.07, 0);
+    b.cyl(elbow, 0.05, 0.047, 0.125, 7, hoodieMat, 0, -0.062, 0);
+    b.cyl(elbow, 0.043, 0.043, 0.03, 7, ribMat, 0, -0.134, 0);
+    // drawstrings
+    b.box(parts.torsoPivot, 0.012, 0.085, 0.012, ribMat, side * 0.036, 0.275, 0.14);
+    // sleeve blotches
+    b.sphere(arm, 0.04, 5, blotchMat, side * 0.036, -0.06, 0.012, { sx: 0.5, sy: 1.25 });
+    b.sphere(elbow, 0.034, 5, blotchMat, side * 0.012, -0.07, 0.034, { sz: 0.5, sy: 1.2 });
+  }
+  // Hood down, bunched round the neck with its bulk resting on the upper back.
+  b.torus(parts.torsoPivot, 0.1, 0.042, 5, 10, hoodieMat, 0, 0.362, -0.012, {
+    rx: Math.PI / 2,
+    sz: 0.8,
+  });
+  b.sphere(parts.torsoPivot, 0.1, 6, hoodieMat, 0, 0.345, -0.118, { sx: 1.25, sy: 0.8, sz: 0.8 });
+  b.sphere(parts.torsoPivot, 0.05, 5, blotchMat, 0.035, 0.375, -0.15, { sy: 0.5 });
+
+  // Irregular cow-print blotches wrapped round the hoodie body: [angle, y, radius, stretchX, stretchY]
+  const blotches: Array<[number, number, number, number, number]> = [
+    [-0.55, 0.235, 0.05, 1.25, 0.9],
+    [0.6, 0.15, 0.056, 0.9, 1.3],
+    [0.05, 0.19, 0.03, 1.2, 0.8],
+    [1.5, 0.24, 0.05, 1.0, 1.25],
+    [-1.45, 0.1, 0.052, 1.3, 0.85],
+    [2.55, 0.17, 0.06, 1.2, 1.0],
+    [-2.5, 0.27, 0.05, 0.85, 1.2],
+    [3.1, 0.06, 0.05, 1.35, 0.8],
+  ];
+  for (const [a, y, r, sx, sy] of blotches) {
+    const rad = 0.158 + (0.35 - y) * 0.033; // hoodie radius at this height
+    const patch = b.cyl(parts.torsoPivot, r, r, 0.02, 5, blotchMat, Math.sin(a) * rad * 1.06, y, Math.cos(a) * rad * 0.88);
+    patch.rotation.set(Math.PI / 2, a, 0, 'YXZ'); // disc axis pointing straight out of the body
+    patch.scale.set(sx, 1, sy);
+  }
+
+  // Thick near-black curls: a pile of blobs on top spilling over the forehead, shorter at the
+  // sides so the ears show. [x, y, z, radius]
+  b.sphere(parts.headPivot, 0.164, 9, hairMat, 0, 0.212, -0.03, { sy: 0.86 });
+  const curls: Array<[number, number, number, number]> = [
+    [0, 0.35, 0.03, 0.076],
+    [-0.082, 0.335, 0.012, 0.07],
+    [0.086, 0.338, 0.0, 0.068],
+    [-0.04, 0.352, -0.07, 0.07],
+    [0.052, 0.346, -0.076, 0.068],
+    [0, 0.31, -0.13, 0.07],
+    [-0.072, 0.278, 0.112, 0.058],
+    [0.004, 0.29, 0.128, 0.06],
+    [0.078, 0.274, 0.114, 0.056],
+    [0.034, 0.243, 0.146, 0.036],
+    [-0.14, 0.272, 0.02, 0.054],
+    [0.14, 0.272, 0.02, 0.054],
+    [-0.134, 0.25, -0.07, 0.056],
+    [0.134, 0.25, -0.07, 0.056],
+    [-0.07, 0.2, -0.14, 0.06],
+    [0.07, 0.2, -0.14, 0.06],
+  ];
+  curls.forEach(([x, y, z, r], i) => {
+    b.sphere(parts.headPivot, r, 6, i % 3 === 1 ? hairLiftMat : hairMat, x, y, z, { ry: i * 0.9 });
+  });
+
+  // Oversized round wire-rim glasses with bridge and temple arms.
+  const smileMat = b.mat('#7C4636', 0.5);
+  for (const side of [-1, 1]) {
+    b.torus(parts.headPivot, 0.05, 0.008, 4, 12, wireMat, side * 0.058, 0.166, 0.178);
+    b.rod(parts.headPivot, side * 0.106, 0.17, 0.174, side * 0.164, 0.166, 0.012, 0.006, 0.006, 4, wireMat);
+    // soft smile corners
+    b.box(parts.headPivot, 0.018, 0.011, 0.011, smileMat, side * 0.031, 0.109, 0.158, {
+      rz: side * 0.6,
+    });
+  }
+  b.box(parts.headPivot, 0.022, 0.008, 0.008, wireMat, 0, 0.172, 0.178);
+  // Faint thin moustache
+  b.box(parts.headPivot, 0.066, 0.009, 0.01, stubbleMat, 0, 0.124, 0.158);
+
+  return createHumanoidRigController(b, parts, {
+    id: 'adi',
+    baseBubbleHeight: 1.7,
+    defaultBrowTilt: 0.02,
+  });
+}
+
+/* ============================================================================
  * FACTORY DISPATCH
  * ============================================================================ */
 
@@ -2608,6 +3195,8 @@ export function createSpecialCharacterRig(visitorId: string): SpecialCharacterRi
       return buildSqueakyChickenRig();
     case 'gojo':
       return buildGojoRig();
+    case 'toji':
+      return buildTojiRig();
     case 'baki':
       return buildBakiRig();
     case 'shakespeare':
@@ -2622,6 +3211,8 @@ export function createSpecialCharacterRig(visitorId: string): SpecialCharacterRi
       return buildHomerRig();
     case 'rick':
       return buildRickRig();
+    case 'adi':
+      return buildAdiRig();
     default:
       return null;
   }

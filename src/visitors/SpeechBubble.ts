@@ -166,6 +166,9 @@ export function resolveEmoteEmoji(
 export class SpeechBubble {
   readonly sprite: THREE.Sprite;
 
+  /** Cutscenes set this to hide every bubble; live ones reappear by themselves once it clears. */
+  static suppressed = false;
+
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly texture: THREE.CanvasTexture;
@@ -251,7 +254,7 @@ export class SpeechBubble {
     this.drawBubble(true, 0);
 
     this.material.opacity = 1;
-    this.sprite.visible = true;
+    this.sprite.visible = !SpeechBubble.suppressed;
     this.sprite.scale.set(this.baseScaleX * 0.55, this.baseScaleY * 0.55, 1);
   }
 
@@ -410,9 +413,7 @@ export class SpeechBubble {
       this.material.opacity = 1;
     }
 
-    if (this.remaining === 0) {
-      this.sprite.visible = false;
-    }
+    this.sprite.visible = this.remaining > 0 && !SpeechBubble.suppressed;
   }
 
   dispose(): void {

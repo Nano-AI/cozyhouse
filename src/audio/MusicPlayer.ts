@@ -21,6 +21,7 @@ const MUSIC_VOLUME_STORAGE_KEY = 'cozyhouse:vol:music';
 export const DEFAULT_MUSIC_VOLUME = 0.65;
 const MUSIC_GAIN_SCALE = 0.55;
 const CROSSFADE_MS = 1200;
+const DUCK_FADE_MS = 700;
 const DISABLE_FADE_MS = 450;
 const FADE_TICK_MS = 50;
 
@@ -160,6 +161,9 @@ export class MusicPlayer {
 
   private fadeTimer: ReturnType<typeof setInterval> | null = null;
   private lastTickMs = 0;
+  /** Cutscene duck multiplier (1 = normal, 0 = silent), eased toward duckTarget by the fade loop. */
+  private duck = 1;
+  private duckTarget = 1;
 
   constructor(options?: { onPlayBlocked?: () => void }) {
     this.enabled = readStoredMusicEnabled();
@@ -279,6 +283,13 @@ export class MusicPlayer {
     }
   }
 
+  /** Fades the music down (0) or back up (1) without touching the player's volume settings. */
+  setDuck(target: number): void {
+    this.duckTarget = clamp01(target);
+    if (this.disposed) return;
+    this.startFadeLoop();
+  }
+
   setMasterVolume(volume: number, muted: boolean): void {
     this.masterVolume = clamp01(volume);
     this.muted = Boolean(muted);
@@ -332,8 +343,24 @@ export class MusicPlayer {
     this.trackLevels.clear();
   }
 
+  // [horror-events hook] Fades theme music out (slowly) without touching the saved enabled setting.
+  private suspended = false;
+
+  setSuspended(suspended: boolean): void {
+    if (this.suspended === suspended) return;
+    this.suspended = suspended;
+    if (this.disposed) return;
+    if (this.shouldPlayCurrent()) {
+      this.ensureTrackPlaying(this.currentTheme);
+    }
+    if (this.elements.size > 0) {
+      this.startFadeLoop();
+    }
+  }
+
   private shouldPlayCurrent(): boolean {
     return (
+      !this.suspended &&
       !this.disposed &&
       this.unlocked &&
       this.enabled &&
@@ -347,7 +374,7 @@ export class MusicPlayer {
     if (!this.enabled || this.muted || this.masterVolume <= 0.001 || this.musicVolume <= 0.001) {
       return 0;
     }
-    return clamp01(this.masterVolume * this.musicVolume * MUSIC_GAIN_SCALE);
+    return clamp01(this.masterVolume * this.musicVolume * MUSIC_GAIN_SCALE * this.duck);
   }
 
   private getOrCreateElement(theme: MusicThemeId): HTMLAudioElement | null {
@@ -437,10 +464,19 @@ export class MusicPlayer {
     this.lastTickMs = nowMs;
 
     const playing = this.shouldPlayCurrent();
-    const fadeDurationMs = playing ? CROSSFADE_MS : DISABLE_FADE_MS;
+    const fadeDurationMs = playing ? CROSSFADE_MS : this.suspended ? 3500 : DISABLE_FADE_MS;
     const step = dtMs / fadeDurationMs;
 
     let anyMoving = false;
+
+    if (this.duck !== this.duckTarget) {
+      const duckStep = dtMs / DUCK_FADE_MS;
+      this.duck =
+        this.duck < this.duckTarget
+          ? Math.min(this.duckTarget, this.duck + duckStep)
+          : Math.max(this.duckTarget, this.duck - duckStep);
+      anyMoving = anyMoving || this.duck !== this.duckTarget;
+    }
 
     for (const [theme, el] of this.elements.entries()) {
       const current = this.trackLevels.get(theme) ?? 0;

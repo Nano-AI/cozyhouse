@@ -4,8 +4,452 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Cozyhouse</title>
+    <style id="cozy-loader-styles">
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #fcf9f2;
+      }
+
+      #cozy-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 24px;
+        background-color: #fcf9f2;
+        background-image:
+          radial-gradient(circle at 50% 44%, rgba(255, 244, 210, 0.45) 0%, rgba(252, 249, 242, 0) 64%),
+          radial-gradient(circle, rgba(45, 38, 32, 0.085) 1.1px, transparent 1.1px);
+        background-size: 100% 100%, 18px 18px;
+        color: #2d2620;
+        font-family: 'Nunito', ui-rounded, 'SF Pro Rounded', system-ui, -apple-system, sans-serif;
+        opacity: 1;
+        transform: scale(1);
+        transition: opacity 360ms cubic-bezier(0.22, 1, 0.36, 1), transform 360ms cubic-bezier(0.22, 1, 0.36, 1);
+        user-select: none;
+        -webkit-user-select: none;
+      }
+
+      #cozy-loader.is-leaving {
+        opacity: 0;
+        transform: scale(1.02);
+        pointer-events: none;
+      }
+
+      .cozy-loader-scene {
+        display: block;
+        width: 220px;
+        height: 184px;
+        overflow: visible;
+        filter: drop-shadow(0 8px 16px rgba(45, 38, 32, 0.08));
+      }
+
+      .cozy-loader-title {
+        margin: 2px 0 0;
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: -0.025em;
+        line-height: 1.1;
+        color: #2d2620;
+      }
+
+      .cozy-loader-track {
+        width: min(224px, 72vw);
+        height: 12px;
+        padding: 2px;
+        box-sizing: border-box;
+        background: #fffdf7;
+        border: 2px solid #2d2620;
+        border-radius: 999px;
+        box-shadow: 0 2px 0 rgba(45, 38, 32, 0.16);
+        overflow: hidden;
+      }
+
+      #cozy-loader-bar {
+        width: 18%;
+        height: 100%;
+        border-radius: 999px;
+        background: linear-gradient(90deg, #f5d47a 0%, #f2c96b 65%, #e8b552 100%);
+        transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      #cozy-loader-label {
+        margin: 0;
+        min-height: 18px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+        color: #574d44;
+      }
+
+      /* Progressive 6-stage illustrated SVG layers */
+      .ch-stage {
+        transition:
+          opacity 280ms ease,
+          transform 420ms cubic-bezier(0.34, 1.48, 0.64, 1);
+      }
+
+      .ch-stage-1 {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        transform-origin: 120px 162px;
+      }
+
+      .ch-stage-2 {
+        opacity: 0;
+        transform: translateY(15px) scaleY(0.84);
+        transform-origin: 120px 152px;
+      }
+
+      .ch-stage-3 {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.95);
+        transform-origin: 118px 80px;
+      }
+
+      .ch-stage-4 {
+        opacity: 0;
+        transform: scale(0.76);
+        transform-origin: 112px 128px;
+      }
+
+      .ch-stage-5 {
+        opacity: 0;
+        transform: translateY(10px) scale(0.86);
+        transform-origin: 146px 120px;
+      }
+
+      .ch-stage-6 {
+        opacity: 0;
+        transform: scale(0.72);
+        transform-origin: 120px 76px;
+      }
+
+      #cozy-loader[data-stage="2"] .ch-stage-2,
+      #cozy-loader[data-stage="3"] .ch-stage-2,
+      #cozy-loader[data-stage="4"] .ch-stage-2,
+      #cozy-loader[data-stage="5"] .ch-stage-2,
+      #cozy-loader[data-stage="6"] .ch-stage-2 {
+        opacity: 1;
+        transform: translateY(0) scaleY(1);
+      }
+
+      #cozy-loader[data-stage="3"] .ch-stage-3,
+      #cozy-loader[data-stage="4"] .ch-stage-3,
+      #cozy-loader[data-stage="5"] .ch-stage-3,
+      #cozy-loader[data-stage="6"] .ch-stage-3 {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      #cozy-loader[data-stage="4"] .ch-stage-4,
+      #cozy-loader[data-stage="5"] .ch-stage-4,
+      #cozy-loader[data-stage="6"] .ch-stage-4 {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      #cozy-loader[data-stage="5"] .ch-stage-5,
+      #cozy-loader[data-stage="6"] .ch-stage-5 {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+
+      #cozy-loader[data-stage="6"] .ch-stage-6 {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      /* Gentle looping chimney smoke puffs once stage >= 5 */
+      .ch-smoke-1,
+      .ch-smoke-2 {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+
+      #cozy-loader[data-stage="5"] .ch-smoke-1,
+      #cozy-loader[data-stage="6"] .ch-smoke-1 {
+        animation: ch-smoke-rise 2.4s ease-in-out infinite;
+      }
+
+      #cozy-loader[data-stage="5"] .ch-smoke-2,
+      #cozy-loader[data-stage="6"] .ch-smoke-2 {
+        animation: ch-smoke-rise 2.4s ease-in-out 0.8s infinite;
+      }
+
+      @keyframes ch-smoke-rise {
+        0% {
+          opacity: 0.45;
+          transform: translate(0, 4px) scale(0.84);
+        }
+        50% {
+          opacity: 0.96;
+          transform: translate(3px, -4px) scale(1.04);
+        }
+        100% {
+          opacity: 0.45;
+          transform: translate(6px, -11px) scale(0.92);
+        }
+      }
+
+      /* Golden sparkle twinkle at stage 6 */
+      .ch-sparkle {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+
+      #cozy-loader[data-stage="6"] .ch-sparkle-1 {
+        animation: ch-twinkle 1.4s ease-in-out infinite;
+      }
+
+      #cozy-loader[data-stage="6"] .ch-sparkle-2 {
+        animation: ch-twinkle 1.4s ease-in-out 0.35s infinite;
+      }
+
+      #cozy-loader[data-stage="6"] .ch-sparkle-3 {
+        animation: ch-twinkle 1.4s ease-in-out 0.7s infinite;
+      }
+
+      @keyframes ch-twinkle {
+        0%,
+        100% {
+          transform: scale(0.9);
+          opacity: 0.85;
+        }
+        50% {
+          transform: scale(1.16);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #cozy-loader,
+        #cozy-loader-bar,
+        .ch-stage {
+          transition: opacity 150ms ease !important;
+        }
+        .ch-stage-2,
+        .ch-stage-3,
+        .ch-stage-4,
+        .ch-stage-5,
+        .ch-stage-6 {
+          transform: none !important;
+        }
+        .ch-smoke-1,
+        .ch-smoke-2,
+        .ch-sparkle-1,
+        .ch-sparkle-2,
+        .ch-sparkle-3 {
+          animation: none !important;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div
+      id="cozy-loader"
+      data-stage="1"
+      role="status"
+      aria-live="polite"
+      aria-label="Loading Cozyhouse"
+    >
+      <svg
+        class="cozy-loader-scene"
+        viewBox="0 0 240 200"
+        width="220"
+        height="184"
+        aria-hidden="true"
+      >
+        <defs>
+          <radialGradient id="ch-golden-glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#FFE382" stop-opacity="0.62" />
+            <stop offset="62%" stop-color="#FFE382" stop-opacity="0.18" />
+            <stop offset="100%" stop-color="#FFE382" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+
+        <!-- Stage 6 backdrop golden aura (renders softly behind house when ready) -->
+        <g class="ch-stage ch-stage-6">
+          <ellipse cx="120" cy="112" rx="88" ry="62" fill="url(#ch-golden-glow)" />
+        </g>
+
+        <!-- Stage 1: Foundation & Lawn -->
+        <g
+          class="ch-stage ch-stage-1"
+          stroke="#2D2620"
+          stroke-width="2.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <ellipse cx="120" cy="166" rx="92" ry="18" fill="#B7D6A8" />
+          <ellipse cx="116" cy="164" rx="68" ry="10" fill="#CBE4BD" stroke="none" />
+          <ellipse cx="89" cy="169" rx="9.5" ry="3.6" fill="#E8DEC9" stroke-width="2" />
+          <ellipse cx="76" cy="177" rx="7" ry="2.8" fill="#E8DEC9" stroke-width="2" />
+          <!-- Sturdy stone foundation pad -->
+          <polygon points="56,152 148,152 148,163 56,163" fill="#D9CCB8" />
+          <polygon points="148,152 184,144 184,155 148,163" fill="#C4B39A" />
+          <line x1="84" y1="152" x2="84" y2="162" stroke="#9C8D77" stroke-width="1.6" />
+          <line x1="118" y1="152" x2="118" y2="162" stroke="#9C8D77" stroke-width="1.6" />
+          <line x1="166" y1="148" x2="166" y2="158" stroke="#9C8D77" stroke-width="1.6" />
+        </g>
+
+        <!-- Stage 2: Cream & Shaded Walls -->
+        <g
+          class="ch-stage ch-stage-2"
+          stroke="#2D2620"
+          stroke-width="2.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <polygon points="60,152 146,152 146,96 103,64 60,96" fill="#FFF8EC" />
+          <polygon points="146,152 180,144 180,90 146,96" fill="#EFE3CF" />
+          <!-- Subtle siding & corner trim lines -->
+          <line x1="63" y1="112" x2="143" y2="112" stroke="#E4D6C0" stroke-width="1.5" />
+          <line x1="63" y1="128" x2="143" y2="128" stroke="#E4D6C0" stroke-width="1.5" />
+          <line x1="63" y1="142" x2="143" y2="142" stroke="#E4D6C0" stroke-width="1.5" />
+          <line x1="149" y1="111" x2="177" y2="105" stroke="#DBCCB5" stroke-width="1.5" />
+          <line x1="149" y1="127" x2="177" y2="120" stroke="#DBCCB5" stroke-width="1.5" />
+          <line x1="62" y1="96" x2="144" y2="96" stroke="#D9C5A7" stroke-width="2" />
+        </g>
+
+        <!-- Stage 3: Pitched Terracotta Roof -->
+        <g
+          class="ch-stage ch-stage-3"
+          stroke="#2D2620"
+          stroke-width="2.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <!-- Shaded right terracotta slope -->
+          <polygon points="103,58 137,52 186,93 152,99" fill="#D87A56" />
+          <!-- Subtle roof tile lines -->
+          <line x1="116" y1="68" x2="149" y2="62" stroke="#BE6241" stroke-width="2" />
+          <line x1="129" y1="79" x2="162" y2="73" stroke="#BE6241" stroke-width="2" />
+          <line x1="141" y1="89" x2="174" y2="83" stroke="#BE6241" stroke-width="2" />
+          <!-- Front gable eaves & ridge overhang -->
+          <path d="M51,99 L103,55 L154,99 L147,104 L103,66 L58,104 Z" fill="#BE6241" />
+          <line x1="103" y1="55" x2="137" y2="52" stroke="#2D2620" stroke-width="2.8" />
+        </g>
+
+        <!-- Stage 4: Arched Honey Door, Warm Mullioned Windows & Flower Box -->
+        <g
+          class="ch-stage ch-stage-4"
+          stroke="#2D2620"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <!-- Arched honey-wood front door -->
+          <path d="M74,152 L74,125 A13,13 0 0 1 100,125 L100,152 Z" fill="#C88B5A" />
+          <line x1="83" y1="115" x2="83" y2="151" stroke="#A86E42" stroke-width="1.5" />
+          <line x1="91" y1="115" x2="91" y2="151" stroke="#A86E42" stroke-width="1.5" />
+          <circle cx="94.5" cy="136" r="2.2" fill="#F2C96B" stroke-width="1.6" />
+
+          <!-- Front butter-yellow mullioned window -->
+          <rect x="112" y="114" width="24" height="21" rx="3" fill="#FFE382" />
+          <path d="M116,131 L123,118 M124,132 L132,120" stroke="#FFF6CC" stroke-width="2" />
+          <line x1="124" y1="114" x2="124" y2="135" stroke-width="2" />
+          <line x1="112" y1="124.5" x2="136" y2="124.5" stroke-width="2" />
+
+          <!-- Terracotta window flower box + tiny blooms -->
+          <polygon points="110,135 138,135 136,143 112,143" fill="#D87A56" stroke-width="2.1" />
+          <circle cx="117" cy="133" r="3" fill="#B7D6A8" stroke-width="1.7" />
+          <circle cx="124" cy="132" r="3.2" fill="#F4A7B9" stroke-width="1.7" />
+          <circle cx="131" cy="133" r="3" fill="#B7D6A8" stroke-width="1.7" />
+
+          <!-- Cozy round attic window -->
+          <circle cx="103" cy="83" r="7.5" fill="#FFE382" stroke-width="2.2" />
+          <line x1="103" y1="76" x2="103" y2="90" stroke-width="1.7" />
+          <line x1="96" y1="83" x2="110" y2="83" stroke-width="1.7" />
+
+          <!-- Side-wall warm window -->
+          <polygon points="156,113 171,110 171,127 156,130" fill="#FFE382" stroke-width="2.2" />
+          <line x1="163.5" y1="111.5" x2="163.5" y2="128.5" stroke-width="1.8" />
+          <line x1="156" y1="121.5" x2="171" y2="118.5" stroke-width="1.8" />
+        </g>
+
+        <!-- Stage 5: Brick Chimney, Soft Smoke Puffs & Storybook Greenery -->
+        <g
+          class="ch-stage ch-stage-5"
+          stroke="#2D2620"
+          stroke-width="2.4"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <!-- Brick chimney nestled on roof slope -->
+          <polygon points="138,44 150,44 150,67 138,65" fill="#C96B4B" />
+          <polygon points="150,44 157,42 157,69 150,67" fill="#B4593B" />
+          <polygon points="135,39 152,39 159,37 159,43 150,45 135,45" fill="#EFE3CF" />
+
+          <!-- Softly looping smoke puffs -->
+          <g class="ch-smoke-1">
+            <circle cx="147" cy="29" r="5.5" fill="#FFFDF7" stroke-width="2" />
+          </g>
+          <g class="ch-smoke-2">
+            <circle cx="155" cy="17" r="7.2" fill="#FFFDF7" stroke-width="2" />
+            <circle cx="161" cy="19" r="4.5" fill="#FFFDF7" stroke="none" />
+          </g>
+
+          <!-- Left cozy cloud bush -->
+          <path
+            d="M36,158 C33,149 41,142 48,144 C51,137 62,138 64,146 C70,147 71,155 66,158 Z"
+            fill="#9CC78A"
+          />
+          <circle cx="48" cy="150" r="3.5" fill="#CBE4BD" stroke="none" />
+
+          <!-- Right storybook cypress shrub -->
+          <line x1="191" y1="145" x2="191" y2="155" stroke="#A86E42" stroke-width="3.2" />
+          <path
+            d="M191,116 C199,124 202,137 199,145 C195,149 187,149 183,145 C180,137 183,124 191,116 Z"
+            fill="#9CC78A"
+          />
+          <path
+            d="M189,122 C186,129 185,137 187,142"
+            fill="none"
+            stroke="#CBE4BD"
+            stroke-width="2.2"
+          />
+        </g>
+
+        <!-- Stage 6: Golden Sparkles & Window Warmth Glint -->
+        <g
+          class="ch-stage ch-stage-6"
+          stroke="#2D2620"
+          stroke-width="1.9"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            class="ch-sparkle ch-sparkle-1"
+            d="M65,45 L67.6,51.4 L74,54 L67.6,56.6 L65,63 L62.4,56.6 L56,54 L62.4,51.4 Z"
+            fill="#FFE382"
+          />
+          <path
+            class="ch-sparkle ch-sparkle-2"
+            d="M107,26 L110,33.5 L117.5,36.5 L110,39.5 L107,47 L104,39.5 L96.5,36.5 L104,33.5 Z"
+            fill="#FFE382"
+          />
+          <path
+            class="ch-sparkle ch-sparkle-3"
+            d="M185,54 L187.2,59.3 L192.5,61.5 L187.2,63.7 L185,69 L182.8,63.7 L177.5,61.5 L182.8,59.3 Z"
+            fill="#FFE382"
+          />
+          <circle cx="84" cy="40" r="2.6" fill="#FFE382" stroke-width="1.6" />
+          <circle cx="172" cy="44" r="2.4" fill="#FFE382" stroke-width="1.6" />
+        </g>
+      </svg>
+      <div class="cozy-loader-title">Cozyhouse</div>
+      <div class="cozy-loader-track" aria-hidden="true">
+        <div id="cozy-loader-bar"></div>
+      </div>
+      <p id="cozy-loader-label">Laying the foundation…</p>
+    </div>
     <div id="app">
       <div id="viewport" aria-label="Cozyhouse 3D viewport"></div>
       <div id="hud"></div>

@@ -25,6 +25,13 @@ export type WallViewMode = 'auto' | 'translucent' | 'solid';
 export type HouseDoorPolicy = 'open' | 'full' | 'closed';
 export type SimSpeed = 0 | 1 | 2 | 5;
 
+export interface GuestLogEntry {
+  id: string;
+  firstVisitedAt: number;
+  lastVisitedAt: number;
+  visits: number;
+}
+
 const MUSIC_PARTY_HUBS = new Set(['dj_booth', 'record_player', 'diner_jukebox', 'karaoke_mic']);
 const MUSIC_PARTY_LINKED = new Set([
   'dj_booth',
@@ -57,12 +64,14 @@ export interface StoreEventMap {
   };
   editModeChanged: { editMode: boolean };
   gridVisibilityChanged: { visible: boolean };
-  wallViewChanged: { mode: WallViewMode; showCeiling: boolean };
+  wallViewChanged: { mode: WallViewMode; showCeiling: boolean; cutawayOpacity: number };
   doorPolicyChanged: { policy: HouseDoorPolicy };
   houseOpenChanged: { open: boolean };
   timeCycleChanged: { running: boolean };
   simSpeedChanged: { speed: SimSpeed };
   staffChanged: { staff: HiredStaff[] };
+  cheatsChanged: { inviteCheatsEnabled: boolean; konamiUnlocked: boolean };
+  guestLogChanged: { entries: Record<string, GuestLogEntry>; newlyDiscoveredId?: string };
   itemInteracted: { item: PlacedItem };
   toast: { message: string; tone?: 'info' | 'success' | 'error' };
 }
@@ -73,6 +82,109 @@ const MAX_HISTORY = 80;
 const MIN_GRID_SIZE = 8;
 const MAX_GRID_SIZE = 36;
 export const MAX_STAFF = 6;
+const WALL_OPACITY_STORAGE_KEY = 'cozyhouse:wallOpacity';
+const DEFAULT_WALL_CUTAWAY_OPACITY = 0.16;
+
+function readStoredWallCutawayOpacity(): number {
+  try {
+    if (typeof localStorage === 'undefined') return DEFAULT_WALL_CUTAWAY_OPACITY;
+    const raw = localStorage.getItem(WALL_OPACITY_STORAGE_KEY);
+    if (raw === null) return DEFAULT_WALL_CUTAWAY_OPACITY;
+    const parsed = Number.parseFloat(raw);
+    if (!Number.isFinite(parsed)) return DEFAULT_WALL_CUTAWAY_OPACITY;
+    return Math.max(0, Math.min(1, parsed));
+  } catch {
+    return DEFAULT_WALL_CUTAWAY_OPACITY;
+  }
+}
+
+function writeStoredWallCutawayOpacity(opacity: number): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(WALL_OPACITY_STORAGE_KEY, opacity.toFixed(3));
+  } catch {
+    // Ignore storage errors (private browsing / headless environments)
+  }
+}
+
+const IS_DEV = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+const KONAMI_CHEATS_STORAGE_KEY = 'cozyhouse:konamiCheats';
+
+function readStoredKonamiUnlocked(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    return localStorage.getItem(KONAMI_CHEATS_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredKonamiUnlocked(unlocked: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    if (unlocked) {
+      localStorage.setItem(KONAMI_CHEATS_STORAGE_KEY, '1');
+    } else {
+      localStorage.removeItem(KONAMI_CHEATS_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors (private browsing / headless environments)
+  }
+}
+
+const GUEST_LOG_STORAGE_KEY = 'cozyhouse:guestLogBook';
+
+function readStoredGuestLog(): Record<string, GuestLogEntry> {
+  try {
+    if (typeof localStorage === 'undefined') return {};
+    const raw = localStorage.getItem(GUEST_LOG_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    const result: Record<string, GuestLogEntry> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!key || !value || typeof value !== 'object' || Array.isArray(value)) continue;
+      const rec = value as Record<string, unknown>;
+      const id = typeof rec.id === 'string' && rec.id.trim() ? rec.id.trim() : key;
+      const firstVisitedAt = rec.firstVisitedAt;
+      const lastVisitedAt = rec.lastVisitedAt;
+      const visits = rec.visits;
+      if (
+        typeof firstVisitedAt !== 'number' ||
+        !Number.isFinite(firstVisitedAt) ||
+        firstVisitedAt <= 0 ||
+        typeof lastVisitedAt !== 'number' ||
+        !Number.isFinite(lastVisitedAt) ||
+        lastVisitedAt <= 0 ||
+        typeof visits !== 'number' ||
+        !Number.isInteger(visits) ||
+        visits < 1
+      ) {
+        continue;
+      }
+      result[id] = {
+        id,
+        firstVisitedAt,
+        lastVisitedAt: Math.max(firstVisitedAt, lastVisitedAt),
+        visits,
+      };
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredGuestLog(entries: Record<string, GuestLogEntry>): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(GUEST_LOG_STORAGE_KEY, JSON.stringify(entries));
+  } catch {
+    // Ignore storage errors (private browsing / headless environments)
+  }
+}
 
 export const STAFF_ROLE_ACCENTS: Record<StaffRole, string> = {
   barista: '#D98F72',
@@ -165,9 +277,13 @@ export class HouseStore {
   private gridVisible = false;
   private wallViewMode: WallViewMode = 'auto';
   private showCeiling = true;
+  private wallCutawayOpacity = readStoredWallCutawayOpacity();
   private doorPolicy: HouseDoorPolicy = 'open';
   private timeCycleRunning = false;
   private simSpeed: SimSpeed = 1;
+  private konamiUnlocked = readStoredKonamiUnlocked();
+  private inviteCheatsEnabled = IS_DEV || this.konamiUnlocked;
+  private guestLog: Record<string, GuestLogEntry> = readStoredGuestLog();
   private selectedUids: string[] = [];
   private mode: InteractionMode = 'select';
   private placementItemId: string | null = null;
@@ -191,6 +307,8 @@ export class HouseStore {
     timeCycleChanged: new Set(),
     simSpeedChanged: new Set(),
     staffChanged: new Set(),
+    cheatsChanged: new Set(),
+    guestLogChanged: new Set(),
     itemInteracted: new Set(),
     toast: new Set(),
   };
@@ -274,7 +392,11 @@ export class HouseStore {
   setWallViewMode(mode: WallViewMode): void {
     if (this.wallViewMode === mode) return;
     this.wallViewMode = mode;
-    this.emit('wallViewChanged', { mode: this.wallViewMode, showCeiling: this.showCeiling });
+    this.emit('wallViewChanged', {
+      mode: this.wallViewMode,
+      showCeiling: this.showCeiling,
+      cutawayOpacity: this.wallCutawayOpacity,
+    });
   }
 
   cycleWallViewMode(): WallViewMode {
@@ -296,7 +418,130 @@ export class HouseStore {
     const next = Boolean(visible);
     if (this.showCeiling === next) return;
     this.showCeiling = next;
-    this.emit('wallViewChanged', { mode: this.wallViewMode, showCeiling: this.showCeiling });
+    this.emit('wallViewChanged', {
+      mode: this.wallViewMode,
+      showCeiling: this.showCeiling,
+      cutawayOpacity: this.wallCutawayOpacity,
+    });
+  }
+
+  getWallCutawayOpacity(): number {
+    return this.wallCutawayOpacity;
+  }
+
+  setWallCutawayOpacity(opacity: number): void {
+    if (!Number.isFinite(opacity)) return;
+    const clamped = Math.round(Math.max(0, Math.min(1, opacity)) * 1000) / 1000;
+    if (Math.abs(this.wallCutawayOpacity - clamped) < 0.0005) return;
+    this.wallCutawayOpacity = clamped;
+    writeStoredWallCutawayOpacity(this.wallCutawayOpacity);
+    this.emit('wallViewChanged', {
+      mode: this.wallViewMode,
+      showCeiling: this.showCeiling,
+      cutawayOpacity: this.wallCutawayOpacity,
+    });
+  }
+
+  isDevBuild(): boolean {
+    return IS_DEV;
+  }
+
+  isKonamiUnlocked(): boolean {
+    return this.konamiUnlocked;
+  }
+
+  canUseInviteCheats(): boolean {
+    return IS_DEV || this.konamiUnlocked;
+  }
+
+  isInviteCheatsEnabled(): boolean {
+    return this.inviteCheatsEnabled;
+  }
+
+  unlockKonamiCheats(): boolean {
+    const newlyUnlocked = !this.konamiUnlocked;
+    const changed = newlyUnlocked || !this.inviteCheatsEnabled;
+    this.konamiUnlocked = true;
+    this.inviteCheatsEnabled = true;
+    writeStoredKonamiUnlocked(true);
+    if (changed) {
+      this.emit('cheatsChanged', {
+        inviteCheatsEnabled: this.inviteCheatsEnabled,
+        konamiUnlocked: this.konamiUnlocked,
+      });
+    }
+    return newlyUnlocked;
+  }
+
+  setInviteCheatsEnabled(enabled: boolean): boolean {
+    const next = Boolean(enabled);
+    if (next && !this.canUseInviteCheats()) {
+      return false;
+    }
+    if (this.inviteCheatsEnabled === next) return true;
+    this.inviteCheatsEnabled = next;
+    this.emit('cheatsChanged', {
+      inviteCheatsEnabled: this.inviteCheatsEnabled,
+      konamiUnlocked: this.konamiUnlocked,
+    });
+    return true;
+  }
+
+  getGuestLog(): Record<string, GuestLogEntry> {
+    const copy: Record<string, GuestLogEntry> = {};
+    for (const [id, entry] of Object.entries(this.guestLog)) {
+      copy[id] = { ...entry };
+    }
+    return copy;
+  }
+
+  getGuestLogEntry(visitorId: string): GuestLogEntry | null {
+    const entry = this.guestLog[visitorId];
+    return entry ? { ...entry } : null;
+  }
+
+  isLegendaryDiscovered(visitorId: string): boolean {
+    return Object.prototype.hasOwnProperty.call(this.guestLog, visitorId);
+  }
+
+  recordLegendaryVisit(visitorId: string): { isNew: boolean; entry: GuestLogEntry } {
+    const now = Date.now();
+    const existing = this.guestLog[visitorId];
+    let isNew: boolean;
+    let updated: GuestLogEntry;
+
+    if (!existing) {
+      isNew = true;
+      updated = {
+        id: visitorId,
+        firstVisitedAt: now,
+        lastVisitedAt: now,
+        visits: 1,
+      };
+    } else {
+      isNew = false;
+      updated = {
+        id: existing.id,
+        firstVisitedAt: existing.firstVisitedAt,
+        lastVisitedAt: now,
+        visits: existing.visits + 1,
+      };
+    }
+
+    this.guestLog[visitorId] = updated;
+    writeStoredGuestLog(this.guestLog);
+    this.emit('guestLogChanged', {
+      entries: this.getGuestLog(),
+      ...(isNew ? { newlyDiscoveredId: visitorId } : {}),
+    });
+
+    return { isNew, entry: { ...updated } };
+  }
+
+  resetGuestLog(): void {
+    this.guestLog = {};
+    writeStoredGuestLog(this.guestLog);
+    this.emit('guestLogChanged', { entries: {} });
   }
 
   getDoorPolicy(): HouseDoorPolicy {
@@ -842,7 +1087,7 @@ export class HouseStore {
       const replacedWall = this.state.items.find((it) => {
         const exDef = this.data.itemsById.get(it.itemId);
         return (
-          this.isStructuralWallSurfaceDef(exDef) &&
+          this.isPunchableWallDef(exDef) &&
           canonicalWallEdgeKey(it.x, it.z, it.rotation) === edgeKey
         );
       });
@@ -911,7 +1156,7 @@ export class HouseStore {
         if (it.uid === uid) return false;
         const exDef = this.data.itemsById.get(it.itemId);
         return (
-          this.isStructuralWallSurfaceDef(exDef) &&
+          this.isPunchableWallDef(exDef) &&
           canonicalWallEdgeKey(it.x, it.z, it.rotation) === edgeKey
         );
       });
@@ -1082,6 +1327,14 @@ export class HouseStore {
         def.id.startsWith('wall_') &&
         !def.tags.includes('entrance'),
     );
+  }
+
+  /**
+   * Any solid `wall_*` edge (archways included) that a window or door may be punched into.
+   * Must match the placement rule in GridSystem, or the opening stacks on top of the old wall.
+   */
+  private isPunchableWallDef(def: FurnitureItemDef | undefined): boolean {
+    return Boolean(def && def.layer === 'wall' && def.wallKind === 'structure' && def.id.startsWith('wall_'));
   }
 
   private isStructuralWindowDef(def: FurnitureItemDef | undefined): boolean {
@@ -1350,7 +1603,11 @@ export class HouseStore {
     return true;
   }
 
-  triggerInteraction(uid: string): PlacedItem | null {
+  /**
+   * `source: 'sim'` marks interactions made by visitors or staff rather than the player; they emit
+   * `'sim-interact'` so code that tracks player edits (e.g. the shared-link autosave guard) can ignore them.
+   */
+  triggerInteraction(uid: string, options?: { source?: 'player' | 'sim' }): PlacedItem | null {
     const existing = this.getItem(uid);
     if (!existing) return null;
     const def = this.data.itemsById.get(existing.itemId);
@@ -1423,7 +1680,7 @@ export class HouseStore {
       }
     }
 
-    this.emit('houseChanged', { state: this.state, reason: 'interact' });
+    this.emit('houseChanged', { state: this.state, reason: options?.source === 'sim' ? 'sim-interact' : 'interact' });
     return updated;
   }
 

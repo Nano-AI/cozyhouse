@@ -10,6 +10,7 @@ import type {
 } from '../data/schemas';
 import { getEffectiveFootprint } from '../engine/GridSystem';
 import type { HoverItemInfo, PlacementController } from '../engine/PlacementController';
+import { buildLastGuestDevCard, buildPeacefulModeRow } from '../events/HorrorDirector'; // [horror-events hook]
 import type { SceneManager, VisualShaderId } from '../engine/SceneManager';
 import { evaluateRoomType } from '../rooms/RoomEvaluator';
 import { exportHouseToFile, importHouseFromFile } from '../save/fileIO';
@@ -21,11 +22,12 @@ import { createNewHouse } from '../state/newHouse';
 import type {
   EraseFilter,
   ExpandSide,
+  GuestLogEntry,
   HouseStore,
   SimSpeed,
   WallViewMode,
 } from '../state/houseStore';
-import type { VisitorModule } from '../visitors/VisitorModule';
+import type { ActiveVisitorSnapshot, VisitorModule } from '../visitors/VisitorModule';
 import { CelebrationBanner } from './CelebrationBanner';
 import { PolaroidShareModal } from './PolaroidShareModal';
 import {
@@ -47,18 +49,34 @@ export interface HudModules {
 }
 
 type SpecialVisitorDef = VisitorDef & { special?: boolean };
-type CaptionPayload = { speaker: string; text: string; accent?: string };
+type CaptionPayload = { speaker: string; text: string; subtext?: string; accent?: string };
+type CinematicFx = 'bars-on' | 'bars-off' | 'flash' | 'flash-purple' | 'shake' | 'shake-hard' | 'sound-locked' | 'sound-ok';
 type SpecialVisitorModule = VisitorModule & {
   inviteRandomSpecialCharacter?: () => unknown;
   getRandomSpecialCooldownRemaining?: () => number;
   skipActiveMonologue?: () => void;
+  isMonologueActive?: () => boolean;
+  devTriggerShowdown?: () => void;
   onCaption?: (listener: (payload: CaptionPayload | null) => void) => () => void;
+  onCinematicFx?: (listener: (fx: CinematicFx) => void) => () => void;
 };
 type StaffPositionStore = HouseStore & {
   setStaffPosition?: (staffId: string, x: number, z: number, assignedItemUid?: string) => boolean;
 };
 
-type PopoverKind = 'room' | 'atmosphere' | 'walls' | 'visitors' | 'help' | 'menu' | 'lot' | null;
+/** Input the game must not see during a cutscene (pointerup/cancel pass, so no drag gets stuck). */
+const CINEMA_BLOCKED_EVENTS = ['pointerdown', 'pointermove', 'click', 'dblclick', 'contextmenu', 'wheel', 'keydown', 'keyup'] as const;
+
+type PopoverKind =
+  | 'room'
+  | 'atmosphere'
+  | 'walls'
+  | 'visitors'
+  | 'help'
+  | 'menu'
+  | 'cheats'
+  | 'lot'
+  | null;
 type BasicsGroupId = 'floors' | 'walls' | 'doors' | 'windows';
 
 interface SubcategoryDef {
@@ -67,7 +85,18 @@ interface SubcategoryDef {
   match: (item: FurnitureItemDef) => boolean;
 }
 
-const IS_DEV = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+const KONAMI_SEQUENCE = [
+  'ArrowUp',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'ArrowLeft',
+  'ArrowRight',
+  'b',
+  'a',
+] as const;
 
 const CELEBRATION_REASONS = new Set([
   'place',
@@ -182,6 +211,7 @@ const VISITOR_ARCHETYPE_ICONS: Record<string, string> = {
   viking: '⚔️',
   squeaky_chicken: '🐔',
   gojo: '🤞',
+  toji: '🗡️',
   baki: '🥊',
   shakespeare: '🪶',
   philosopher: '🤔',
@@ -508,7 +538,13 @@ export class HudController {
   private searchQuery = '';
   private saveStatusText = 'Saved';
   private activePopover: PopoverKind = null;
-  private visitorsTab: 'here' | 'staff' | 'invite' = 'here';
+  private visitorsTab: 'here' | 'staff' | 'invite' | 'log' = 'here';
+  private hasUnseenGuestLogEntry = false;
+  private selectedGuestLogId: string | null = null;
+  private lastNewlyDiscoveredId: string | null = null;
+  private newlyDiscoveredClearTimer: number | null = null;
+  private resetLogConfirmArmed = false;
+  private resetLogConfirmTimer: number | null = null;
   private staffHireKind: StaffKind = 'bot';
   private selectedVisitorId: string | null = null;
   private movingStaffId: string | null = null;
@@ -568,6 +604,11 @@ export class HudController {
   private captionCardEl!: HTMLDivElement;
   private captionSpeakerEl!: HTMLDivElement;
   private captionTextEl!: HTMLDivElement;
+  private captionSubtextEl!: HTMLDivElement;
+  private cinemaBarsEl!: HTMLDivElement;
+  private cinemaSoundHintEl!: HTMLSpanElement;
+  private cinemaInputBlock: ((e: Event) => void) | null = null;
+  private cinemaFlashEl!: HTMLDivElement;
 
   private liveCtaWrapEl!: HTMLDivElement;
   private buildSidebarEl!: HTMLElement;
@@ -597,8 +638,11 @@ export class HudController {
   private visitorsPopoverEl!: HTMLDivElement;
   private helpPopoverEl!: HTMLDivElement;
   private menuPopoverEl!: HTMLDivElement;
+  private cheatsPopoverEl!: HTMLDivElement;
   private lotPopoverEl!: HTMLDivElement;
   private fileInputEl!: HTMLInputElement;
+  private konamiProgress = 0;
+  private konamiKeycapEls: HTMLSpanElement[] = [];
 
   // Live storybook slider & control refs so dragging/updates stay silky smooth without rebuilding DOM
   private timeThumbEl: HTMLDivElement | null = null;
@@ -624,8 +668,24 @@ export class HudController {
     orbEl: HTMLDivElement;
     pctEl: HTMLSpanElement;
   }> = [];
+  private chatterAudioRefs: Array<{
+    row: HTMLDivElement;
+    iconSlot: HTMLButtonElement;
+    labelEl: HTMLSpanElement;
+    trackEl: HTMLDivElement;
+    orbEl: HTMLDivElement;
+    pctEl: HTMLSpanElement;
+  }> = [];
   private volumeThumbEls: HTMLDivElement[] = [];
   private volumeValueEls: HTMLSpanElement[] = [];
+  private wallModeRefs: Map<WallViewMode, { btn: HTMLButtonElement; checkEl: HTMLElement }> =
+    new Map();
+  private wallCeilingSwitchBtn: HTMLButtonElement | null = null;
+  private wallOpacitySliderRef: {
+    track: HTMLDivElement;
+    orb: HTMLDivElement;
+    pct: HTMLSpanElement;
+  } | null = null;
 
   constructor(
     root: HTMLElement,
@@ -780,9 +840,32 @@ export class HudController {
       }),
       this.store.on('wallViewChanged', () => {
         this.syncWallViewButton();
-        if (this.activePopover === 'walls') this.renderWallsPopover();
+        if (this.activePopover === 'walls') this.syncWallsPopoverLive();
         if (this.activePopover === 'atmosphere') this.renderAtmospherePopover();
         if (this.activePopover === 'lot') this.renderLotPopover();
+      }),
+      this.store.on('cheatsChanged', () => {
+        this.syncRandomInviteCooldown();
+        if (this.activePopover === 'cheats') this.renderCheatsPopover();
+        if (this.activePopover === 'visitors') this.renderVisitorsPopover();
+        if (this.activePopover === 'menu') this.renderMenuPopover();
+      }),
+      this.store.on('guestLogChanged', ({ newlyDiscoveredId }) => {
+        if (newlyDiscoveredId) {
+          this.lastNewlyDiscoveredId = newlyDiscoveredId;
+          if (this.newlyDiscoveredClearTimer !== null) {
+            window.clearTimeout(this.newlyDiscoveredClearTimer);
+          }
+          this.newlyDiscoveredClearTimer = window.setTimeout(() => {
+            this.lastNewlyDiscoveredId = null;
+            this.newlyDiscoveredClearTimer = null;
+          }, 4500);
+          if (this.activePopover !== 'visitors' || this.visitorsTab !== 'log') {
+            this.hasUnseenGuestLogEntry = true;
+          }
+        }
+        if (this.activePopover === 'visitors') this.renderVisitorsPopover();
+        if (this.activePopover === 'cheats') this.renderCheatsPopover();
       }),
       this.store.on('toast', ({ message, tone }) => this.showToast(message, tone)),
     );
@@ -804,8 +887,14 @@ export class HudController {
           specialVm.onCaption((payload) => this.renderDramaticCaption(payload)),
         );
       }
+      if (specialVm.onCinematicFx) {
+        this.unsubscribes.push(specialVm.onCinematicFx((fx) => this.playCinematicFx(fx)));
+      }
     }
     if (this.audioModule) {
+      const chatterAudio = this.audioModule as AudioModule & {
+        onChatterVolumeChange?: (cb: (volume: number) => void) => () => void;
+      };
       this.unsubscribes.push(
         this.audioModule.onMuteChange(() => this.syncSoundButton()),
         this.audioModule.onVolumeChange(() => this.syncVolumeSlidersLive()),
@@ -813,6 +902,11 @@ export class HudController {
         this.audioModule.onMusicVolumeChange(() => this.syncMusicControlsLive()),
         this.audioModule.onWeatherVolumeChange(() => this.syncWeatherVolumeControlsLive()),
       );
+      if (chatterAudio.onChatterVolumeChange) {
+        this.unsubscribes.push(
+          chatterAudio.onChatterVolumeChange(() => this.syncChatterVolumeControlsLive()),
+        );
+      }
     }
     if (this.sceneManager.onShaderChange) {
       this.unsubscribes.push(
@@ -831,6 +925,7 @@ export class HudController {
         this.visitorsPopoverEl,
         this.helpPopoverEl,
         this.menuPopoverEl,
+        this.cheatsPopoverEl,
         this.lotPopoverEl,
         this.roomBtnEl,
         this.atmosphereBtnEl,
@@ -850,6 +945,11 @@ export class HudController {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        const scriptedVm = this.visitorModule as SpecialVisitorModule | undefined;
+        if (scriptedVm?.isMonologueActive?.()) {
+          scriptedVm.skipActiveMonologue?.();
+          return;
+        }
         if (this.movingStaffId) {
           this.cancelMovingStaff();
           this.store.notify('Cancelled moving staff', 'info');
@@ -869,7 +969,9 @@ export class HudController {
         if (this.selectedVisitorId) {
           this.clearSelectedVisitor();
         }
+        return;
       }
+      this.handleKonamiKeyDown(event);
     };
     window.addEventListener('keydown', onKeyDown);
     this.unsubscribes.push(() => window.removeEventListener('keydown', onKeyDown));
@@ -975,6 +1077,14 @@ export class HudController {
     if (this.captionHideTimer !== null) {
       window.clearTimeout(this.captionHideTimer);
       this.captionHideTimer = null;
+    }
+    if (this.newlyDiscoveredClearTimer !== null) {
+      window.clearTimeout(this.newlyDiscoveredClearTimer);
+      this.newlyDiscoveredClearTimer = null;
+    }
+    if (this.resetLogConfirmTimer !== null) {
+      window.clearTimeout(this.resetLogConfirmTimer);
+      this.resetLogConfirmTimer = null;
     }
     this.stopRandomCooldownTimer();
     this.previewObserver?.disconnect();
@@ -1737,6 +1847,10 @@ export class HudController {
     this.menuPopoverEl.className = 'hud-popover menu-popover hidden';
     this.root.appendChild(this.menuPopoverEl);
 
+    this.cheatsPopoverEl = document.createElement('div');
+    this.cheatsPopoverEl.className = 'hud-popover cheats-popover hidden';
+    this.root.appendChild(this.cheatsPopoverEl);
+
     this.lotPopoverEl = document.createElement('div');
     this.lotPopoverEl.className = 'hud-popover lot-popover hidden';
     this.root.appendChild(this.lotPopoverEl);
@@ -1824,7 +1938,10 @@ export class HudController {
     this.captionSpeakerEl.className = 'dramatic-caption-speaker';
     this.captionTextEl = document.createElement('div');
     this.captionTextEl.className = 'dramatic-caption-text';
-    captionBody.append(this.captionSpeakerEl, this.captionTextEl);
+    this.captionSubtextEl = document.createElement('div');
+    this.captionSubtextEl.className = 'dramatic-caption-subtext';
+    this.captionSubtextEl.lang = 'ja';
+    captionBody.append(this.captionSpeakerEl, this.captionTextEl, this.captionSubtextEl);
 
     const skipCaptionBtn = document.createElement('button');
     skipCaptionBtn.type = 'button';
@@ -1845,6 +1962,33 @@ export class HudController {
     this.captionCardEl.append(captionBody, skipCaptionBtn);
     this.captionOverlayEl.appendChild(this.captionCardEl);
     this.root.appendChild(this.captionOverlayEl);
+
+    // ── Cutscene dressing: letterbox bars (with their own Skip), hit flash ──
+    this.cinemaBarsEl = document.createElement('div');
+    this.cinemaBarsEl.className = 'cinema-bars';
+    const cinemaSkipBtn = document.createElement('button');
+    cinemaSkipBtn.type = 'button';
+    cinemaSkipBtn.className = 'dramatic-caption-skip cinema-skip';
+    cinemaSkipBtn.textContent = 'Skip ⏭';
+    cinemaSkipBtn.title = 'Skip scene (Esc)';
+    cinemaSkipBtn.setAttribute('aria-label', 'Skip scene');
+    cinemaSkipBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      (this.visitorModule as SpecialVisitorModule | undefined)?.skipActiveMonologue?.();
+    });
+    const topBar = document.createElement('div');
+    topBar.className = 'cinema-bar top';
+    const bottomBar = document.createElement('div');
+    bottomBar.className = 'cinema-bar bottom';
+    this.cinemaSoundHintEl = document.createElement('span');
+    this.cinemaSoundHintEl.className = 'cinema-sound-hint';
+    this.cinemaSoundHintEl.textContent = '🔇 Click anywhere for sound';
+    this.cinemaSoundHintEl.hidden = true;
+    bottomBar.append(this.cinemaSoundHintEl, cinemaSkipBtn);
+    this.cinemaBarsEl.append(topBar, bottomBar);
+    this.cinemaFlashEl = document.createElement('div');
+    this.cinemaFlashEl.className = 'cinema-flash';
+    this.root.append(this.cinemaBarsEl, this.cinemaFlashEl);
 
     // ── Floating Bottom Selection / Place / Bulk / Erase Action Bar ──
     this.contextBarEl = document.createElement('div');
@@ -1923,6 +2067,16 @@ export class HudController {
     this.timeStopBtns = [];
     this.volumeThumbEls = [];
     this.volumeValueEls = [];
+    this.wallModeRefs.clear();
+    this.wallCeilingSwitchBtn = null;
+    this.wallOpacitySliderRef = null;
+    this.konamiKeycapEls = [];
+    if (kind !== 'visitors') {
+      this.selectedGuestLogId = null;
+    }
+    if (kind !== 'cheats') {
+      this.disarmResetLogConfirm();
+    }
     this.stopRandomCooldownTimer();
     this.randomInviteBtnEl = null;
     this.randomCooldownBadgeEl = null;
@@ -1933,6 +2087,7 @@ export class HudController {
     this.visitorsPopoverEl.classList.toggle('hidden', kind !== 'visitors');
     this.helpPopoverEl.classList.toggle('hidden', kind !== 'help');
     this.menuPopoverEl.classList.toggle('hidden', kind !== 'menu');
+    this.cheatsPopoverEl.classList.toggle('hidden', kind !== 'cheats');
     this.lotPopoverEl.classList.toggle('hidden', kind !== 'lot');
 
     this.roomBtnEl.classList.toggle('active-trigger', kind === 'room');
@@ -1952,6 +2107,7 @@ export class HudController {
     if (kind === 'visitors') this.renderVisitorsPopover();
     if (kind === 'help') this.renderHelpPopover();
     if (kind === 'menu') this.renderMenuPopover();
+    if (kind === 'cheats') this.renderCheatsPopover();
     if (kind === 'lot') this.renderLotPopover();
   }
 
@@ -3735,7 +3891,79 @@ export class HudController {
     weatherRow.append(weatherIconBtn, weatherSlider.track, weatherSlider.pct);
     card.appendChild(weatherRow);
 
-    // 3. Optional Master volume row (in Menu popover)
+    // 3. Chatting / Chatter channel: speech toggle (0 ↔ 0.28) + label pill + ink-rail slider
+    const chatterAudio = this.audioModule as
+      | (AudioModule & {
+          getChatterVolume?: () => number;
+          setChatterVolume?: (vol: number) => void;
+        })
+      | undefined;
+    const chatterVol = chatterAudio?.getChatterVolume?.() ?? 0.28;
+    const chatterActive = chatterVol > 0.01;
+    const chatterRow = document.createElement('div');
+    chatterRow.className = 'sb-audio-channel-row';
+
+    const chatterIconBtn = document.createElement('button');
+    chatterIconBtn.type = 'button';
+    chatterIconBtn.className = chatterActive ? 'sb-audio-icon-btn' : 'sb-audio-icon-btn muted';
+    chatterIconBtn.title = chatterActive
+      ? 'Visitor chatter volume — click to mute'
+      : 'Visitor chatter muted — click to restore';
+    chatterIconBtn.setAttribute(
+      'aria-label',
+      chatterActive
+        ? 'Visitor chatter volume — click to mute'
+        : 'Visitor chatter muted — click to restore',
+    );
+    const chatterGlyph = document.createElement('span');
+    chatterGlyph.className = 'sb-audio-glyph';
+    chatterGlyph.setAttribute('aria-hidden', 'true');
+    chatterGlyph.textContent = '💬';
+    chatterIconBtn.appendChild(chatterGlyph);
+
+    const chatterLabel = document.createElement('span');
+    chatterLabel.className = chatterActive ? 'sb-music-vibe' : 'sb-music-vibe muted';
+    chatterLabel.textContent = 'Chat';
+
+    const chatterSlider = this.createInkRailSlider({
+      ariaLabel: 'Visitor chatting volume',
+      initial: chatterVol,
+      getValue: () => chatterAudio?.getChatterVolume?.() ?? 0.28,
+      onChange: (next) => {
+        if (!this.audioModule) return;
+        if (next > 0 && this.audioModule.isMuted()) {
+          this.audioModule.setMuted(false);
+        }
+        chatterAudio?.setChatterVolume?.(next);
+      },
+    });
+
+    chatterIconBtn.addEventListener('click', () => {
+      if (!this.audioModule) return;
+      this.audioModule.playUiClick();
+      const cur = chatterAudio?.getChatterVolume?.() ?? 0.28;
+      const next = cur > 0.01 ? 0 : 0.28;
+      if (next > 0 && this.audioModule.isMuted()) {
+        this.audioModule.setMuted(false);
+      }
+      chatterAudio?.setChatterVolume?.(next);
+      this.syncChatterVolumeControlsLive();
+    });
+
+    this.chatterAudioRefs = this.chatterAudioRefs.filter((r) => r.row.isConnected);
+    this.chatterAudioRefs.push({
+      row: chatterRow,
+      iconSlot: chatterIconBtn,
+      labelEl: chatterLabel,
+      trackEl: chatterSlider.track,
+      orbEl: chatterSlider.orb,
+      pctEl: chatterSlider.pct,
+    });
+
+    chatterRow.append(chatterIconBtn, chatterLabel, chatterSlider.track, chatterSlider.pct);
+    card.appendChild(chatterRow);
+
+    // 4. Optional Master volume row (in Menu popover)
     if (includeMaster) {
       const masterVol = this.audioModule?.getVolume() ?? 0.85;
       const masterRow = document.createElement('div');
@@ -3819,6 +4047,29 @@ export class HudController {
     }
   }
 
+  private syncChatterVolumeControlsLive(): void {
+    const chatterAudio = this.audioModule as
+      | (AudioModule & { getChatterVolume?: () => number })
+      | undefined;
+    const vol = chatterAudio?.getChatterVolume?.() ?? 0.28;
+    const pct = Math.round(vol * 100);
+    const active = vol > 0.01;
+
+    this.chatterAudioRefs = this.chatterAudioRefs.filter((r) => r.row.isConnected);
+    for (const ref of this.chatterAudioRefs) {
+      ref.iconSlot.classList.toggle('muted', !active);
+      const tip = active
+        ? 'Visitor chatter volume — click to mute'
+        : 'Visitor chatter muted — click to restore';
+      ref.iconSlot.title = tip;
+      ref.iconSlot.setAttribute('aria-label', tip);
+      ref.labelEl.classList.toggle('muted', !active);
+      ref.orbEl.style.left = `${pct}%`;
+      ref.pctEl.textContent = `${pct}%`;
+      ref.trackEl.setAttribute('aria-valuenow', String(pct));
+    }
+  }
+
   private syncVolumeSlidersLive(): void {
     const pct = Math.round((this.audioModule?.getVolume() ?? 0.85) * 100);
     for (const orb of this.volumeThumbEls) {
@@ -3881,7 +4132,7 @@ export class HudController {
   private positionWallsPopover(): void {
     if (!this.wallsPopoverEl || !this.wallViewBtnEl) return;
     const btnRect = this.wallViewBtnEl.getBoundingClientRect();
-    const popWidth = 212;
+    const popWidth = 224;
     const centeredLeft = btnRect.left + btnRect.width / 2 - popWidth / 2;
     const clampedLeft = Math.max(14, Math.min(window.innerWidth - popWidth - 14, centeredLeft));
     this.wallsPopoverEl.style.left = `${Math.round(clampedLeft)}px`;
@@ -3890,7 +4141,11 @@ export class HudController {
   private renderWallsPopover(): void {
     const activeMode = this.store.getWallViewMode();
     const ceilingOn = this.store.isCeilingVisible();
+    const cutawayOpacity = this.store.getWallCutawayOpacity();
     this.wallsPopoverEl.innerHTML = '';
+    this.wallModeRefs.clear();
+    this.wallCeilingSwitchBtn = null;
+    this.wallOpacitySliderRef = null;
 
     const options: Array<{ mode: WallViewMode; label: string }> = [
       { mode: 'auto', label: 'Auto Cutaway' },
@@ -3917,9 +4172,10 @@ export class HudController {
       lbl.textContent = opt.label;
       btn.appendChild(lbl);
 
-      if (isSelected) {
-        btn.appendChild(createIconEl('check', 15));
-      }
+      const checkEl = createIconEl('check', 15);
+      checkEl.classList.add('wall-mode-check');
+      checkEl.classList.toggle('hidden', !isSelected);
+      btn.appendChild(checkEl);
 
       btn.addEventListener('click', () => {
         this.audioModule?.playUiClick();
@@ -3929,13 +4185,52 @@ export class HudController {
         this.setActivePopover(null);
       });
 
+      this.wallModeRefs.set(opt.mode, { btn, checkEl });
       list.appendChild(btn);
     }
     this.wallsPopoverEl.appendChild(list);
 
-    const divider = document.createElement('div');
-    divider.className = 'walls-dropdown-divider';
-    this.wallsPopoverEl.appendChild(divider);
+    const dividerTop = document.createElement('div');
+    dividerTop.className = 'walls-dropdown-divider';
+    this.wallsPopoverEl.appendChild(dividerTop);
+
+    // Compact storybook ink-rail Wall Opacity slider (0% invisible → 100% solid)
+    const opacityBlock = document.createElement('div');
+    opacityBlock.className = 'walls-opacity-block';
+
+    const opacityHead = document.createElement('div');
+    opacityHead.className = 'walls-opacity-head';
+
+    const opacityLabel = document.createElement('span');
+    opacityLabel.className = 'walls-opacity-label';
+    opacityLabel.textContent = 'Opacity';
+
+    const opacitySlider = this.createInkRailSlider({
+      ariaLabel: 'Wall opacity',
+      initial: cutawayOpacity,
+      getValue: () => this.store.getWallCutawayOpacity(),
+      onChange: (next) => {
+        this.store.setWallCutawayOpacity(next);
+        if (this.store.getWallViewMode() === 'solid') {
+          this.store.setWallViewMode('auto');
+        }
+      },
+    });
+    opacitySlider.pct.classList.add('walls-opacity-pct');
+    this.wallOpacitySliderRef = opacitySlider;
+
+    opacityHead.append(opacityLabel, opacitySlider.pct);
+
+    const railWrap = document.createElement('div');
+    railWrap.className = 'walls-opacity-rail-wrap';
+    railWrap.appendChild(opacitySlider.track);
+
+    opacityBlock.append(opacityHead, railWrap);
+    this.wallsPopoverEl.appendChild(opacityBlock);
+
+    const dividerBottom = document.createElement('div');
+    dividerBottom.className = 'walls-dropdown-divider';
+    this.wallsPopoverEl.appendChild(dividerBottom);
 
     const ceilingRow = document.createElement('div');
     ceilingRow.className = 'walls-ceiling-row';
@@ -3959,8 +4254,40 @@ export class HudController {
       this.store.setCeilingVisible(!this.store.isCeilingVisible());
     });
 
+    this.wallCeilingSwitchBtn = switchBtn;
     ceilingRow.append(ceilingLabel, switchBtn);
     this.wallsPopoverEl.appendChild(ceilingRow);
+  }
+
+  private syncWallsPopoverLive(): void {
+    if (!this.wallsPopoverEl || this.activePopover !== 'walls') return;
+    if (!this.wallOpacitySliderRef || !this.wallOpacitySliderRef.track.isConnected) {
+      this.renderWallsPopover();
+      return;
+    }
+
+    const activeMode = this.store.getWallViewMode();
+    for (const [mode, { btn, checkEl }] of this.wallModeRefs) {
+      const isSelected = mode === activeMode;
+      btn.classList.toggle('active', isSelected);
+      btn.setAttribute('aria-checked', String(isSelected));
+      checkEl.classList.toggle('hidden', !isSelected);
+    }
+
+    const pct = Math.round(this.store.getWallCutawayOpacity() * 100);
+    this.wallOpacitySliderRef.orb.style.left = `${pct}%`;
+    this.wallOpacitySliderRef.pct.textContent = `${pct}%`;
+    this.wallOpacitySliderRef.track.setAttribute('aria-valuenow', String(pct));
+
+    if (this.wallCeilingSwitchBtn && this.wallCeilingSwitchBtn.isConnected) {
+      const ceilingOn = this.store.isCeilingVisible();
+      this.wallCeilingSwitchBtn.classList.toggle('on', ceilingOn);
+      this.wallCeilingSwitchBtn.setAttribute('aria-checked', String(ceilingOn));
+      this.wallCeilingSwitchBtn.setAttribute(
+        'aria-label',
+        ceilingOn ? 'Hide ceiling' : 'Show ceiling',
+      );
+    }
   }
 
   private syncWallViewButton(): void {
@@ -4312,6 +4639,7 @@ export class HudController {
     if (this.audioModule) {
       this.menuPopoverEl.appendChild(this.buildAudioMixPanel(true));
     }
+    this.menuPopoverEl.appendChild(buildPeacefulModeRow()); // [horror-events hook]
 
     const shareLabel = document.createElement('div');
     shareLabel.className = 'popover-section-label';
@@ -4442,6 +4770,428 @@ export class HudController {
       ),
     );
     this.menuPopoverEl.appendChild(actions);
+
+    // Storybook Cheat Panel launcher (shows live DEV / ON / OFF / 🔒 badge)
+    const cheatBtn = document.createElement('button');
+    cheatBtn.type = 'button';
+    cheatBtn.className = 'btn menu-cheats-btn';
+    const cheatLeft = document.createElement('span');
+    cheatLeft.className = 'menu-cheats-left';
+    const cheatGlyph = document.createElement('span');
+    cheatGlyph.setAttribute('aria-hidden', 'true');
+    cheatGlyph.textContent = '🎮';
+    const cheatText = document.createElement('span');
+    cheatText.textContent = 'Cheat Panel';
+    cheatLeft.append(cheatGlyph, cheatText);
+
+    const isDev = this.store.isDevBuild();
+    const canUse = this.store.canUseInviteCheats();
+    const enabled = this.store.isInviteCheatsEnabled();
+    const cheatBadge = document.createElement('span');
+    if (isDev && enabled) {
+      cheatBadge.className = 'cheats-status-pill is-dev';
+      cheatBadge.textContent = 'DEV';
+    } else if (enabled) {
+      cheatBadge.className = 'cheats-status-pill is-on';
+      cheatBadge.textContent = 'ON';
+    } else if (canUse) {
+      cheatBadge.className = 'cheats-status-pill is-off';
+      cheatBadge.textContent = 'OFF';
+    } else {
+      cheatBadge.className = 'cheats-status-pill is-locked';
+      cheatBadge.textContent = '🔒';
+      cheatBadge.setAttribute('aria-label', 'Locked');
+    }
+
+    cheatBtn.append(cheatLeft, cheatBadge);
+    cheatBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setActivePopover('cheats');
+    });
+    this.menuPopoverEl.appendChild(cheatBtn);
+  }
+
+  private handleKonamiKeyDown(event: KeyboardEvent): void {
+    if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (
+      event.key === 'Shift' ||
+      event.key === 'CapsLock' ||
+      event.key === 'Control' ||
+      event.key === 'Alt' ||
+      event.key === 'Meta'
+    ) {
+      return;
+    }
+    const target = event.target as HTMLElement | null;
+    if (target) {
+      const tag = target.tagName;
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        target.isContentEditable ||
+        Boolean(target.closest?.('[contenteditable="true"]'))
+      ) {
+        return;
+      }
+    }
+
+    const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    let nextProgress = 0;
+    if (key === KONAMI_SEQUENCE[this.konamiProgress]) {
+      nextProgress = this.konamiProgress + 1;
+    } else {
+      // Prefix-fallback matching (e.g. an extra leading ArrowUp stays at progress 2)
+      for (let k = this.konamiProgress; k >= 1; k -= 1) {
+        if (KONAMI_SEQUENCE[k - 1] !== key) continue;
+        let matchesPrefix = true;
+        for (let j = 0; j < k - 1; j += 1) {
+          if (KONAMI_SEQUENCE[j] !== KONAMI_SEQUENCE[this.konamiProgress - k + 1 + j]) {
+            matchesPrefix = false;
+            break;
+          }
+        }
+        if (matchesPrefix) {
+          nextProgress = k;
+          break;
+        }
+      }
+    }
+
+    if (nextProgress === KONAMI_SEQUENCE.length) {
+      this.konamiProgress = 0;
+      const newlyUnlocked = this.store.unlockKonamiCheats();
+      this.audioModule?.playCelebration();
+      this.store.notify(
+        newlyUnlocked
+          ? '🎮 Konami Code! Invitation cheats unlocked.'
+          : '🎮 Invitation cheats enabled!',
+        'success',
+      );
+      this.setActivePopover('cheats');
+      return;
+    }
+
+    if (nextProgress !== this.konamiProgress) {
+      this.konamiProgress = nextProgress;
+      if (this.activePopover === 'cheats' && !this.store.canUseInviteCheats()) {
+        this.syncKonamiKeycapsLive();
+      }
+    }
+  }
+
+  private syncKonamiKeycapsLive(): void {
+    if (this.konamiKeycapEls.length === 0) return;
+    for (let i = 0; i < this.konamiKeycapEls.length; i += 1) {
+      const pip = this.konamiKeycapEls[i];
+      if (!pip.isConnected) continue;
+      const matched = i < this.konamiProgress;
+      const isNext = i === this.konamiProgress;
+      pip.textContent = matched ? '✓' : '?';
+      pip.classList.toggle('matched', matched);
+      pip.classList.toggle('next', isNext);
+    }
+  }
+
+  private renderCheatsPopover(): void {
+    const prevList = this.cheatsPopoverEl.querySelector('.cheats-legend-list') as HTMLElement | null;
+    const prevScrollTop = prevList?.scrollTop ?? 0;
+
+    this.cheatsPopoverEl.innerHTML = '';
+    this.konamiKeycapEls = [];
+
+    const isDev = this.store.isDevBuild();
+    const canUse = this.store.canUseInviteCheats();
+    const enabled = this.store.isInviteCheatsEnabled();
+
+    const header = document.createElement('div');
+    header.className = 'popover-header';
+    const titleWrap = document.createElement('div');
+    titleWrap.className = 'cheats-header-title';
+    const h4 = document.createElement('h4');
+    h4.textContent = 'Cheat Panel';
+    const statusPill = document.createElement('span');
+    if (isDev) {
+      statusPill.className = 'cheats-status-pill is-dev';
+      statusPill.textContent = 'DEV';
+    } else if (canUse) {
+      statusPill.className = 'cheats-status-pill is-unlocked';
+      statusPill.textContent = 'UNLOCKED';
+    } else {
+      statusPill.className = 'cheats-status-pill is-locked';
+      statusPill.textContent = 'LOCKED';
+    }
+    titleWrap.append(h4, statusPill);
+
+    const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
+    closeBtn.className = 'btn icon-close';
+    header.append(titleWrap, closeBtn);
+    this.cheatsPopoverEl.appendChild(header);
+
+    const sectionLabel = document.createElement('div');
+    sectionLabel.className = 'popover-section-label';
+    sectionLabel.textContent = 'Invitation Cheats';
+    this.cheatsPopoverEl.appendChild(sectionLabel);
+
+    if (!canUse) {
+      const lockedCard = document.createElement('div');
+      lockedCard.className = 'cheats-locked-card';
+
+      const lockedTitle = document.createElement('div');
+      lockedTitle.className = 'cheats-locked-title';
+      lockedTitle.textContent = '🔒 Invitation Cheats Locked';
+
+      const lockedDesc = document.createElement('p');
+      lockedDesc.className = 'cheats-locked-desc';
+      lockedDesc.textContent =
+        'Type the secret code on your keyboard to unlock invitation cheats.';
+
+      const strip = document.createElement('div');
+      strip.className = 'konami-keycaps-strip';
+      strip.setAttribute('aria-label', 'Secret code progress');
+
+      for (let i = 0; i < KONAMI_SEQUENCE.length; i += 1) {
+        const pip = document.createElement('span');
+        pip.className = 'konami-kbd';
+        pip.textContent = '?';
+        this.konamiKeycapEls.push(pip);
+        strip.appendChild(pip);
+      }
+      this.syncKonamiKeycapsLive();
+
+      lockedCard.append(lockedTitle, lockedDesc, strip);
+      this.cheatsPopoverEl.appendChild(lockedCard);
+      return;
+    }
+
+    // Unlocked (Dev build OR secret code unlocked)
+    const toggleRow = document.createElement('div');
+    toggleRow.className = 'cheats-toggle-row';
+
+    const toggleText = document.createElement('div');
+    toggleText.className = 'cheats-toggle-text';
+    const toggleTitle = document.createElement('div');
+    toggleTitle.className = 'cheats-toggle-title';
+    toggleTitle.textContent = 'Invite Cheats';
+    const toggleSub = document.createElement('div');
+    toggleSub.className = 'cheats-toggle-sub';
+    toggleSub.textContent = 'No cooldown · Invite any Legendary Guest';
+    toggleText.append(toggleTitle, toggleSub);
+
+    const switchBtn = document.createElement('button');
+    switchBtn.type = 'button';
+    switchBtn.className = enabled ? 'sb-toggle-switch on' : 'sb-toggle-switch';
+    switchBtn.setAttribute('role', 'switch');
+    switchBtn.setAttribute('aria-checked', String(enabled));
+    switchBtn.setAttribute(
+      'aria-label',
+      enabled ? 'Disable invitation cheats' : 'Enable invitation cheats',
+    );
+    const knob = document.createElement('span');
+    knob.className = 'sb-toggle-knob';
+    switchBtn.appendChild(knob);
+    switchBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.store.setInviteCheatsEnabled(!this.store.isInviteCheatsEnabled());
+    });
+
+    toggleRow.append(toggleText, switchBtn);
+    this.cheatsPopoverEl.appendChild(toggleRow);
+
+    if (!enabled) {
+      const pausedNote = document.createElement('div');
+      pausedNote.className = 'cheats-paused-note';
+      pausedNote.textContent =
+        'Invitation cheats paused — 25s cooldown & mystery-only mode active.';
+      this.cheatsPopoverEl.appendChild(pausedNote);
+      this.appendCheatsResetLogRow();
+      return;
+    }
+
+    const specialVisitors = this.store.data.visitors.visitors.filter((v) =>
+      Boolean((v as SpecialVisitorDef).special),
+    );
+    const activeVisitorIds = new Set(
+      (this.visitorModule?.getActiveVisitors() ?? []).map((v) => v.visitorId),
+    );
+
+    const actionsRow = document.createElement('div');
+    actionsRow.className = 'cheats-actions-row';
+
+    const randomBtn = this.makeBtn('🎲 Random', () => {
+      this.audioModule?.playUiClick();
+      const specialVm = this.visitorModule as SpecialVisitorModule | undefined;
+      if (specialVm?.inviteRandomSpecialCharacter) {
+        specialVm.inviteRandomSpecialCharacter();
+      } else if (specialVisitors.length > 0) {
+        const pick = specialVisitors[Math.floor(Math.random() * specialVisitors.length)];
+        this.visitorModule?.inviteVisitor(pick.id);
+      }
+    });
+    randomBtn.className = 'btn btn-xs cheats-action-btn';
+    randomBtn.title = 'Invite a random Legendary Guest';
+
+    const inviteAllBtn = this.makeBtn('✨ Invite All', () => {
+      this.audioModule?.playUiClick();
+      const currentActive = new Set(
+        (this.visitorModule?.getActiveVisitors() ?? []).map((v) => v.visitorId),
+      );
+      let invited = 0;
+      for (const visitor of specialVisitors) {
+        if (currentActive.has(visitor.id)) continue;
+        if (this.visitorModule?.inviteVisitor(visitor.id)) {
+          invited += 1;
+        }
+      }
+      if (invited === 0) {
+        this.store.notify('All Legendary Guests are already visiting!', 'info');
+      } else {
+        this.store.notify(
+          `Invited ${invited} Legendary Guest${invited === 1 ? '' : 's'}!`,
+          'success',
+        );
+      }
+    });
+    inviteAllBtn.className = 'btn btn-xs cheats-action-btn';
+
+    const dismissAllBtn = this.makeBtn(
+      '👋 Dismiss All',
+      () => {
+        this.audioModule?.playUiClick();
+        this.visitorModule?.dismissAll();
+      },
+      'danger',
+    );
+    dismissAllBtn.className = 'btn danger btn-xs cheats-action-btn';
+
+    actionsRow.append(randomBtn, inviteAllBtn, dismissAllBtn);
+    this.cheatsPopoverEl.appendChild(actionsRow);
+
+    if (specialVisitors.length > 0) {
+      const listLabel = document.createElement('div');
+      listLabel.className = 'popover-section-label';
+      listLabel.textContent = 'Legendary Guests';
+      this.cheatsPopoverEl.appendChild(listLabel);
+
+      const legendList = document.createElement('div');
+      legendList.className = 'cheats-legend-list';
+
+      for (const visitor of specialVisitors) {
+        const isHere = activeVisitorIds.has(visitor.id);
+        const card = document.createElement('div');
+        card.className = 'invite-visitor-card cheats-legend-card';
+        card.title = visitor.description;
+
+        const portrait = this.createVisitorPortrait(visitor, 0, visitor.color, visitor.id);
+
+        const body = document.createElement('div');
+        body.className = 'invite-visitor-body';
+
+        const name = document.createElement('div');
+        name.className = 'invite-visitor-name';
+        name.textContent = visitor.name;
+        const star = document.createElement('span');
+        star.className = 'special-sparkle-badge';
+        star.textContent = '✦';
+        name.appendChild(star);
+
+        const iconGlyph =
+          visitor.archetypeIcon ?? VISITOR_ARCHETYPE_ICONS[visitor.id] ?? '✨';
+        const personaTrait = (
+          visitor as VisitorDef & { personas?: Array<{ trait?: string }> }
+        ).personas?.[0]?.trait;
+        const sub = document.createElement('div');
+        sub.className = 'invite-visitor-sub';
+        sub.textContent = `${iconGlyph} ${personaTrait || visitor.description}`;
+
+        body.append(name, sub);
+
+        if (isHere) {
+          const herePill = document.createElement('span');
+          herePill.className = 'cheats-here-pill';
+          herePill.textContent = 'Here';
+          card.append(portrait, body, herePill);
+        } else {
+          const inviteBtn = this.makeBtn(
+            'Invite',
+            () => {
+              this.audioModule?.playUiClick();
+              this.visitorModule?.inviteVisitor(visitor.id);
+            },
+            'primary',
+          );
+          inviteBtn.className = 'btn primary btn-xs';
+          card.append(portrait, body, inviteBtn);
+        }
+
+        legendList.appendChild(card);
+      }
+
+      this.cheatsPopoverEl.appendChild(legendList);
+      if (prevScrollTop > 0) {
+        legendList.scrollTop = prevScrollTop;
+      }
+    }
+
+    this.appendCheatsResetLogRow();
+  }
+
+  private disarmResetLogConfirm(): void {
+    this.resetLogConfirmArmed = false;
+    if (this.resetLogConfirmTimer !== null) {
+      window.clearTimeout(this.resetLogConfirmTimer);
+      this.resetLogConfirmTimer = null;
+    }
+  }
+
+  private appendCheatsResetLogRow(): void {
+    const { discoveredCount } = this.getGuestLogProgress();
+    const row = document.createElement('div');
+    row.className = 'cheats-reset-log-row';
+
+    const resetBtn = document.createElement('button');
+    resetBtn.type = 'button';
+    resetBtn.className = this.resetLogConfirmArmed
+      ? 'cheats-reset-log-btn armed'
+      : 'cheats-reset-log-btn';
+    resetBtn.textContent = this.resetLogConfirmArmed
+      ? 'Click again to clear log'
+      : 'Reset Log Book';
+    if (discoveredCount === 0 && !this.resetLogConfirmArmed) {
+      resetBtn.disabled = true;
+      resetBtn.title = 'Guestbook is already empty';
+    } else {
+      resetBtn.title = this.resetLogConfirmArmed
+        ? 'Confirm clearing all Legendary Guestbook entries'
+        : 'Clear discovered Legendary Guestbook entries';
+    }
+
+    resetBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      if (!this.resetLogConfirmArmed) {
+        this.resetLogConfirmArmed = true;
+        if (this.resetLogConfirmTimer !== null) {
+          window.clearTimeout(this.resetLogConfirmTimer);
+        }
+        this.resetLogConfirmTimer = window.setTimeout(() => {
+          this.resetLogConfirmArmed = false;
+          this.resetLogConfirmTimer = null;
+          if (this.activePopover === 'cheats') this.renderCheatsPopover();
+        }, 4000);
+        this.renderCheatsPopover();
+        return;
+      }
+
+      this.disarmResetLogConfirm();
+      this.hasUnseenGuestLogEntry = false;
+      this.selectedGuestLogId = null;
+      this.lastNewlyDiscoveredId = null;
+      this.store.resetGuestLog();
+      this.store.notify('📖 Legendary Guestbook reset.', 'info');
+    });
+
+    row.appendChild(resetBtn);
+    this.cheatsPopoverEl.appendChild(row);
   }
 
   private renderHelpPopover(): void {
@@ -4511,6 +5261,7 @@ export class HudController {
       makeControlRow(makeKbdGroup(['R']), 'Rotate Item', 'Spin while placing or selected'),
       makeControlRow(makeKbdGroup(['Shift', 'Click'], '+'), 'Multi-Select', 'Select multiple walls or items'),
       makeControlRow(makeKbdGroup(['⌘Z', '⌫'], '/'), 'Undo / Delete', 'Undo edit · Remove item'),
+      makeControlRow(makeKbdGroup(['?']), 'Cheats', 'Secret keyboard code'),
     );
     this.helpPopoverEl.appendChild(list);
 
@@ -4581,10 +5332,66 @@ export class HudController {
     this.captionTextEl.textContent = payload.text.startsWith('「')
       ? payload.text
       : `“${payload.text}”`;
+    this.captionSubtextEl.textContent = payload.subtext ?? '';
+    this.captionSubtextEl.hidden = !payload.subtext;
 
     this.captionOverlayEl.classList.remove('hidden');
     void this.captionOverlayEl.offsetWidth;
     this.captionOverlayEl.classList.add('visible');
+  }
+
+  /** Letterbox bars, hit flash and screen shake for scripted scenes (shake is CSS, off under reduced motion). */
+  private playCinematicFx(fx: CinematicFx): void {
+    if (fx === 'sound-locked' || fx === 'sound-ok') {
+      this.cinemaSoundHintEl.hidden = fx === 'sound-ok';
+      return;
+    }
+    if (fx === 'bars-on' || fx === 'bars-off') {
+      if (fx === 'bars-off') this.cinemaSoundHintEl.hidden = true;
+      this.setCinemaMode(fx === 'bars-on');
+      return;
+    }
+    const isFlash = fx === 'flash' || fx === 'flash-purple';
+    const el = isFlash ? this.cinemaFlashEl : this.sceneManager.renderer.domElement;
+    const cls = fx === 'flash' ? 'fire' : fx === 'flash-purple' ? 'fire-purple' : fx === 'shake' ? 'cinema-shake' : 'cinema-shake-hard';
+    el.classList.remove('fire', 'fire-purple', 'cinema-shake', 'cinema-shake-hard');
+    void el.offsetWidth;
+    el.classList.add(cls);
+  }
+
+  /**
+   * Cutscene presentation. While on, the whole interface is hidden (CSS on `#hud.cinema-mode`
+   * keeps only the bars, captions and Skip), editor overlays in the 3D view are hidden, and
+   * pointer, wheel and key input is swallowed before the game sees it — except Esc and the Skip
+   * button. Nothing is closed or reset, so turning it off puts every panel back as it was.
+   */
+  private setCinemaMode(on: boolean): void {
+    this.cinemaBarsEl.classList.toggle('on', on);
+    // The bars carry the Skip button for the whole scene, so the caption card hides its own.
+    this.captionOverlayEl.classList.toggle('in-cinema', on);
+    this.root.classList.toggle('cinema-mode', on);
+    this.sceneManager.setCutsceneOverlaysHidden(on);
+    if (on === (this.cinemaInputBlock !== null)) return;
+    if (on) {
+      this.setHoverHint(null);
+      this.setHoverItem(null);
+      const block = (e: Event): void => {
+        const target = e.target as Element | null;
+        if (target?.closest?.('.cinema-skip')) return;
+        if (e instanceof KeyboardEvent && (e.key === 'Escape' || e.metaKey || e.ctrlKey)) return;
+        e.stopImmediatePropagation();
+        if (e.type === 'contextmenu' || e.type === 'wheel') e.preventDefault();
+      };
+      for (const type of CINEMA_BLOCKED_EVENTS) {
+        window.addEventListener(type, block, { capture: true, passive: false });
+      }
+      this.cinemaInputBlock = block;
+    } else if (this.cinemaInputBlock) {
+      for (const type of CINEMA_BLOCKED_EVENTS) {
+        window.removeEventListener(type, this.cinemaInputBlock, { capture: true });
+      }
+      this.cinemaInputBlock = null;
+    }
   }
 
   private createVisitorPortrait(
@@ -4638,6 +5445,82 @@ export class HudController {
           img.src = url;
           img.classList.remove('hidden');
           fallback.classList.add('hidden');
+        });
+      }
+    }
+
+    return wrap;
+  }
+
+  private getSpecialVisitors(): VisitorDef[] {
+    return this.store.data.visitors.visitors.filter((v) =>
+      Boolean((v as SpecialVisitorDef).special),
+    );
+  }
+
+  private getGuestLogProgress(): {
+    specials: VisitorDef[];
+    log: Record<string, GuestLogEntry>;
+    discoveredCount: number;
+    total: number;
+  } {
+    const specials = this.getSpecialVisitors();
+    const log = this.store.getGuestLog();
+    let discoveredCount = 0;
+    for (const v of specials) {
+      if (log[v.id]) discoveredCount += 1;
+    }
+    return { specials, log, discoveredCount, total: specials.length };
+  }
+
+  private formatShortLogDate(ts: number): string {
+    if (!Number.isFinite(ts) || ts <= 0) return '—';
+    const d = new Date(ts);
+    const sameYear = d.getFullYear() === new Date().getFullYear();
+    try {
+      return new Intl.DateTimeFormat(
+        undefined,
+        sameYear
+          ? { month: 'short', day: 'numeric' }
+          : { month: 'short', day: 'numeric', year: 'numeric' },
+      ).format(d);
+    } catch {
+      return d.toLocaleDateString();
+    }
+  }
+
+  private createMysteryGuestPortrait(def: VisitorDef, large = false): HTMLDivElement {
+    // Strictly spoiler-free: neutral warm parchment backdrop, never leaks def.name, color, or icon
+    const wrap = document.createElement('div');
+    wrap.className = large
+      ? 'guestbook-portrait mystery large'
+      : 'guestbook-portrait mystery';
+
+    const img = document.createElement('img');
+    img.className = 'guestbook-silhouette-img hidden';
+    img.alt = 'Undiscovered legendary guest';
+    img.draggable = false;
+
+    const qBadge = document.createElement('span');
+    qBadge.className = 'guestbook-mystery-q';
+    qBadge.textContent = '?';
+    qBadge.setAttribute('aria-hidden', 'true');
+
+    wrap.append(img, qBadge);
+
+    const renderer = this.sceneManager.getPreviewRenderer?.();
+    if (renderer) {
+      const cached = renderer.getCachedVisitorPortrait(def.id, 0);
+      if (cached) {
+        img.src = cached;
+        img.classList.remove('hidden');
+        wrap.classList.add('has-silhouette');
+      } else {
+        void renderer.renderVisitorPortrait(def, 0).then((url) => {
+          if (!url || !img.isConnected) return;
+          img.src = url;
+          img.classList.remove('hidden');
+          wrap.classList.add('has-silhouette');
         });
       }
     }
@@ -4759,6 +5642,17 @@ export class HudController {
       star.title = 'Legendary Special Guest';
       nameEl.appendChild(star);
     }
+    const holdingCoffee = Boolean(
+      (snap as ActiveVisitorSnapshot & { holdingCoffee?: boolean }).holdingCoffee,
+    );
+    if (holdingCoffee) {
+      const coffeeTag = document.createElement('span');
+      coffeeTag.className = 'visitor-coffee-badge vp-coffee-badge';
+      coffeeTag.textContent = '☕';
+      coffeeTag.title = 'Holding a fresh cup of coffee';
+      coffeeTag.setAttribute('aria-label', 'Holding a fresh cup of coffee');
+      nameEl.appendChild(coffeeTag);
+    }
 
     const subEl = document.createElement('div');
     subEl.className = 'vp-sub';
@@ -4864,7 +5758,7 @@ export class HudController {
 
     this.visitorProfileCardEl.appendChild(thoughtSec);
 
-    // Footer actions: Focus + Dismiss
+    // Footer actions: Focus + Grab Coffee + Dismiss
     const footer = document.createElement('div');
     footer.className = 'vp-actions';
 
@@ -4880,6 +5774,38 @@ export class HudController {
     );
     focusBtn.className = 'btn primary btn-xs';
 
+    const goingForCoffee = Boolean(snap.activity?.toLowerCase().includes('grab a coffee'));
+    const coffeeBtn = document.createElement('button');
+    coffeeBtn.type = 'button';
+    if (holdingCoffee) {
+      coffeeBtn.className = 'btn btn-xs vp-coffee-btn is-sipping';
+      coffeeBtn.textContent = '☕ Sipping';
+      coffeeBtn.disabled = true;
+      coffeeBtn.title = 'Already enjoying a cup of coffee';
+    } else if (goingForCoffee) {
+      coffeeBtn.className = 'btn btn-xs vp-coffee-btn is-heading';
+      coffeeBtn.textContent = '☕ On the way';
+      coffeeBtn.disabled = true;
+      coffeeBtn.title = 'Heading to grab a fresh cup of coffee';
+    } else {
+      coffeeBtn.className = 'btn btn-xs vp-coffee-btn';
+      coffeeBtn.textContent = '☕ Grab Coffee';
+      if (snap.mood === 'leaving') {
+        coffeeBtn.disabled = true;
+        coffeeBtn.title = 'Heading home';
+      } else {
+        coffeeBtn.title = 'Send to grab a fresh cup of coffee';
+        coffeeBtn.addEventListener('click', () => {
+          this.audioModule?.playUiClick();
+          (
+            this.visitorModule as unknown as {
+              sendVisitorForCoffee?: (id: string) => boolean;
+            }
+          )?.sendVisitorForCoffee?.(snap.instanceId);
+        });
+      }
+    }
+
     const dismissBtn = this.makeBtn(
       'Dismiss',
       () => {
@@ -4892,15 +5818,23 @@ export class HudController {
     );
     dismissBtn.className = 'btn danger btn-xs';
 
-    footer.append(focusBtn, dismissBtn);
+    footer.append(focusBtn, coffeeBtn, dismissBtn);
     this.visitorProfileCardEl.appendChild(footer);
   }
 
   private renderVisitorsPopover(): void {
+    const prevLogGridScroll =
+      (this.visitorsPopoverEl.querySelector('.guestbook-grid') as HTMLElement | null)
+        ?.scrollTop ?? 0;
     this.visitorsPopoverEl.innerHTML = '';
 
     const active = this.visitorModule?.getActiveVisitors() ?? [];
     const hiredStaff = this.store.getStaff();
+    const { discoveredCount, total: totalLegends } = this.getGuestLogProgress();
+
+    if (this.visitorsTab === 'log') {
+      this.hasUnseenGuestLogEntry = false;
+    }
 
     const header = document.createElement('div');
     header.className = 'popover-header';
@@ -4911,12 +5845,16 @@ export class HudController {
     header.append(h4, closeBtn);
     this.visitorsPopoverEl.appendChild(header);
 
-    // Crisp 3-Tab Switcher separating Guests, Staff, and Invite
+    // Crisp 4-Tab Switcher separating Guests, Staff, Invite, and Legendary Log Book
     const tabBar = document.createElement('div');
     tabBar.className = 'visitors-tab-bar';
     tabBar.setAttribute('role', 'tablist');
 
-    const makeTab = (id: 'here' | 'staff' | 'invite', label: string) => {
+    const makeTab = (
+      id: 'here' | 'staff' | 'invite' | 'log',
+      label: string,
+      showDot = false,
+    ) => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className =
@@ -4926,10 +5864,21 @@ export class HudController {
       btn.setAttribute('role', 'tab');
       btn.setAttribute('aria-selected', String(this.visitorsTab === id));
       btn.textContent = label;
+      if (showDot) {
+        const dot = document.createElement('span');
+        dot.className = 'visitors-tab-dot';
+        dot.setAttribute('aria-label', 'New discovery');
+        btn.appendChild(dot);
+      }
       btn.addEventListener('click', () => {
         if (this.visitorsTab === id) return;
         this.audioModule?.playUiClick();
         this.visitorsTab = id;
+        if (id === 'log') {
+          this.hasUnseenGuestLogEntry = false;
+        } else {
+          this.selectedGuestLogId = null;
+        }
         this.renderVisitorsPopover();
       });
       return btn;
@@ -4939,11 +5888,21 @@ export class HudController {
       makeTab('here', `Guests (${active.length})`),
       makeTab('staff', `Staff (${hiredStaff.length})`),
       makeTab('invite', 'Invite'),
+      makeTab(
+        'log',
+        `Log (${discoveredCount}/${totalLegends})`,
+        this.hasUnseenGuestLogEntry && this.visitorsTab !== 'log',
+      ),
     );
     this.visitorsPopoverEl.appendChild(tabBar);
 
     if (this.visitorsTab === 'staff') {
       this.renderStaffTab();
+      return;
+    }
+
+    if (this.visitorsTab === 'log') {
+      this.renderGuestLogTab(prevLogGridScroll);
       return;
     }
 
@@ -4979,6 +5938,13 @@ export class HudController {
         const activeList = document.createElement('div');
         activeList.className = 'active-visitors-list';
         const seenByArchetype = new Map<string, number>();
+        const coffeeVm = this.visitorModule as unknown as
+          | {
+              hasCoffeeStation?: () => boolean;
+              sendVisitorForCoffee?: (id: string) => boolean;
+            }
+          | undefined;
+        const canGrabCoffee = Boolean(coffeeVm?.hasCoffeeStation?.());
 
         for (const snap of active) {
           const def = this.store.data.visitorsById.get(snap.visitorId);
@@ -4993,6 +5959,7 @@ export class HudController {
             : 'active-visitor-card clickable';
           card.setAttribute('role', 'button');
           card.setAttribute('tabindex', '0');
+          card.dataset.visitorInstanceId = snap.instanceId; // [horror-events hook] lets a vanishing guest's row crack
 
           const personalName = snap.name ?? def?.name ?? snap.visitorId;
           const archetypeLabel = snap.archetypeName ?? def?.name ?? snap.visitorId;
@@ -5076,6 +6043,41 @@ export class HudController {
           compactRow.append(emojiEl, barTrack);
           identity.appendChild(compactRow);
 
+          const holdingCoffeeRow = Boolean(
+            (snap as ActiveVisitorSnapshot & { holdingCoffee?: boolean }).holdingCoffee,
+          );
+          const goingForCoffeeRow = Boolean(
+            snap.activity?.toLowerCase().includes('grab a coffee'),
+          );
+
+          let coffeeCtrl: HTMLElement | null = null;
+          if (holdingCoffeeRow) {
+            const coffeeBadge = document.createElement('span');
+            coffeeBadge.className = 'visitor-coffee-badge';
+            coffeeBadge.textContent = '☕';
+            coffeeBadge.title = 'Holding a fresh cup of coffee';
+            coffeeBadge.setAttribute('aria-label', 'Holding a fresh cup of coffee');
+            coffeeCtrl = coffeeBadge;
+          } else if (canGrabCoffee && snap.mood !== 'leaving') {
+            const coffeeQuickBtn = document.createElement('button');
+            coffeeQuickBtn.type = 'button';
+            coffeeQuickBtn.className = goingForCoffeeRow
+              ? 'btn btn-xs visitor-coffee-btn is-heading'
+              : 'btn btn-xs visitor-coffee-btn';
+            coffeeQuickBtn.textContent = '☕';
+            coffeeQuickBtn.disabled = goingForCoffeeRow;
+            coffeeQuickBtn.title = goingForCoffeeRow
+              ? 'Heading to grab a coffee'
+              : 'Send to grab a coffee';
+            coffeeQuickBtn.setAttribute('aria-label', `Send ${personalName} to grab a coffee`);
+            coffeeQuickBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              this.audioModule?.playUiClick();
+              coffeeVm?.sendVisitorForCoffee?.(snap.instanceId);
+            });
+            coffeeCtrl = coffeeQuickBtn;
+          }
+
           const sendHomeBtn = document.createElement('button');
           sendHomeBtn.type = 'button';
           sendHomeBtn.className = 'btn icon-close';
@@ -5091,7 +6093,11 @@ export class HudController {
             this.visitorModule?.dismiss(snap.instanceId);
           });
 
-          headerRow.append(portrait, identity, sendHomeBtn);
+          if (coffeeCtrl) {
+            headerRow.append(portrait, identity, coffeeCtrl, sendHomeBtn);
+          } else {
+            headerRow.append(portrait, identity, sendHomeBtn);
+          }
           card.appendChild(headerRow);
           activeList.appendChild(card);
         }
@@ -5200,18 +6206,59 @@ export class HudController {
     }
     this.visitorsPopoverEl.appendChild(inviteList);
 
-    if (IS_DEV) {
+    if (this.store.isInviteCheatsEnabled()) {
       const specialVisitors = this.store.data.visitors.visitors.filter((v) =>
         Boolean((v as SpecialVisitorDef).special),
       );
       if (specialVisitors.length > 0) {
+        const sectionHead = document.createElement('div');
+        sectionHead.className = 'invite-section-head';
+
         const devLabel = document.createElement('div');
         devLabel.className = 'popover-section-label';
-        devLabel.textContent = 'DEV · Legendary Guests';
-        this.visitorsPopoverEl.appendChild(devLabel);
+        devLabel.textContent = this.store.isDevBuild()
+          ? 'DEV · Legendary Guests'
+          : 'CHEATS · Legendary Guests';
+
+        const cheatLinkBtn = this.makeBtn('Cheat Panel', () => {
+          this.audioModule?.playUiClick();
+          this.setActivePopover('cheats');
+        });
+        cheatLinkBtn.className = 'btn btn-xs invite-cheats-link';
+
+        sectionHead.append(devLabel, cheatLinkBtn);
+        this.visitorsPopoverEl.appendChild(sectionHead);
 
         const devList = document.createElement('div');
         devList.className = 'invite-visitors-list';
+
+        const showdownVm = this.visitorModule as SpecialVisitorModule | undefined;
+        if (showdownVm?.devTriggerShowdown) {
+          const card = document.createElement('div');
+          card.className = 'invite-visitor-card';
+          card.title = 'Invites Gojo and Toji if needed, then plays the showdown once both are indoors.';
+          const body = document.createElement('div');
+          body.className = 'invite-visitor-body';
+          const name = document.createElement('div');
+          name.className = 'invite-visitor-name';
+          name.textContent = 'Gojo × Toji showdown';
+          const sub = document.createElement('div');
+          sub.className = 'invite-visitor-sub';
+          sub.textContent = '🗡️ Scripted scene · any room';
+          body.append(name, sub);
+          const triggerBtn = this.makeBtn(
+            'Trigger',
+            () => {
+              this.audioModule?.playUiClick();
+              showdownVm.devTriggerShowdown?.();
+            },
+            'primary',
+          );
+          triggerBtn.className = 'btn primary btn-xs';
+          card.append(body, triggerBtn);
+          devList.appendChild(card);
+        }
+
         for (const visitor of specialVisitors) {
           const card = document.createElement('div');
           card.className = 'invite-visitor-card';
@@ -5254,9 +6301,356 @@ export class HudController {
           card.append(portrait, body, inviteBtn);
           devList.appendChild(card);
         }
+        devList.appendChild(buildLastGuestDevCard()); // [horror-events hook]
         this.visitorsPopoverEl.appendChild(devList);
       }
     }
+
+    // Compact footer with clickable Legendary Log progress pill (+ Cheats shortcut when locked/off)
+    const inviteFooter = document.createElement('div');
+    inviteFooter.className = 'invite-cheats-footer';
+    const logShortcutBtn = this.makeBtn(`📖 Log ${discoveredCount}/${totalLegends}`, () => {
+      this.audioModule?.playUiClick();
+      this.visitorsTab = 'log';
+      this.selectedGuestLogId = null;
+      this.hasUnseenGuestLogEntry = false;
+      this.renderVisitorsPopover();
+    });
+    logShortcutBtn.className = 'btn btn-xs invite-log-pill tabular-num';
+    inviteFooter.appendChild(logShortcutBtn);
+
+    if (!this.store.isInviteCheatsEnabled()) {
+      const cheatsQuickBtn = this.makeBtn('🎮 Cheats', () => {
+        this.audioModule?.playUiClick();
+        this.setActivePopover('cheats');
+      });
+      cheatsQuickBtn.className = 'btn btn-xs invite-cheats-footer-btn';
+      inviteFooter.appendChild(cheatsQuickBtn);
+    }
+    this.visitorsPopoverEl.appendChild(inviteFooter);
+  }
+
+  private renderGuestLogTab(prevGridScroll = 0): void {
+    this.stopRandomCooldownTimer();
+    this.randomInviteBtnEl = null;
+    this.randomCooldownBadgeEl = null;
+
+    const { specials, log, discoveredCount, total } = this.getGuestLogProgress();
+    const activeByVisitorId = new Map<string, ActiveVisitorSnapshot>();
+    for (const snap of this.visitorModule?.getActiveVisitors() ?? []) {
+      if (!activeByVisitorId.has(snap.visitorId)) {
+        activeByVisitorId.set(snap.visitorId, snap);
+      }
+    }
+
+    // Detail view for a single entry's signed page (or non-spoiler mystery card)
+    if (this.selectedGuestLogId !== null) {
+      const idx = specials.findIndex((v) => v.id === this.selectedGuestLogId);
+      if (idx >= 0) {
+        this.renderGuestLogDetail(
+          specials[idx],
+          idx,
+          log[specials[idx].id] ?? null,
+          activeByVisitorId.get(specials[idx].id) ?? null,
+        );
+        return;
+      }
+      this.selectedGuestLogId = null;
+    }
+
+    // Header / Progress Banner
+    const pct = total > 0 ? Math.round((discoveredCount / total) * 100) : 0;
+    const isComplete = total > 0 && discoveredCount >= total;
+
+    const banner = document.createElement('div');
+    banner.className = isComplete ? 'guestbook-banner complete' : 'guestbook-banner';
+
+    const bannerTop = document.createElement('div');
+    bannerTop.className = 'guestbook-banner-top';
+    const title = document.createElement('span');
+    title.className = 'guestbook-banner-title';
+    title.textContent = '📖 Legendary Guestbook';
+    const countPill = document.createElement('span');
+    countPill.className = isComplete
+      ? 'guestbook-count-pill complete tabular-num'
+      : 'guestbook-count-pill tabular-num';
+    countPill.textContent = `${discoveredCount} / ${total}`;
+    bannerTop.append(title, countPill);
+
+    const progressTrack = document.createElement('div');
+    progressTrack.className = 'guestbook-progress-track';
+    progressTrack.setAttribute('role', 'progressbar');
+    progressTrack.setAttribute('aria-valuemin', '0');
+    progressTrack.setAttribute('aria-valuemax', String(total));
+    progressTrack.setAttribute('aria-valuenow', String(discoveredCount));
+    const progressFill = document.createElement('div');
+    progressFill.className = 'guestbook-progress-fill';
+    progressFill.style.width = `${pct}%`;
+    progressTrack.appendChild(progressFill);
+
+    const sub = document.createElement('div');
+    sub.className = 'guestbook-banner-sub';
+    sub.textContent = isComplete
+      ? '🎉 Complete! Every legend has signed your book!'
+      : 'Meet surprise legendary visitors to cross them off!';
+
+    banner.append(bannerTop, progressTrack, sub);
+    this.visitorsPopoverEl.appendChild(banner);
+
+    // 3-Column Pokédex Collection Grid
+    const grid = document.createElement('div');
+    grid.className = 'guestbook-grid';
+
+    specials.forEach((visitor, idx) => {
+      const entryNum = `#${String(idx + 1).padStart(2, '0')}`;
+      const logEntry = log[visitor.id] ?? null;
+      const isDiscovered = Boolean(logEntry);
+      const isHere = activeByVisitorId.has(visitor.id);
+
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = isDiscovered ? 'guestbook-card discovered' : 'guestbook-card locked';
+      if (isDiscovered && visitor.id === this.lastNewlyDiscoveredId) {
+        card.classList.add('just-discovered');
+      }
+      card.setAttribute(
+        'aria-label',
+        isDiscovered && logEntry
+          ? `${entryNum} ${visitor.name}, visited ${logEntry.visits} time${logEntry.visits === 1 ? '' : 's'}`
+          : `${entryNum} Undiscovered legendary guest`,
+      );
+
+      const topRow = document.createElement('div');
+      topRow.className = 'guestbook-card-top';
+      const numEl = document.createElement('span');
+      numEl.className = 'guestbook-num tabular-num';
+      numEl.textContent = entryNum;
+      topRow.appendChild(numEl);
+
+      if (isDiscovered) {
+        const checkStamp = document.createElement('span');
+        checkStamp.className = 'guestbook-check-stamp';
+        checkStamp.textContent = '✓';
+        checkStamp.title = 'Discovered';
+        topRow.appendChild(checkStamp);
+      }
+
+      const media = document.createElement('div');
+      media.className = 'guestbook-card-media';
+      if (isDiscovered) {
+        const portrait = this.createVisitorPortrait(visitor, 0, visitor.color, visitor.id);
+        portrait.classList.add('guestbook-card-portrait');
+        media.appendChild(portrait);
+        if (isHere) {
+          const herePill = document.createElement('span');
+          herePill.className = 'guestbook-here-badge';
+          herePill.textContent = 'Here';
+          media.appendChild(herePill);
+        }
+      } else {
+        media.appendChild(this.createMysteryGuestPortrait(visitor, false));
+      }
+
+      const foot = document.createElement('div');
+      foot.className = 'guestbook-card-foot';
+      const nameEl = document.createElement('span');
+      nameEl.className = isDiscovered ? 'guestbook-card-name' : 'guestbook-card-name mystery';
+      nameEl.textContent = isDiscovered ? visitor.name : '???';
+      foot.appendChild(nameEl);
+
+      if (isDiscovered && logEntry && logEntry.visits > 1) {
+        const visitsEl = document.createElement('span');
+        visitsEl.className = 'guestbook-visit-count tabular-num';
+        visitsEl.textContent = `×${logEntry.visits}`;
+        foot.appendChild(visitsEl);
+      }
+
+      card.append(topRow, media, foot);
+      card.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        this.selectedGuestLogId = visitor.id;
+        this.renderVisitorsPopover();
+      });
+
+      grid.appendChild(card);
+    });
+
+    this.visitorsPopoverEl.appendChild(grid);
+    if (prevGridScroll > 0) {
+      grid.scrollTop = prevGridScroll;
+    }
+  }
+
+  private renderGuestLogDetail(
+    visitor: VisitorDef,
+    index: number,
+    logEntry: GuestLogEntry | null,
+    activeSnap: ActiveVisitorSnapshot | null,
+  ): void {
+    const entryNum = `#${String(index + 1).padStart(2, '0')}`;
+    const isDiscovered = Boolean(logEntry);
+
+    const topBar = document.createElement('div');
+    topBar.className = 'guestbook-detail-bar';
+
+    const backBtn = this.makeBtn('← All Entries', () => {
+      this.audioModule?.playUiClick();
+      this.selectedGuestLogId = null;
+      this.renderVisitorsPopover();
+    });
+    backBtn.className = 'btn btn-xs guestbook-back-btn';
+
+    const numBadge = document.createElement('span');
+    numBadge.className = 'guestbook-entry-num tabular-num';
+    numBadge.textContent = entryNum;
+
+    topBar.append(backBtn, numBadge);
+    this.visitorsPopoverEl.appendChild(topBar);
+
+    if (!isDiscovered || !logEntry) {
+      // Strictly non-spoiler mystery page
+      const card = document.createElement('div');
+      card.className = 'guestbook-detail-card locked';
+
+      const portrait = this.createMysteryGuestPortrait(visitor, true);
+      const title = document.createElement('div');
+      title.className = 'guestbook-detail-name';
+      title.textContent = '???';
+
+      const pill = document.createElement('span');
+      pill.className = 'guestbook-pill locked';
+      pill.textContent = 'Undiscovered';
+
+      const prompt = document.createElement('p');
+      prompt.className = 'guestbook-detail-desc';
+      prompt.textContent =
+        "A mysterious legendary guest who hasn't stopped by yet. Keep your door Open or try Random Character in Invite to meet them!";
+
+      const goInviteBtn = this.makeBtn(
+        '🎲 Try Random Character',
+        () => {
+          this.audioModule?.playUiClick();
+          this.visitorsTab = 'invite';
+          this.selectedGuestLogId = null;
+          this.renderVisitorsPopover();
+        },
+        'primary',
+      );
+      goInviteBtn.className = 'btn primary btn-xs';
+
+      card.append(portrait, title, pill, prompt, goInviteBtn);
+      this.visitorsPopoverEl.appendChild(card);
+      return;
+    }
+
+    // Discovered signed guestbook page
+    const card = document.createElement('div');
+    card.className = 'guestbook-detail-card discovered';
+
+    const hero = document.createElement('div');
+    hero.className = 'guestbook-detail-hero';
+
+    const portrait = this.createVisitorPortrait(visitor, 0, visitor.color, visitor.id);
+    portrait.classList.add('guestbook-portrait-lg');
+
+    const meta = document.createElement('div');
+    meta.className = 'guestbook-detail-meta';
+
+    const badgesRow = document.createElement('div');
+    badgesRow.className = 'guestbook-detail-badges';
+    const crossedPill = document.createElement('span');
+    crossedPill.className = 'guestbook-pill crossed-off';
+    crossedPill.textContent = '✓ Crossed Off';
+    badgesRow.appendChild(crossedPill);
+    if (activeSnap) {
+      const herePill = document.createElement('span');
+      herePill.className = 'guestbook-pill here';
+      herePill.textContent = 'Here now';
+      badgesRow.appendChild(herePill);
+    }
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'guestbook-detail-name';
+    nameRow.textContent = visitor.name;
+    const star = document.createElement('span');
+    star.className = 'special-sparkle-badge';
+    star.textContent = '✦';
+    nameRow.appendChild(star);
+
+    const iconGlyph = visitor.archetypeIcon ?? VISITOR_ARCHETYPE_ICONS[visitor.id] ?? '✨';
+    const personaTrait = (
+      visitor as VisitorDef & { personas?: Array<{ trait?: string }> }
+    ).personas?.[0]?.trait;
+    const traitLine = document.createElement('div');
+    traitLine.className = 'guestbook-detail-trait';
+    traitLine.textContent = `${iconGlyph} ${personaTrait || visitor.description}`;
+
+    meta.append(badgesRow, nameRow, traitLine);
+    hero.append(portrait, meta);
+    card.appendChild(hero);
+
+    if (personaTrait && visitor.description && visitor.description !== personaTrait) {
+      const desc = document.createElement('p');
+      desc.className = 'guestbook-detail-desc';
+      desc.textContent = visitor.description;
+      card.appendChild(desc);
+    }
+
+    if (visitor.likedTags.length > 0) {
+      const tagsRow = document.createElement('div');
+      tagsRow.className = 'guestbook-tags-row';
+      for (const tag of visitor.likedTags) {
+        const chip = document.createElement('span');
+        chip.className = 'guestbook-tag-chip';
+        chip.textContent = `♥ ${tag}`;
+        tagsRow.appendChild(chip);
+      }
+      card.appendChild(tagsRow);
+    }
+
+    const stats = document.createElement('div');
+    stats.className = 'guestbook-stats-strip tabular-num';
+    stats.textContent = `Visits: ${logEntry.visits} · First met: ${this.formatShortLogDate(logEntry.firstVisitedAt)}`;
+    card.appendChild(stats);
+
+    const cheatsOn = this.store.isInviteCheatsEnabled();
+    if (activeSnap || cheatsOn) {
+      const actions = document.createElement('div');
+      actions.className = 'guestbook-detail-actions';
+
+      if (activeSnap) {
+        const focusBtn = this.makeBtn(
+          '👀 Focus',
+          () => {
+            this.audioModule?.playUiClick();
+            if (this.store.isEditMode()) {
+              this.store.setEditMode(false);
+            }
+            this.selectVisitor(activeSnap.instanceId, true);
+          },
+          'primary',
+        );
+        focusBtn.className = 'btn primary btn-xs';
+        actions.appendChild(focusBtn);
+      }
+
+      if (cheatsOn) {
+        const inviteBtn = this.makeBtn(
+          'Invite',
+          () => {
+            this.audioModule?.playUiClick();
+            this.visitorModule?.inviteVisitor(visitor.id);
+          },
+          activeSnap ? undefined : 'primary',
+        );
+        inviteBtn.className = activeSnap ? 'btn btn-xs' : 'btn primary btn-xs';
+        actions.appendChild(inviteBtn);
+      }
+
+      card.appendChild(actions);
+    }
+
+    this.visitorsPopoverEl.appendChild(card);
   }
 
   private stopRandomCooldownTimer(): void {
@@ -5721,6 +7115,9 @@ export class HudController {
     }
     if (this.activePopover === 'visitors') {
       this.renderVisitorsPopover();
+    }
+    if (this.activePopover === 'cheats') {
+      this.renderCheatsPopover();
     }
     if (this.selectedVisitorId) {
       this.renderVisitorProfileCard();

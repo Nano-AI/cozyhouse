@@ -15,9 +15,11 @@ export { MUSIC_THEME_LABELS, resolveMusicTheme, type MusicStateSnapshot, type Mu
 
 const DEFAULT_VOLUME = 0.85;
 const DEFAULT_WEATHER_VOLUME = 0.75;
+const DEFAULT_CHATTER_VOLUME = 0.28;
 const MASTER_VOLUME_STORAGE_KEY = 'cozyhouse:vol:master';
 const MASTER_MUTED_STORAGE_KEY = 'cozyhouse:vol:muted';
 const WEATHER_VOLUME_STORAGE_KEY = 'cozyhouse:vol:weather';
+const CHATTER_VOLUME_STORAGE_KEY = 'cozyhouse:chatterVolume';
 const MAX_PENDING_CALLBACKS = 3;
 const PENDING_TTL_MS = 1500;
 const MUSIC_RELEVANT_REASONS = new Set([
@@ -29,6 +31,7 @@ const MUSIC_RELEVANT_REASONS = new Set([
   'preset',
   'roomOverride',
   'interact',
+  'sim-interact',
   'undo',
   'redo',
   'load',
@@ -47,6 +50,8 @@ type AudioOutputCallback = (ctx: AudioContext, dest: AudioNode) => void;
 interface QueuedAudioCallback {
   fn: AudioOutputCallback;
   queuedAt: number;
+  /** A cutscene's own sound: bypasses the world bus. */
+  scene: boolean;
 }
 
 type WindowWithWebkitAudio = Window & {
@@ -123,22 +128,60 @@ function writeStoredWeatherVolume(volume: number): void {
   }
 }
 
+function readStoredChatterVolume(): number {
+  try {
+    if (typeof localStorage === 'undefined') return DEFAULT_CHATTER_VOLUME;
+    const raw = localStorage.getItem(CHATTER_VOLUME_STORAGE_KEY);
+    if (raw === null) return DEFAULT_CHATTER_VOLUME;
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? clampVolume(parsed, DEFAULT_CHATTER_VOLUME) : DEFAULT_CHATTER_VOLUME;
+  } catch {
+    return DEFAULT_CHATTER_VOLUME;
+  }
+}
+
+function writeStoredChatterVolume(volume: number): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(CHATTER_VOLUME_STORAGE_KEY, clampVolume(volume, DEFAULT_CHATTER_VOLUME).toFixed(3));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 /**
  * Web Audio facade for Cozyhouse: procedural foley SFX, item interactions,
  * independent weather ambience & themed music channels, room celebration chimes,
  * master volume control, and gibberish visitor speech.
  */
+/**
+ * A gain stage in front of `dest`, so the Hollow Purple layers sit on top of the 30 s clip instead
+ * of under it (they rendered 10–17 dB quieter than its music). The master limiter catches peaks.
+ */
+function boosted(ctx: BaseAudioContext, dest: AudioNode, gain: number): AudioNode {
+  const g = ctx.createGain();
+  g.gain.value = gain;
+  g.connect(dest);
+  return g;
+}
+
 export class AudioModule {
   private muted = false;
   private volume = DEFAULT_VOLUME;
   private weatherVolume = DEFAULT_WEATHER_VOLUME;
+  private chatterVolume = DEFAULT_CHATTER_VOLUME;
   private disposed = false;
   private hasUserGesture = false;
   private resumeInFlight = false;
 
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
+  /** Everything that is not a cutscene's own sound: foley, voices, UI, weather. */
+  private worldGain: GainNode | null = null;
+  private cutsceneAudio = false;
+  private musicDucked = false;
   private weatherGain: GainNode | null = null;
+  private chatterGain: GainNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
 
   private readonly foley = new FoleySynth();
@@ -155,6 +198,7 @@ export class AudioModule {
   private readonly muteListeners = new Set<(muted: boolean) => void>();
   private readonly volumeListeners = new Set<(volume: number) => void>();
   private readonly weatherVolumeListeners = new Set<(volume: number) => void>();
+  private readonly chatterVolumeListeners = new Set<(volume: number) => void>();
   private readonly storeCleanups = new Set<() => void>();
   private readonly pendingCallbacks: QueuedAudioCallback[] = [];
   private gestureListenersBound = false;
@@ -163,6 +207,7 @@ export class AudioModule {
     this.volume = readStoredMasterVolume();
     this.muted = readStoredMuted();
     this.weatherVolume = readStoredWeatherVolume();
+    this.chatterVolume = readStoredChatterVolume();
     this.musicPlayer.setMasterVolume(this.volume, this.muted);
     this.bindGestureUnlock();
   }
@@ -298,6 +343,35 @@ export class AudioModule {
     };
   }
 
+  getChatterVolume(): number {
+    return this.chatterVolume;
+  }
+
+  setChatterVolume(vol: number): void {
+    const next = clampVolume(vol, DEFAULT_CHATTER_VOLUME);
+    const changed = Math.abs(this.chatterVolume - next) > 0.0005;
+    this.chatterVolume = next;
+    writeStoredChatterVolume(next);
+
+    if (next > 0.001) {
+      this.ensureContextAndResume();
+    }
+    this.applyChatterGain();
+
+    if (changed) {
+      for (const listener of this.chatterVolumeListeners) {
+        listener(this.chatterVolume);
+      }
+    }
+  }
+
+  onChatterVolumeChange(cb: (volume: number) => void): () => void {
+    this.chatterVolumeListeners.add(cb);
+    return () => {
+      this.chatterVolumeListeners.delete(cb);
+    };
+  }
+
   getMusicVolume(): number {
     return this.musicPlayer.getMusicVolume();
   }
@@ -422,7 +496,67 @@ export class AudioModule {
   }
 
   playGojoAscend(): void {
-    this.withAudioOutput((ctx, dest) => this.foley.playGojoAscend(ctx, dest));
+    this.withSceneOutput((ctx, dest) => this.foley.playGojoAscend(ctx, dest));
+  }
+
+  /** Fades the background music out for a cutscene (true) and back in afterwards (false). */
+  setMusicDucked(ducked: boolean): void {
+    this.musicDucked = ducked;
+    this.musicPlayer.setDuck(this.musicDucked || this.cutsceneAudio ? 0 : 1);
+  }
+
+  /**
+   * Cutscene audio. While on, only the scene's own sounds are heard: music is ducked, the world
+   * bus (item, door, UI and visitor sounds, chatter, weather, thunder) eases to silence over
+   * about 0.3 s, and new non-scene sounds are dropped instead of being played into the gate.
+   * Scene sounds use `withSceneOutput`, straight to the master gain, so the player's volume and
+   * mute still apply to them.
+   */
+  setCutsceneAudio(on: boolean): void {
+    this.cutsceneAudio = Boolean(on);
+    this.musicPlayer.setDuck(this.musicDucked || this.cutsceneAudio ? 0 : 1);
+    this.applyWorldGain();
+  }
+
+  isCutsceneAudio(): boolean {
+    return this.cutsceneAudio;
+  }
+
+  playShowdownStab(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownStab(ctx, dest));
+  }
+
+  /** One swell of the charging hum; `level` 0..1 raises its pitch. */
+  playShowdownCharge(level: number): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownCharge(ctx, boosted(ctx, dest, 2), level));
+  }
+
+  playShowdownBlue(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownBlue(ctx, boosted(ctx, dest, 3)));
+  }
+
+  playShowdownRed(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownRed(ctx, boosted(ctx, dest, 4)));
+  }
+
+  playShowdownMerge(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownMerge(ctx, boosted(ctx, dest, 2.5)));
+  }
+
+  playShowdownCrackle(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownCrackle(ctx, boosted(ctx, dest, 3)));
+  }
+
+  playShowdownExplosion(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownExplosion(ctx, dest));
+  }
+
+  playShowdownHit(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownHit(ctx, dest));
+  }
+
+  playShowdownFire(): void {
+    this.withSceneOutput((ctx, dest) => this.foley.playShowdownFire(ctx, boosted(ctx, dest, 1.5)));
   }
 
   playRockyChords(): void {
@@ -435,13 +569,26 @@ export class AudioModule {
     pitchOffset = 1,
     speedMultiplier = 1,
   ): void {
+    if (this.chatterVolume <= 0.001) return;
     this.withAudioOutput((ctx, dest) => {
+      if (this.chatterVolume <= 0.001) return;
       try {
-        speakGibberishLine(ctx, dest, text, voice, pitchOffset, speedMultiplier);
+        speakGibberishLine(ctx, this.chatterGain ?? dest, text, voice, pitchOffset, speedMultiplier);
       } catch {
         // Never propagate audio synthesis errors to caller
       }
     });
+  }
+
+  // [horror-events hook] Lets src/events/HorrorDirector.ts play its own Web Audio score through the
+  // master gain (master volume + mute apply) and a rain layer through the weather gain.
+  getEventAudioOutput(): { ctx: AudioContext; master: AudioNode; weather: AudioNode } | null {
+    if (!this.ensureContextAndResume() || !this.ctx || !this.masterGain || !this.weatherGain) return null;
+    return { ctx: this.ctx, master: this.masterGain, weather: this.weatherGain };
+  }
+
+  setMusicSuspended(suspended: boolean): void {
+    this.musicPlayer.setSuspended(suspended);
   }
 
   setWeatherAmbience(weather: WeatherDef): void {
@@ -467,10 +614,20 @@ export class AudioModule {
     this.muteListeners.clear();
     this.volumeListeners.clear();
     this.weatherVolumeListeners.clear();
+    this.chatterVolumeListeners.clear();
     this.pendingCallbacks.length = 0;
 
     this.weatherAmbience.dispose();
     this.musicPlayer.dispose();
+
+    if (this.chatterGain) {
+      try {
+        this.chatterGain.disconnect();
+      } catch {
+        // Ignore
+      }
+      this.chatterGain = null;
+    }
 
     if (this.weatherGain) {
       try {
@@ -524,6 +681,18 @@ export class AudioModule {
     }
   }
 
+  private applyWorldGain(): void {
+    if (!this.ctx || !this.worldGain || this.disposed) return;
+    try {
+      const now = this.ctx.currentTime;
+      this.worldGain.gain.cancelScheduledValues(now);
+      this.worldGain.gain.setValueAtTime(this.worldGain.gain.value, now);
+      this.worldGain.gain.setTargetAtTime(this.cutsceneAudio ? 0 : 1, now, 0.1);
+    } catch {
+      // Ignore if AudioContext is closing
+    }
+  }
+
   private applyWeatherGain(): void {
     if (!this.ctx || !this.weatherGain || this.disposed) return;
     try {
@@ -531,6 +700,18 @@ export class AudioModule {
       this.weatherGain.gain.cancelScheduledValues(now);
       this.weatherGain.gain.setValueAtTime(this.weatherGain.gain.value, now);
       this.weatherGain.gain.setTargetAtTime(this.weatherVolume, now, 0.025);
+    } catch {
+      // Ignore if AudioContext is closing
+    }
+  }
+
+  private applyChatterGain(): void {
+    if (!this.ctx || !this.chatterGain || this.disposed) return;
+    try {
+      const now = this.ctx.currentTime;
+      this.chatterGain.gain.cancelScheduledValues(now);
+      this.chatterGain.gain.setValueAtTime(this.chatterGain.gain.value, now);
+      this.chatterGain.gain.setTargetAtTime(this.chatterVolume, now, 0.025);
     } catch {
       // Ignore if AudioContext is closing
     }
@@ -594,8 +775,14 @@ export class AudioModule {
         const masterGain = ctx.createGain();
         masterGain.gain.setValueAtTime(this.muted ? 0 : this.volume, ctx.currentTime);
 
+        const worldGain = ctx.createGain();
+        worldGain.gain.setValueAtTime(this.cutsceneAudio ? 0 : 1, ctx.currentTime);
+
         const weatherGain = ctx.createGain();
         weatherGain.gain.setValueAtTime(this.weatherVolume, ctx.currentTime);
+
+        const chatterGain = ctx.createGain();
+        chatterGain.gain.setValueAtTime(this.chatterVolume, ctx.currentTime);
 
         const limiter = ctx.createDynamicsCompressor();
         limiter.threshold.setValueAtTime(-6, ctx.currentTime);
@@ -604,7 +791,9 @@ export class AudioModule {
         limiter.attack.setValueAtTime(0.003, ctx.currentTime);
         limiter.release.setValueAtTime(0.12, ctx.currentTime);
 
-        weatherGain.connect(masterGain);
+        weatherGain.connect(worldGain);
+        chatterGain.connect(worldGain);
+        worldGain.connect(masterGain);
         masterGain.connect(limiter);
         limiter.connect(ctx.destination);
 
@@ -620,7 +809,9 @@ export class AudioModule {
 
         this.ctx = ctx;
         this.masterGain = masterGain;
+        this.worldGain = worldGain;
         this.weatherGain = weatherGain;
+        this.chatterGain = chatterGain;
         this.limiter = limiter;
       } catch {
         return false;
@@ -662,6 +853,7 @@ export class AudioModule {
     }
     this.applyMasterGain();
     this.applyWeatherGain();
+    this.applyChatterGain();
 
     if (this.activeWeather) {
       this.weatherAmbience.setWeather(this.ctx, this.weatherGain, this.activeWeather);
@@ -678,20 +870,28 @@ export class AudioModule {
     const queued = this.pendingCallbacks.splice(0, this.pendingCallbacks.length);
     for (const entry of queued) {
       if (nowMs - entry.queuedAt > PENDING_TTL_MS) continue;
+      if (!entry.scene && this.cutsceneAudio) continue;
       try {
-        entry.fn(this.ctx, this.masterGain);
+        entry.fn(this.ctx, entry.scene ? this.masterGain : (this.worldGain ?? this.masterGain));
       } catch {
         // Keep audio completely fail-safe
       }
     }
   }
 
-  private withAudioOutput(fn: AudioOutputCallback): void {
+  /** A cutscene's own sound: never gated by the cutscene flag. */
+  private withSceneOutput(fn: AudioOutputCallback): void {
+    this.withAudioOutput(fn, true);
+  }
+
+  private withAudioOutput(fn: AudioOutputCallback, scene = false): void {
     if (this.disposed) return;
+    // During a cutscene every non-scene sound is simply not played.
+    if (this.cutsceneAudio && !scene) return;
 
     if (this.ensureContextAndResume() && this.ctx && this.masterGain && this.ctx.state === 'running') {
       try {
-        fn(this.ctx, this.masterGain);
+        fn(this.ctx, scene ? this.masterGain : (this.worldGain ?? this.masterGain));
       } catch {
         // Keep audio completely fail-safe
       }
@@ -700,7 +900,7 @@ export class AudioModule {
 
     // AudioContext is created and suspended (e.g. first gesture resume in flight): queue briefly
     if (this.ctx && this.masterGain && this.ctx.state !== 'closed') {
-      this.pendingCallbacks.push({ fn, queuedAt: Date.now() });
+      this.pendingCallbacks.push({ fn, queuedAt: Date.now(), scene });
       while (this.pendingCallbacks.length > MAX_PENDING_CALLBACKS) {
         this.pendingCallbacks.shift();
       }

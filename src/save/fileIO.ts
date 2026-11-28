@@ -11,7 +11,8 @@ export function exportHouseToFile(state: HouseState): { filename: string; bytes:
   const json = serializeHouseToJson(state);
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const filename = `cozyhouse-${formatTimestamp()}.cozyhouse.json`;
+  // `.house` is plain JSON (the same format as before); Open accepts .house, .json and legacy .cozyhouse.json files.
+  const filename = `cozyhouse-${formatTimestamp()}.house`;
 
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -34,7 +35,7 @@ export async function importHouseFromFile(
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error('Could not read file: invalid JSON format.');
+    throw new Error('Could not read that file. Pick a .house file saved from Cozyhouse.');
   }
   return deserializeHouse(parsed, data);
 }

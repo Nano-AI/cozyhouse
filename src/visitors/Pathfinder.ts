@@ -46,6 +46,14 @@ export interface ApproachTarget {
   faceWorld: WorldPoint;
 }
 
+export interface BathroomZone {
+  toiletUid: string;
+  roomTiles: Set<number>;
+  doorUids: Set<string>;
+  doorEdgeKeys: Set<string>;
+  doorMidpoints: Array<{ uid: string; wx: number; wz: number }>;
+}
+
 export interface GridPathOptions {
   allowOccupiedStart?: boolean;
   /** Tiles that cannot be stepped onto (except `goal` if `allowGoalInBlocked` is true). */
@@ -53,6 +61,8 @@ export interface GridPathOptions {
   /** Tiles that carry extra movement cost (e.g., another visitor's occupied tile). */
   penalizedTiles?: Set<number>;
   penaltyCost?: number;
+  /** Additional wall/door edge keys temporarily blocked (e.g. locked occupied bathroom doors). */
+  extraBlockedEdges?: Set<string>;
 }
 
 const CARDINAL_DIRS: readonly GridCoord[] = [
@@ -224,11 +234,12 @@ export function canStepBetween(
   az: number,
   bx: number,
   bz: number,
+  extraBlockedEdges?: Set<string>,
 ): boolean {
   if (!inGridBounds(bx, bz, nav.width, nav.depth)) return false;
   if (!nav.walkable[bx][bz]) return false;
   const key = edgeKeyBetween(ax, az, bx, bz);
-  if (key && nav.blockedEdges.has(key)) return false;
+  if (key && (nav.blockedEdges.has(key) || extraBlockedEdges?.has(key))) return false;
   return true;
 }
 
@@ -249,6 +260,7 @@ export function findGridPath(
   const blockedTiles = opts.blockedTiles;
   const penalizedTiles = opts.penalizedTiles;
   const penaltyCost = opts.penaltyCost ?? 6;
+  const extraBlockedEdges = opts.extraBlockedEdges;
 
   if (!inGridBounds(start.x, start.z, nav.width, nav.depth)) return null;
   if (!inGridBounds(goal.x, goal.z, nav.width, nav.depth)) return null;
@@ -314,7 +326,7 @@ export function findGridPath(
     for (const dir of CARDINAL_DIRS) {
       const nx = cx + dir.x;
       const nz = cz + dir.z;
-      if (!canStepBetween(nav, cx, cz, nx, nz)) continue;
+      if (!canStepBetween(nav, cx, cz, nx, nz, extraBlockedEdges)) continue;
 
       const nIdx = tileIndex(nx, nz, nav.depth);
       if (closed[nIdx]) continue;
@@ -344,6 +356,7 @@ export function findGridPath(
 export function computeReachableDistances(
   nav: NavGrid,
   start: GridCoord,
+  extraBlockedEdges?: Set<string>,
 ): Map<number, number> {
   const dist = new Map<number, number>();
   if (!inGridBounds(start.x, start.z, nav.width, nav.depth)) return dist;
@@ -362,7 +375,7 @@ export function computeReachableDistances(
     for (const dir of CARDINAL_DIRS) {
       const nx = cx + dir.x;
       const nz = cz + dir.z;
-      if (!canStepBetween(nav, cx, cz, nx, nz)) continue;
+      if (!canStepBetween(nav, cx, cz, nx, nz, extraBlockedEdges)) continue;
       const nIdx = tileIndex(nx, nz, nav.depth);
       if (!dist.has(nIdx)) {
         dist.set(nIdx, d + 1);
@@ -412,13 +425,14 @@ export function resolveSafeMovement(
   toWz: number,
   allowOutsideBounds = false,
   margin = VISITOR_WALL_MARGIN,
+  extraBlockedEdges?: Set<string>,
 ): WorldPoint {
   const halfW = nav.width / 2;
   const halfD = nav.depth / 2;
 
   const isEdgeOrTileBlocked = (tx: number, tz: number, nx: number, nz: number): boolean => {
     const key = edgeKeyBetween(tx, tz, nx, nz);
-    if (key && nav.blockedEdges.has(key)) return true;
+    if (key && (nav.blockedEdges.has(key) || extraBlockedEdges?.has(key))) return true;
     if (!inGridBounds(nx, nz, nav.width, nav.depth)) return !allowOutsideBounds;
     return !nav.walkable[nx][nz];
   };
@@ -953,4 +967,119 @@ export function resolveItemApproach(
 
   const chosen = pickBest(frontCandidates) ?? pickBest(otherCandidates);
   return chosen ? { tile: chosen, faceWorld } : null;
+}
+
+/**
+ * Detects enclosed bathroom rooms around every placed `toilet_cozy` by flood-filling
+ * across `hasFloorTile` neighbors while stopping at BOTH solid walls AND door edges.
+ * If open-plan (touches non-floor yard via open edge, > 30 tiles, or no enclosing door),
+ * still returns a `BathroomZone` with empty door sets so occupancy & waiting still work!
+ */
+export function computeBathroomZones(nav: NavGrid, state: HouseState): BathroomZone[] {
+  const doorEdgeMap = new Map<string, DoorEntry[]>();
+  for (const d of nav.doors) {
+    const key = canonicalWallEdgeKey(d.item.x, d.item.z, d.item.rotation);
+    const list = doorEdgeMap.get(key);
+    if (list) list.push(d);
+    else doorEdgeMap.set(key, [d]);
+  }
+
+  const zones: BathroomZone[] = [];
+
+  for (const item of state.items) {
+    if (item.itemId !== 'toilet_cozy') continue;
+    if (!inGridBounds(item.x, item.z, nav.width, nav.depth)) continue;
+
+    const startIdx = tileIndex(item.x, item.z, nav.depth);
+    const roomTiles = new Set<number>([startIdx]);
+    const queue: number[] = [startIdx];
+    const borderDoors: Array<{ edgeKey: string; otherTile: GridCoord; doors: DoorEntry[] }> = [];
+    let touchesOpenYard = !nav.hasFloorTile[item.x][item.z];
+    let tooLarge = false;
+
+    let head = 0;
+    while (head < queue.length && !tooLarge) {
+      const curr = queue[head++];
+      const cx = Math.floor(curr / nav.depth);
+      const cz = curr % nav.depth;
+
+      for (const dir of CARDINAL_DIRS) {
+        const nx = cx + dir.x;
+        const nz = cz + dir.z;
+        const key = edgeKeyBetween(cx, cz, nx, nz);
+        if (key && nav.blockedEdges.has(key)) continue;
+
+        const edgeDoors = key ? doorEdgeMap.get(key) : undefined;
+        if (key && edgeDoors && edgeDoors.length > 0) {
+          borderDoors.push({ edgeKey: key, otherTile: { x: nx, z: nz }, doors: edgeDoors });
+          continue;
+        }
+
+        if (!inGridBounds(nx, nz, nav.width, nav.depth) || !nav.hasFloorTile[nx][nz]) {
+          touchesOpenYard = true;
+          continue;
+        }
+
+        const nIdx = tileIndex(nx, nz, nav.depth);
+        if (!roomTiles.has(nIdx)) {
+          roomTiles.add(nIdx);
+          if (roomTiles.size > 30) {
+            tooLarge = true;
+            break;
+          }
+          queue.push(nIdx);
+        }
+      }
+    }
+
+    if (!touchesOpenYard && !tooLarge && roomTiles.size <= 30) {
+      const doorUids = new Set<string>();
+      const doorEdgeKeys = new Set<string>();
+      const doorMidpoints: Array<{ uid: string; wx: number; wz: number }> = [];
+
+      for (const bd of borderDoors) {
+        const otherInRoom =
+          inGridBounds(bd.otherTile.x, bd.otherTile.z, nav.width, nav.depth) &&
+          roomTiles.has(tileIndex(bd.otherTile.x, bd.otherTile.z, nav.depth));
+        if (otherInRoom) continue;
+
+        doorEdgeKeys.add(bd.edgeKey);
+        for (const d of bd.doors) {
+          if (doorUids.has(d.item.uid)) continue;
+          doorUids.add(d.item.uid);
+          const wt = wallEdgeToWorldTransform(
+            d.item.x,
+            d.item.z,
+            d.item.rotation,
+            nav.width,
+            nav.depth,
+            0,
+          );
+          doorMidpoints.push({ uid: d.item.uid, wx: wt.wx, wz: wt.wz });
+        }
+      }
+
+      if (doorUids.size >= 1) {
+        zones.push({
+          toiletUid: item.uid,
+          roomTiles,
+          doorUids,
+          doorEdgeKeys,
+          doorMidpoints,
+        });
+        continue;
+      }
+    }
+
+    // Open-plan bathroom (no enclosing door) — occupancy, waiting & sprint still work cleanly
+    zones.push({
+      toiletUid: item.uid,
+      roomTiles: new Set<number>(),
+      doorUids: new Set<string>(),
+      doorEdgeKeys: new Set<string>(),
+      doorMidpoints: [],
+    });
+  }
+
+  return zones;
 }

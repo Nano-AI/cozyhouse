@@ -1341,6 +1341,159 @@ export class FoleySynth {
     whistle.stop(wStart + 0.285);
   }
 
+  /** One enveloped oscillator sweep; the building block of the showdown cues. */
+  private playSweep(
+    ctx: AudioContext,
+    dest: AudioNode,
+    type: OscillatorType,
+    start: number,
+    fromHz: number,
+    toHz: number,
+    peak: number,
+    attack: number,
+    duration: number,
+  ): void {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(fromHz, start);
+    osc.frequency.exponentialRampToValueAtTime(toHz, start + duration);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.linearRampToValueAtTime(peak, start + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+    osc.connect(gain);
+    gain.connect(dest);
+    osc.onended = () => {
+      osc.disconnect();
+      gain.disconnect();
+    };
+    osc.start(start);
+    osc.stop(start + duration + 0.02);
+  }
+
+  /** Showdown: short metallic stab — sharp steel tick over a dull body thud. */
+  playShowdownStab(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playSweep(ctx, dest, 'square', now, 2400, 900, 0.12, 0.002, 0.07);
+    this.playSweep(ctx, dest, 'sine', now, 170, 46, 0.5, 0.004, 0.2);
+    this.playFilteredNoiseBurst(ctx, dest, now, 'white', 3200, 1.2, 0.3, 0.05);
+  }
+
+  /** Showdown: one overlapping swell of the charging hum (~0.7s); pitch climbs with `level` 0..1. */
+  playShowdownCharge(ctx: AudioContext, dest: AudioNode, level: number): void {
+    const now = ctx.currentTime;
+    const l = Math.max(0, Math.min(1, level));
+    const base = 70 * Math.pow(2, l * 1.6);
+    this.playSweep(ctx, dest, 'sawtooth', now, base, base * 1.12, 0.05 + l * 0.05, 0.25, 0.7);
+    this.playSweep(ctx, dest, 'sine', now, base * 2, base * 2.3, 0.07 + l * 0.06, 0.25, 0.7);
+    this.playSweep(ctx, dest, 'sine', now, base * 3.01, base * 3.5, 0.03 + l * 0.04, 0.3, 0.7);
+  }
+
+  /** Showdown: Blue forming — a hollow tone sinking inward, with air being drawn in. */
+  playShowdownBlue(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playSweep(ctx, dest, 'sine', now, 420, 150, 0.16, 0.35, 1.7);
+    this.playSweep(ctx, dest, 'triangle', now, 840, 300, 0.05, 0.4, 1.5);
+    this.playSweep(ctx, dest, 'sine', now + 0.1, 74, 52, 0.2, 0.5, 1.6);
+    this.playFilteredNoiseBurst(ctx, dest, now + 0.15, 'pink', 500, 2.5, 0.06, 1.2);
+  }
+
+  /** Showdown: Red forming — a bright tone pushing upward and outward, with a hot edge. */
+  playShowdownRed(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playSweep(ctx, dest, 'sawtooth', now, 160, 520, 0.06, 0.5, 1.5);
+    this.playSweep(ctx, dest, 'sine', now, 320, 1040, 0.11, 0.6, 1.5);
+    this.playSweep(ctx, dest, 'square', now + 0.2, 640, 1560, 0.025, 0.7, 1.2);
+    this.playFilteredNoiseBurst(ctx, dest, now + 0.3, 'white', 2600, 1.8, 0.05, 1.0);
+  }
+
+  /** Showdown: the two collide — a crack, a clashing dissonance and a body thump. */
+  playShowdownMerge(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playFilteredNoiseBurst(ctx, dest, now, 'white', 4200, 0.9, 0.32, 0.09);
+    this.playSweep(ctx, dest, 'sine', now, 190, 44, 0.55, 0.006, 0.55);
+    this.playSweep(ctx, dest, 'sawtooth', now, 233, 208, 0.07, 0.02, 1.1);
+    this.playSweep(ctx, dest, 'sawtooth', now, 311, 349, 0.06, 0.02, 1.1);
+    this.playSweep(ctx, dest, 'triangle', now + 0.04, 1400, 480, 0.08, 0.01, 0.5);
+  }
+
+  /** Showdown: one electric crackle off the purple sphere. */
+  playShowdownCrackle(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playFilteredNoiseBurst(ctx, dest, now, 'white', 5200, 1.4, 0.16, 0.05);
+    this.playFilteredNoiseBurst(ctx, dest, now + 0.06, 'white', 3400, 1.4, 0.11, 0.04);
+    this.playSweep(ctx, dest, 'square', now, 1800, 700, 0.035, 0.002, 0.09);
+  }
+
+  /** Showdown: deep whoomph on release — sub drop, air rush and a falling tail. */
+  playShowdownFire(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playSweep(ctx, dest, 'sine', now, 120, 28, 0.7, 0.012, 0.9);
+    this.playSweep(ctx, dest, 'triangle', now, 320, 60, 0.26, 0.01, 0.5);
+    this.playSweep(ctx, dest, 'sawtooth', now + 0.03, 900, 110, 0.07, 0.05, 1.1);
+    this.playFilteredNoiseBurst(ctx, dest, now, 'brown', 240, 0.7, 0.6, 0.6);
+    this.playFilteredNoiseBurst(ctx, dest, now + 0.02, 'white', 1800, 0.6, 0.16, 0.35);
+  }
+
+  /**
+   * Showdown: Hollow Purple's blast — a crack, a distorted thump and a long rumble. The low end is
+   * pushed through soft clipping so its harmonics are heard on laptop speakers, not just subwoofers.
+   */
+  playShowdownExplosion(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    const shaper = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(((i / (curve.length - 1)) * 2 - 1) * 4);
+    shaper.curve = curve;
+    const shaped = ctx.createGain();
+    shaped.gain.value = 0.55;
+    shaper.connect(shaped);
+    shaped.connect(dest);
+
+    this.playSweep(ctx, shaper, 'sine', now, 170, 38, 0.9, 0.004, 0.8);
+    this.playSweep(ctx, shaper, 'triangle', now + 0.02, 95, 28, 0.6, 0.01, 1.4);
+    this.playFilteredNoiseBurst(ctx, dest, now, 'white', 2600, 0.5, 0.8, 0.16);
+    this.playFilteredNoiseBurst(ctx, shaper, now + 0.04, 'brown', 110, 0.7, 0.8, 3.0);
+
+    // Body: noise through a lowpass closing from 5 kHz to 180 Hz as the blast rolls away.
+    const body = ctx.createBufferSource();
+    body.buffer = getNoiseBuffers(ctx).pink;
+    body.loop = true;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(5000, now);
+    lp.frequency.exponentialRampToValueAtTime(180, now + 2.4);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(0.85, now + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 2.8);
+    body.connect(lp);
+    lp.connect(g);
+    g.connect(dest);
+    body.onended = () => {
+      body.disconnect();
+      lp.disconnect();
+      g.disconnect();
+    };
+    body.start(now);
+    body.stop(now + 2.9);
+
+    // Debris ticking down afterwards.
+    for (let i = 0; i < 7; i++) {
+      this.playFilteredNoiseBurst(ctx, dest, now + 0.25 + Math.random() * 1.4, 'white', 1800 + Math.random() * 2600, 2, 0.18, 0.05);
+    }
+    setTimeout(() => shaped.disconnect(), 3500);
+  }
+
+  /** Showdown: the blade landing — a punchy, mid-heavy body hit that reads on small speakers. */
+  playShowdownHit(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    this.playSweep(ctx, dest, 'sine', now, 240, 70, 0.8, 0.003, 0.28);
+    this.playSweep(ctx, dest, 'square', now, 140, 60, 0.18, 0.003, 0.16);
+    this.playFilteredNoiseBurst(ctx, dest, now, 'white', 3200, 0.8, 0.6, 0.09);
+    this.playFilteredNoiseBurst(ctx, dest, now + 0.01, 'pink', 600, 0.9, 0.5, 0.22);
+  }
+
   /** Ethereal Gojo celestial levitation chime chord shimmer (~1.4s). */
   playGojoAscend(ctx: AudioContext, dest: AudioNode): void {
     const now = ctx.currentTime;

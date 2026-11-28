@@ -66,7 +66,7 @@ const HUMAN_STAFF_ARCHETYPES: Record<
   barista: { archetypeId: 'coffee_snob', color: '#C9A17E', variantIndex: 1 },
   dj: { archetypeId: 'party_goer', color: '#B49EE6', variantIndex: 0 },
   chef: { archetypeId: 'foodie', color: '#E8B884', variantIndex: 0 },
-  bartender: { archetypeId: 'night_owl', color: '#86B8B0', variantIndex: 2 },
+  bartender: { archetypeId: 'homebody', color: '#86B8B0', variantIndex: 0 },
 };
 
 function makeBotSyntheticVisitorDef(role: StaffRoleId): VisitorDef {
@@ -107,6 +107,7 @@ export class StaffMesh {
   readonly role: StaffRoleId;
 
   private readonly humanMesh: VisitorMesh | null = null;
+  private humanRightHandProp: THREE.Group | null = null;
 
   // Cozy Bot rig pivots & animated glowing materials
   private readonly bodyPivot = new THREE.Group();
@@ -374,9 +375,11 @@ export class StaffMesh {
       // Cute café apron panel + tiny steaming espresso mug in right hand
       this.addBox(this.torsoPivot, 0.175, 0.135, 0.02, accentMat, 0, 0.08, 0.156);
       this.addBox(this.torsoPivot, 0.08, 0.035, 0.014, chassisMat, 0, 0.085, 0.17);
-      const mugCup = this.addCyl(this.rightArmPivot, 0.036, 0.03, 0.068, 10, chassisMat, 0, -0.205, 0.042);
+      // Chunky trim-coloured mug with handle and a dark coffee surface, big enough to read
+      const mugCup = this.addCyl(this.rightArmPivot, 0.05, 0.042, 0.085, 8, trimMat, 0, -0.215, 0.056);
       mugCup.rotation.x = 0.25;
-      this.addCyl(this.rightArmPivot, 0.028, 0.028, 0.01, 8, accentMat, 0, -0.176, 0.049).rotation.x = 0.25;
+      this.addCyl(this.rightArmPivot, 0.041, 0.041, 0.012, 8, accentMat, 0, -0.176, 0.066).rotation.x = 0.25;
+      this.addBox(this.rightArmPivot, 0.03, 0.046, 0.018, trimDarkMat, 0.058, -0.213, 0.056, 0.25);
     } else if (role === 'dj') {
       // Glowing pastel DJ headphones arched cleanly over head
       const band = new THREE.Mesh(
@@ -407,8 +410,8 @@ export class StaffMesh {
       this.addSphere(this.headPivot, 0.054, toqueMat, 0.01, 0.392, -0.045, 1, 0.9, 1, 8);
       // Wooden stirring spoon in right hand
       const woodMat = this.makeMat('#C99A6B', 0.78, 0.04);
-      this.addCyl(this.rightArmPivot, 0.009, 0.011, 0.15, 6, woodMat, 0, -0.21, 0.055).rotation.x = 0.65;
-      this.addSphere(this.rightArmPivot, 0.026, woodMat, 0, -0.175, 0.125, 1, 0.48, 1.35, 8);
+      this.addCyl(this.rightArmPivot, 0.013, 0.015, 0.2, 6, woodMat, 0, -0.2, 0.07).rotation.x = 0.65;
+      this.addSphere(this.rightArmPivot, 0.04, woodMat, 0, -0.142, 0.158, 1, 0.5, 1.3, 7);
     } else if (role === 'bartender') {
       // Cute bowtie at upper chest + shiny cocktail shaker in right hand
       const bowL = new THREE.Mesh(this.trackGeo(new THREE.ConeGeometry(0.032, 0.058, 6)), accentMat);
@@ -420,10 +423,11 @@ export class StaffMesh {
       const knot = this.addSphere(this.torsoPivot, 0.018, trimDarkMat, 0, 0.275, 0.168, 1, 1, 0.8, 6);
       this.torsoPivot.add(bowL, bowR, knot);
       // Metallic cocktail shaker in right hand
-      const shakerMat = this.makeMat('#DCE4E8', 0.22, 0.72);
-      const shaker = this.addCyl(this.rightArmPivot, 0.026, 0.034, 0.115, 10, shakerMat, 0, -0.205, 0.048);
+      // (low metalness: there is no environment map, so a mirror-like metal would render black)
+      const shakerMat = this.makeMat('#E3EAEE', 0.3, 0.25);
+      const shaker = this.addCyl(this.rightArmPivot, 0.034, 0.044, 0.13, 8, shakerMat, 0, -0.21, 0.056);
       shaker.rotation.x = 0.32;
-      const cap = this.addCyl(this.rightArmPivot, 0.016, 0.022, 0.026, 8, trimMat, 0, -0.145, 0.068);
+      const cap = this.addCyl(this.rightArmPivot, 0.02, 0.03, 0.04, 8, trimMat, 0, -0.132, 0.082);
       cap.rotation.x = 0.32;
     }
   }
@@ -457,6 +461,13 @@ export class StaffMesh {
       // Apron bib & waist panel clearly proud of torso front (z = 0.132)
       this.addBox(mesh.torsoPivot, 0.21, 0.24, 0.016, apronMat, 0, 0.135, 0.134);
       this.addBox(mesh.torsoPivot, 0.08, 0.055, 0.012, badgeMat, 0, 0.11, 0.146);
+      this.addApronStraps(mesh, apronMat);
+      // Take-away cup with a kraft sleeve in the right hand (hidden while sipping break coffee cup)
+      const propGroup = new THREE.Group();
+      this.addCyl(propGroup, 0.034, 0.027, 0.085, 8, badgeMat, 0, -0.262, 0.05);
+      this.addCyl(propGroup, 0.034, 0.03, 0.034, 8, capMat, 0, -0.262, 0.05);
+      mesh.rightArmPivot.add(propGroup);
+      this.humanRightHandProp = propGroup;
       // Café visor cap perched on forehead
       this.addCyl(mesh.headPivot, 0.162, 0.165, 0.042, 12, capMat, 0, 0.245, 0.01);
       this.addBox(mesh.headPivot, 0.175, 0.014, 0.095, capMat, 0, 0.23, 0.178, 0.14);
@@ -493,6 +504,11 @@ export class StaffMesh {
       this.addBox(mesh.torsoPivot, 0.21, 0.24, 0.016, whiteMat, 0, 0.135, 0.134);
       this.addSphere(mesh.torsoPivot, 0.012, goldMat, -0.045, 0.21, 0.146, 1, 1, 0.6, 6);
       this.addSphere(mesh.torsoPivot, 0.012, goldMat, 0.045, 0.21, 0.146, 1, 1, 0.6, 6);
+      this.addApronStraps(mesh, whiteMat);
+      // Wooden spoon in the right hand
+      const woodMat = this.makeMat('#C99A6B', 0.78, 0.04);
+      this.addCyl(mesh.rightArmPivot, 0.011, 0.013, 0.19, 6, woodMat, 0, -0.25, 0.07).rotation.x = 0.65;
+      this.addSphere(mesh.rightArmPivot, 0.036, woodMat, 0, -0.195, 0.152, 1, 0.5, 1.3, 7);
     } else if (role === 'bartender') {
       const vestMat = this.makeMat('#3B4B52', 0.78, 0.08);
       const bowMat = this.makeMat('#F0A28B', 0.68, 0.06);
@@ -509,7 +525,17 @@ export class StaffMesh {
       bowR.position.set(0.026, 0.275, 0.146);
       const knot = this.addSphere(mesh.torsoPivot, 0.014, bowMat, 0, 0.275, 0.15, 1, 1, 0.8, 6);
       mesh.torsoPivot.add(bowL, bowR, knot);
+      // Cocktail shaker in the right hand
+      const shakerMat = this.makeMat('#E3EAEE', 0.3, 0.25);
+      this.addCyl(mesh.rightArmPivot, 0.03, 0.038, 0.11, 8, shakerMat, 0, -0.27, 0.052);
+      this.addCyl(mesh.rightArmPivot, 0.018, 0.027, 0.034, 8, vestMat, 0, -0.198, 0.052);
     }
+  }
+
+  /** Two neck straps running from the apron bib up over the shoulders. */
+  private addApronStraps(mesh: VisitorMesh, mat: THREE.Material): void {
+    this.addBox(mesh.torsoPivot, 0.026, 0.11, 0.016, mat, -0.072, 0.298, 0.128, 0, 0, 0.3);
+    this.addBox(mesh.torsoPivot, 0.026, 0.11, 0.016, mat, 0.072, 0.298, 0.128, 0, 0, -0.3);
   }
 
   setScalePop(scale: number): void {
@@ -518,6 +544,13 @@ export class StaffMesh {
       this.humanMesh.setScalePop(s);
     } else {
       this.root.scale.set(s, s, s);
+    }
+  }
+
+  setHoldingCoffee(holding: boolean): void {
+    this.humanMesh?.setHoldingCoffee(holding);
+    if (this.humanRightHandProp) {
+      this.humanRightHandProp.visible = !holding;
     }
   }
 

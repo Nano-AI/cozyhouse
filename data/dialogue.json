@@ -385,6 +385,33 @@
         { "id": "gj_lea_3", "text": "Peace out! Keep it dazzling!", "emote": "wave", "pitchOffset": 0.95, "speedMultiplier": 0.96 }
       ]
     },
+    "toji": {
+      "delighted": [
+        { "id": "tj_del_1", "text": "Free food and a soft couch? I'm never leaving.", "emote": "food", "pitchOffset": 1.06, "speedMultiplier": 1.02 },
+        { "id": "tj_del_2", "text": "Heh. Whoever built this place knows how to live.", "emote": "sparkles", "pitchOffset": 1.04, "speedMultiplier": 1.00 },
+        { "id": "tj_del_3", "text": "Best job I've taken all year. And nobody's paying me.", "emote": "star", "pitchOffset": 1.08, "speedMultiplier": 1.04 }
+      ],
+      "happy": [
+        { "id": "tj_hap_1", "text": "Not bad. I could loaf here a while.", "emote": "smile", "pitchOffset": 0.98, "speedMultiplier": 0.98 },
+        { "id": "tj_hap_2", "text": "Something smells good. Lead the way.", "emote": "food", "pitchOffset": 1.00, "speedMultiplier": 1.00 },
+        { "id": "tj_hap_3", "text": "The worm likes it too. Rare.", "emote": "note", "pitchOffset": 0.97, "speedMultiplier": 0.97 }
+      ],
+      "neutral": [
+        { "id": "tj_neu_1", "text": "Just casing the place. Old habit.", "emote": "look", "pitchOffset": 0.94, "speedMultiplier": 0.95 },
+        { "id": "tj_neu_2", "text": "Where do you keep the snacks?", "emote": "dots", "pitchOffset": 0.95, "speedMultiplier": 0.96 },
+        { "id": "tj_neu_3", "text": "Relax. I'm off the clock.", "emote": "glasses", "pitchOffset": 0.93, "speedMultiplier": 0.94 }
+      ],
+      "bored": [
+        { "id": "tj_bor_1", "text": "No food, no bets, no fun.", "emote": "yawn", "pitchOffset": 0.86, "speedMultiplier": 0.86 },
+        { "id": "tj_bor_2", "text": "I've had stakeouts livelier than this.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.85 },
+        { "id": "tj_bor_3", "text": "Wake me if something happens.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.84 }
+      ],
+      "leaving": [
+        { "id": "tj_lea_1", "text": "Got a job to get to. Later.", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.96 },
+        { "id": "tj_lea_2", "text": "Thanks for the seat. Don't wait up.", "emote": "wave", "pitchOffset": 0.94, "speedMultiplier": 0.97 },
+        { "id": "tj_lea_3", "text": "I was never here. Got it?", "emote": "smile", "pitchOffset": 0.91, "speedMultiplier": 0.95 }
+      ]
+    },
     "baki": {
       "delighted": [
         { "id": "bk_del_1", "text": "Pure fighting spirit in these walls! OSS!", "emote": "star", "pitchOffset": 1.16, "speedMultiplier": 1.18 },
@@ -572,6 +599,123 @@
         { "id": "rc_lea_1", "text": "Peace among worlds! *portal whoosh*", "emote": "wave", "pitchOffset": 0.94, "speedMultiplier": 1.05 },
         { "id": "rc_lea_2", "text": "Later! Try not to collapse the timeline!", "emote": "sparkles", "pitchOffset": 0.96, "speedMultiplier": 1.08 },
         { "id": "rc_lea_3", "text": "Rick out—see ya in dimension B-9!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 1.04 }
+      ]
+    },
+    "adi": {
+      "delighted": [
+        {
+          "id": "ad_del_1",
+          "text": "Wait, did I build this? This is so cozy.",
+          "emote": "sparkles",
+          "pitchOffset": 1.12,
+          "speedMultiplier": 1.1
+        },
+        {
+          "id": "ad_del_2",
+          "text": "The playlist, the plants, the coffee. Perfect.",
+          "emote": "music",
+          "pitchOffset": 1.1,
+          "speedMultiplier": 1.08
+        },
+        {
+          "id": "ad_del_3",
+          "text": "Okay, I'm never leaving this room.",
+          "emote": "heart",
+          "pitchOffset": 1.14,
+          "speedMultiplier": 1.1
+        }
+      ],
+      "happy": [
+        {
+          "id": "ad_hap_1",
+          "text": "Nice spot. Good light in here.",
+          "emote": "smile",
+          "pitchOffset": 1.04,
+          "speedMultiplier": 1.02
+        },
+        {
+          "id": "ad_hap_2",
+          "text": "A coffee and a window seat? Sold.",
+          "emote": "coffee",
+          "pitchOffset": 1.05,
+          "speedMultiplier": 1.04
+        },
+        {
+          "id": "ad_hap_3",
+          "text": "These plants are thriving, honestly.",
+          "emote": "leaf",
+          "pitchOffset": 1.03,
+          "speedMultiplier": 1.0
+        }
+      ],
+      "neutral": [
+        {
+          "id": "ad_neu_1",
+          "text": "Hmm, that shelf could move one tile left.",
+          "emote": "glasses",
+          "pitchOffset": 0.99,
+          "speedMultiplier": 1.0
+        },
+        {
+          "id": "ad_neu_2",
+          "text": "Just checking how the place feels.",
+          "emote": "look",
+          "pitchOffset": 1.0,
+          "speedMultiplier": 0.98
+        },
+        {
+          "id": "ad_neu_3",
+          "text": "Pretty good. Could use more music.",
+          "emote": "note",
+          "pitchOffset": 0.98,
+          "speedMultiplier": 1.0
+        }
+      ],
+      "bored": [
+        {
+          "id": "ad_bor_1",
+          "text": "Too quiet. Somebody put a record on.",
+          "emote": "unimpressed",
+          "pitchOffset": 0.9,
+          "speedMultiplier": 0.94
+        },
+        {
+          "id": "ad_bor_2",
+          "text": "Feels like a waiting room in here.",
+          "emote": "yawn",
+          "pitchOffset": 0.88,
+          "speedMultiplier": 0.92
+        },
+        {
+          "id": "ad_bor_3",
+          "text": "No coffee? That's a bug.",
+          "emote": "dots",
+          "pitchOffset": 0.9,
+          "speedMultiplier": 0.95
+        }
+      ],
+      "leaving": [
+        {
+          "id": "ad_lea_1",
+          "text": "Back to the code. This was nice.",
+          "emote": "wave",
+          "pitchOffset": 1.0,
+          "speedMultiplier": 1.02
+        },
+        {
+          "id": "ad_lea_2",
+          "text": "Saving this layout in my head.",
+          "emote": "star",
+          "pitchOffset": 1.02,
+          "speedMultiplier": 1.0
+        },
+        {
+          "id": "ad_lea_3",
+          "text": "Okay, one more lap. Then I'm out.",
+          "emote": "smile",
+          "pitchOffset": 1.0,
+          "speedMultiplier": 1.04
+        }
       ]
     }
   }

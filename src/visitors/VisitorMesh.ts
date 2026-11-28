@@ -10,13 +10,124 @@ export type VisitorPose =
   | 'pet'
   | 'admire'
   | 'stumble'
-  | 'work';
+  | 'work'
+  | 'uncomfortable';
 
 export type VisitorStaffUniformRole = 'barista' | 'dj' | 'chef' | 'bartender';
 
 export type VisitorVariantIndex = 0 | 1 | 2;
 
 export const FLOOR_BASE_Y = 0.024;
+
+export interface HeldCoffeeCupHandle {
+  readonly group: THREE.Group;
+  updateSteam(elapsed: number): void;
+  dispose(): void;
+}
+
+/**
+ * Builds a charming, clearly readable low-poly 3D café cup of coffee with warm-cream tapered body,
+ * kraft-cinnamon sleeve (+0.002+ proud, zero Z-fighting), snug lip rim, dark espresso surface with
+ * latte-foam heart/dot (+0.003 above liquid), and 2 tiny bobbing steam wisps.
+ */
+export function createHeldCoffeeCupMesh(): HeldCoffeeCupHandle {
+  const group = new THREE.Group();
+  group.name = 'HeldCoffeeCup';
+  group.visible = false;
+
+  const geos: THREE.BufferGeometry[] = [];
+  const mats: THREE.Material[] = [];
+  const trackGeo = <T extends THREE.BufferGeometry>(g: T): T => {
+    geos.push(g);
+    return g;
+  };
+  const trackMat = <T extends THREE.Material>(m: T): T => {
+    mats.push(m);
+    return m;
+  };
+
+  const makeSolidMat = (hex: string, roughness: number, metalness = 0.02) =>
+    trackMat(
+      new THREE.MeshStandardMaterial({
+        color: new THREE.Color(hex),
+        roughness,
+        metalness,
+        flatShading: true,
+        transparent: false,
+        depthWrite: true,
+      }),
+    );
+
+  const cupMat = makeSolidMat('#FAF5EC', 0.55);
+  const sleeveMat = makeSolidMat('#C88D5A', 0.82);
+  const rimMat = makeSolidMat('#FFFBF2', 0.45);
+  const espressoMat = makeSolidMat('#52301E', 0.28);
+  const foamMat = makeSolidMat('#F4E8D6', 0.65);
+  const steamMat = makeSolidMat('#FFFDF8', 0.9);
+
+  // Tapered warm-cream café cup
+  const cupBody = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.058, 0.042, 0.13, 10)), cupMat);
+  cupBody.castShadow = true;
+  cupBody.receiveShadow = true;
+  group.add(cupBody);
+
+  // Cozy kraft-cinnamon sleeve cleanly proud of cup wall (zero Z-fighting)
+  const sleeve = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.056, 0.049, 0.052, 10)), sleeveMat);
+  sleeve.castShadow = true;
+  sleeve.receiveShadow = true;
+  group.add(sleeve);
+
+  // Snug cup rim/lip (top at y = 0.075)
+  const rim = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.062, 0.058, 0.018, 10)), rimMat);
+  rim.position.y = 0.066;
+  rim.castShadow = true;
+  rim.receiveShadow = true;
+  group.add(rim);
+
+  // Rich dark espresso surface (+0.003 proud of rim top -> y = 0.076, top at 0.078)
+  const liquid = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(0.051, 0.051, 0.004, 10)), espressoMat);
+  liquid.position.y = 0.076;
+  group.add(liquid);
+
+  // Tiny latte-foam heart/dot (+0.003 above liquid top, strictly non-coplanar)
+  const foamGeo = trackGeo(new THREE.SphereGeometry(0.011, 6, 5));
+  const foamL = new THREE.Mesh(foamGeo, foamMat);
+  foamL.position.set(-0.007, 0.081, -0.003);
+  foamL.scale.set(1.0, 0.35, 1.0);
+  const foamR = new THREE.Mesh(foamGeo, foamMat);
+  foamR.position.set(0.007, 0.081, -0.003);
+  foamR.scale.set(1.0, 0.35, 1.0);
+  const foamTip = new THREE.Mesh(foamGeo, foamMat);
+  foamTip.position.set(0, 0.081, 0.009);
+  foamTip.scale.set(0.95, 0.35, 1.05);
+  group.add(foamL, foamR, foamTip);
+
+  // 2 tiny soft matte-cream steam wisps rising above the cup while held
+  const wisp1 = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.013, 6, 5)), steamMat);
+  const wisp2 = new THREE.Mesh(trackGeo(new THREE.SphereGeometry(0.01, 6, 5)), steamMat);
+  wisp1.position.set(-0.012, 0.115, 0.004);
+  wisp2.position.set(0.014, 0.145, -0.006);
+  group.add(wisp1, wisp2);
+
+  return {
+    group,
+    updateSteam(elapsed: number): void {
+      const p1 = (elapsed * 0.55) % 1;
+      const p2 = (elapsed * 0.55 + 0.5) % 1;
+      wisp1.position.set(-0.012 + Math.sin(elapsed * 2.6) * 0.009, 0.105 + p1 * 0.095, 0.004);
+      const s1 = Math.max(0.18, Math.sin(p1 * Math.PI));
+      wisp1.scale.setScalar(s1);
+
+      wisp2.position.set(0.013 + Math.cos(elapsed * 2.3) * 0.009, 0.105 + p2 * 0.095, -0.005);
+      const s2 = Math.max(0.18, Math.sin(p2 * Math.PI));
+      wisp2.scale.setScalar(s2);
+    },
+    dispose(): void {
+      for (const g of geos) g.dispose();
+      for (const m of mats) m.dispose();
+    },
+  };
+}
 
 type HairStyleId =
   | 'bob'
@@ -503,16 +614,20 @@ export class VisitorMesh {
   readonly rightKneePivot = new THREE.Group();
   readonly leftArmPivot = new THREE.Group();
   readonly rightArmPivot = new THREE.Group();
+  readonly coffeeCupGroup: THREE.Group;
   readonly mouthMesh: THREE.Mesh;
   readonly speechBubble = new SpeechBubble();
   readonly variantIndex: VisitorVariantIndex;
 
   private readonly shadowMesh: THREE.Mesh;
+  private readonly coffeeCup: HeldCoffeeCupHandle;
   private readonly wearsSkirt: boolean;
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly materials: THREE.Material[] = [];
   private animPhase = Math.random() * Math.PI * 2;
   private blabberPhase = 0;
+  private holdingCoffee = false;
+  private coffeeSipTimer = 2.0 + Math.random() * 2.4;
 
   constructor(def: VisitorDef, variantIndex: VisitorVariantIndex = 0) {
     this.variantIndex = variantIndex;
@@ -613,6 +728,12 @@ export class VisitorMesh {
     this.buildArm(this.leftArmPivot, sleeveMat, innerMat, skinMat, 1);
     this.buildArm(this.rightArmPivot, sleeveMat, innerMat, skinMat, -1);
     this.torsoPivot.add(this.leftArmPivot, this.rightArmPivot);
+
+    // Sculpted 3D held coffee cup attached to the right hand (initially hidden)
+    this.coffeeCup = createHeldCoffeeCupMesh();
+    this.coffeeCupGroup = this.coffeeCup.group;
+    this.coffeeCupGroup.position.set(0, -0.268, 0.058);
+    this.rightArmPivot.add(this.coffeeCupGroup);
 
     // Soft shoulder connectors bridge torso to arm pivot cleanly
     this.addSphere(this.torsoPivot, 0.048, sleeveMat, -0.158, 0.265, 0, 1.15, 0.92, 0.95, 8);
@@ -1393,6 +1514,14 @@ export class VisitorMesh {
     this.root.scale.setScalar(s);
   }
 
+  setHoldingCoffee(holding: boolean): void {
+    this.holdingCoffee = holding;
+    this.coffeeCupGroup.visible = holding;
+    if (holding) {
+      this.coffeeSipTimer = 2.2 + Math.random() * 2.0;
+    }
+  }
+
   /**
    * Updates skeletal animations.
    * When `pose === 'sit'` and `seatBlend > 0` (character positioned on an elevated couch/chair/stool/bed
@@ -1590,6 +1719,30 @@ export class VisitorMesh {
         break;
       }
 
+      case 'uncomfortable': {
+        this.animPhase += dt * 15;
+        const sway = Math.sin(this.animPhase);
+        const hop = Math.abs(sway) * 0.032;
+        const leftBend = Math.max(0, sway);
+        const rightBend = Math.max(0, -sway);
+
+        this.bodyPivot.position.y = FLOOR_BASE_Y + hop;
+        this.leftLegPivot.rotation.set(-0.18 - leftBend * 0.22, 0.12, -0.1);
+        this.rightLegPivot.rotation.set(-0.18 - rightBend * 0.22, -0.12, 0.1);
+        this.leftKneePivot.rotation.set(0.28 + leftBend * 0.34, 0, 0);
+        this.rightKneePivot.rotation.set(0.28 + rightBend * 0.34, 0, 0);
+
+        this.torsoPivot.rotation.set(0.16, sway * 0.14, sway * 0.1);
+        this.leftArmPivot.rotation.set(-0.78, 0, -0.26);
+        this.rightArmPivot.rotation.set(-0.78, 0, 0.26);
+        this.headPivot.rotation.set(
+          0.08 + headChatterTilt,
+          Math.sin(this.animPhase * 0.45) * 0.34,
+          -sway * 0.09,
+        );
+        break;
+      }
+
       case 'idle':
       default: {
         this.animPhase += dt * 2.0;
@@ -1612,10 +1765,36 @@ export class VisitorMesh {
         break;
       }
     }
+
+    // Held 3D coffee cup override: keep cup upright & run cozy periodic sip cycle during relaxed poses!
+    const canHoldCoffeePose =
+      pose === 'idle' || pose === 'walk' || pose === 'sit' || pose === 'admire';
+    if (this.holdingCoffee && canHoldCoffeePose) {
+      this.coffeeCupGroup.visible = true;
+      this.coffeeSipTimer += dt;
+      const cyclePos = this.coffeeSipTimer % 5.2;
+      const sipFactor = cyclePos < 1.1 ? Math.sin((cyclePos / 1.1) * Math.PI) : 0;
+
+      const basePitch = pose === 'sit' ? -0.92 : -1.02;
+      const gentleBob =
+        pose === 'walk'
+          ? Math.sin(this.animPhase) * 0.048
+          : Math.sin(this.animPhase * 0.85) * 0.022;
+      const armPitch = basePitch + gentleBob + (-1.5 - basePitch) * sipFactor;
+      const armRoll = -0.08 + (-0.32 - -0.08) * sipFactor;
+      this.rightArmPivot.rotation.set(armPitch, -0.14 * sipFactor, armRoll);
+      // Counter-rotate cup to stay upright (never spills!), tilting slightly toward face on sip
+      this.coffeeCupGroup.rotation.set(-armPitch + sipFactor * 0.22, 0, -armRoll * 0.55);
+      this.headPivot.rotation.x += sipFactor * 0.14;
+      this.coffeeCup.updateSteam(this.coffeeSipTimer);
+    } else {
+      this.coffeeCupGroup.visible = false;
+    }
   }
 
   dispose(): void {
     this.speechBubble.dispose();
+    this.coffeeCup.dispose();
     for (const geo of this.geometries) {
       geo.dispose();
     }

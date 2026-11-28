@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FLOOR_BASE_Y, type MeshOptions, type ModelContext, type TabModelBuilder } from './ModelKit';
+import { buildSolidExtrudeGeometry } from './basicsModels';
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 
@@ -35,22 +36,15 @@ function addMesh(
 
 /**
  * Workaround for Three.js r175 bug where `ExtrudeGeometry` with `bevelEnabled: false`
- * omits front/back cap triangles. Using a sub-millimeter 1-segment bevel guarantees
- * solid front & back caps that render and raycast cleanly.
+ * omits front/back cap triangles. Reuses the explicit caps + sidewalls builder (the old
+ * sub-millimeter bevel trick tripled the sidewall triangles) and keeps the z = [0 .. depth] span.
  */
 function makeExtrudedSolid(
   shape: THREE.Shape,
   depth: number,
   curveSegments = 14,
-): THREE.ExtrudeGeometry {
-  return new THREE.ExtrudeGeometry(shape, {
-    depth: Math.max(0.002, depth - 0.0004),
-    bevelEnabled: true,
-    bevelSize: 0.0002,
-    bevelThickness: 0.0002,
-    bevelSegments: 1,
-    curveSegments,
-  });
+): THREE.BufferGeometry {
+  return buildSolidExtrudeGeometry(shape, depth, curveSegments).translate(0, 0, depth / 2);
 }
 
 /**
@@ -167,7 +161,7 @@ function buildHangingIvy(ctx: ModelContext): void {
 
   // Ceiling rosette flush at y = 0 (ceiling height 2.60) + brass hook
   ctx.cyl(0.055, 0.065, 0.024, 8, '#C9A775', 0, -0.012, 0, { metalness: 0.35, roughness: 0.4 });
-  ctx.torus(0.022, 0.006, 5, 10, '#C9A775', 0, -0.038, 0, { metalness: 0.4, roughness: 0.35 });
+  ctx.torus(0.022, 0.006, 4, 8, '#C9A775', 0, -0.038, 0, { metalness: 0.4, roughness: 0.35 });
 
   // 3 macrame cords descending from ceiling hook to pot cradle & converging into bottom knot
   const potTopY = -0.34;
@@ -177,18 +171,22 @@ function buildHangingIvy(ctx: ModelContext): void {
     const a = (i * Math.PI * 2) / 3 + 0.4;
     const rx = Math.cos(a) * 0.155;
     const rz = Math.sin(a) * 0.155;
-    connectRod(ctx, 0, -0.048, 0, rx, potTopY - 0.02, rz, 0.007, ropeColor, 5);
-    connectRod(ctx, rx, potTopY - 0.02, rz, rx * 0.72, potBotY + 0.005, rz * 0.72, 0.0065, ropeColor, 5);
-    connectRod(ctx, rx * 0.72, potBotY + 0.005, rz * 0.72, 0, knotY, 0, 0.0065, ropeColor, 5);
+    connectRod(ctx, 0, -0.048, 0, rx, potTopY - 0.02, rz, 0.007, ropeColor, 4);
+    connectRod(ctx, rx, potTopY - 0.02, rz, rx * 0.72, potBotY + 0.005, rz * 0.72, 0.0065, ropeColor, 4);
+    connectRod(ctx, rx * 0.72, potBotY + 0.005, rz * 0.72, 0, knotY, 0, 0.0065, ropeColor, 4);
   }
   // Macrame cradle knot & tassel anchored directly beneath pot bottom
-  ctx.sphere(0.02, 6, ctx.shade(ropeColor, -0.08), 0, knotY, 0, { roughness: 0.88 });
+  ctx.sphere(0.02, 5, ctx.shade(ropeColor, -0.08), 0, knotY, 0, { roughness: 0.88 });
   ctx.cone(0.026, 0.072, 6, ropeColor, 0, knotY - 0.042, 0, { rotX: Math.PI, roughness: 0.9 });
 
   // Ceramic tapered hanging pot + rim + soil (soil cleanly proud inside rim)
   ctx.cyl(0.15, 0.105, 0.18, 9, potColor, 0, (potTopY + potBotY) / 2, 0, { roughness: 0.62 });
   ctx.torus(0.148, 0.014, 6, 12, ctx.shade(potColor, -0.08), 0, potTopY - 0.008, 0, { rotX: Math.PI / 2 });
-  ctx.cyl(0.132, 0.132, 0.022, 8, '#5E4738', 0, potTopY - 0.006, 0, { roughness: 0.92 });
+  // (top disc only: the soil's sides & underside sit inside the pot and rim)
+  addMesh(ctx, new THREE.CircleGeometry(0.132, 8), '#5E4738', 0, potTopY + 0.005, 0, {
+    rotX: -Math.PI / 2,
+    roughness: 0.92,
+  });
 
   // Lush leafy crown mound over pot rim
   ctx.sphere(0.13, 6, leafDark, 0, potTopY + 0.04, 0, { scaleX: 1.2, scaleY: 0.68, scaleZ: 1.2 });
@@ -1015,8 +1013,9 @@ function buildLampFloorArc(ctx: ModelContext): void {
   const sx = 0;
   const sy = baseY + 1.54;
   const sz = 0.26;
-  ctx.cyl(0.036, 0.044, 0.055, 8, metalColor, sx, sy + 0.075, sz, metalOpts);
+  // (top hemisphere only: the lower half sits inside the closed skirt cylinder below)
   ctx.sphere(0.165, 12, shadeColor, sx, sy + 0.01, sz, {
+    thetaLength: Math.PI / 2,
     scaleY: 0.62,
     roughness: 0.4,
     emissive: active ? shadeColor : undefined,
@@ -1442,8 +1441,8 @@ function buildCurtainsLinen(ctx: ModelContext): void {
 
   // Curtain rod across top (y = +0.855, framing a 1-tile window) + flush wall brackets + round finials
   ctx.cyl(0.016, 0.016, 1.02, 8, rodColor, 0, 0.855, 0.080, { rotZ: Math.PI / 2, roughness: 0.55 });
-  ctx.sphere(0.034, 8, rodColor, -0.52, 0.855, 0.080, { roughness: 0.5 });
-  ctx.sphere(0.034, 8, rodColor, 0.52, 0.855, 0.080, { roughness: 0.5 });
+  ctx.sphere(0.034, 6, rodColor, -0.52, 0.855, 0.080, { roughness: 0.5 });
+  ctx.sphere(0.034, 6, rodColor, 0.52, 0.855, 0.080, { roughness: 0.5 });
   ctx.box(0.028, 0.048, 0.084, ctx.shade(rodColor, -0.15), -0.44, 0.855, 0.042);
   ctx.box(0.028, 0.048, 0.084, ctx.shade(rodColor, -0.15), 0.44, 0.855, 0.042);
 
@@ -1451,8 +1450,8 @@ function buildCurtainsLinen(ctx: ModelContext): void {
   for (const side of [-1, 1]) {
     const cx = side * 0.34;
     // Two neat rod rings per panel gripping the curtain rod
-    ctx.torus(0.023, 0.005, 5, 10, ctx.shade(rodColor, -0.08), cx - 0.055, 0.855, 0.080, { rotY: Math.PI / 2 });
-    ctx.torus(0.023, 0.005, 5, 10, ctx.shade(rodColor, -0.08), cx + 0.055, 0.855, 0.080, { rotY: Math.PI / 2 });
+    ctx.torus(0.023, 0.005, 3, 8, ctx.shade(rodColor, -0.08), cx - 0.055, 0.855, 0.080, { rotY: Math.PI / 2 });
+    ctx.torus(0.023, 0.005, 3, 8, ctx.shade(rodColor, -0.08), cx + 0.055, 0.855, 0.080, { rotY: Math.PI / 2 });
 
     // Upper pleated header & 3 vertical folds cleanly tucked into tieback (staggered heights avoid coplanar caps)
     ctx.cyl(0.032, 0.028, 0.93, 6, linen, cx - side * 0.065, 0.38, 0.080, { scaleZ: 0.85, roughness: 0.88 });
@@ -1520,7 +1519,7 @@ function buildMirrorArch(ctx: ModelContext): void {
   backShape.lineTo(backR, archY);
   backShape.absarc(0, archY, backR, 0, Math.PI, false);
   backShape.closePath();
-  addMesh(ctx, makeExtrudedSolid(backShape, 0.016, 16), ctx.shade(frame, -0.2), 0, 0, -0.022, {
+  addMesh(ctx, makeExtrudedSolid(backShape, 0.016, 12), ctx.shade(frame, -0.2), 0, 0, -0.022, {
     parent: body,
   });
 
@@ -1532,7 +1531,7 @@ function buildMirrorArch(ctx: ModelContext): void {
   glassShape.lineTo(glassR, archY);
   glassShape.absarc(0, archY, glassR, 0, Math.PI, false);
   glassShape.closePath();
-  addMesh(ctx, makeExtrudedSolid(glassShape, 0.010, 16), glass, 0, 0, 0.002, {
+  addMesh(ctx, makeExtrudedSolid(glassShape, 0.010, 12), glass, 0, 0, 0.002, {
     roughness: 0.1,
     metalness: 0.36,
     parent: body,

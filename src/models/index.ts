@@ -71,7 +71,7 @@ function buildFallbackModel(ctx: ModelContext): void {
   ctx.box(bw * 0.92, Math.min(0.05, h * 0.14), bd * 0.92, accent, 0, baseY + h + 0.01, 0);
 }
 
-const DYNAMIC_SUBTREE_NAMES = new Set(['SpinTarget', 'DoorPivot']);
+const DYNAMIC_SUBTREE_NAMES = new Set(['SpinTarget', 'DoorPivot', 'ToiletLidPivot']);
 
 function isInsideDynamicSubtree(obj: THREE.Object3D, root: THREE.Object3D): boolean {
   let cur: THREE.Object3D | null = obj;

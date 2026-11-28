@@ -899,7 +899,7 @@ function buildNeonDrinkMenu(ctx: ModelContext): void {
   ctx.cyl(0.011, 0.011, bh, 6, tubeColor, bw / 2, 0, tubeZ, tubeOpts);
 
   const addNeonClip = (cx: number, cy: number): void => {
-    ctx.cyl(0.007, 0.007, 0.026, 6, '#1E222A', cx, cy, backD + 0.011, {
+    ctx.cyl(0.007, 0.007, 0.026, 4, '#1E222A', cx, cy, backD + 0.011, {
       rotX: Math.PI / 2,
       roughness: 0.6,
       castShadow: false,

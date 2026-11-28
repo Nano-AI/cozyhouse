@@ -90,6 +90,10 @@ interface RenderedItemEntry {
   doorIsSliding: boolean;
   doorSlideSign: number;
   doorSlideDistance: number;
+  toiletLidPivot: THREE.Object3D | null;
+  toiletLidOpenAngle: number;
+  toiletLidProgress: number;
+  toiletLidTarget: number;
   isDynamicGroup: boolean;
 }
 
@@ -166,6 +170,7 @@ const ROTATE_ANIM_DURATION = 0.22;
 const MOVE_ANIM_DURATION = 0.20;
 const EW_WALL_Y_OFFSET = -0.0015;
 const EW_WALL_SCALE_Z = 0.992;
+const DEFAULT_TOILET_LID_OPEN_ANGLE = -(Math.PI / 2 - 0.08);
 const TIME_CYCLE_HOURS_PER_SEC = 0.22;
 const TIME_CYCLE_SYNC_INTERVAL = 0.05; // ~20 Hz store updates (~0.011h per step, avoids 0.01 rounding stall)
 const SHADER_STORAGE_KEY = 'cozyhouse:shader';
@@ -428,7 +433,9 @@ export class SceneManager {
 
   // Double-door visitor-open tracking & connected door partner spans
   private visitorOpenDoors = new Set<string>();
+  private lockedDoors = new Set<string>();
   private doorPartnerGroups = new Map<string, string[]>();
+  private occupiedToilets = new Set<string>();
 
   // Pre-filtered hot-loop lists (rebuilt only on state/animation changes)
   private wallEntries: RenderedItemEntry[] = [];
@@ -438,13 +445,14 @@ export class SceneManager {
   private bouncingEntries: RenderedItemEntry[] = [];
   private animatingEntries: RenderedItemEntry[] = [];
   private animatingDoors: RenderedItemEntry[] = [];
+  private animatingToiletLids: RenderedItemEntry[] = [];
 
   // Enclosed-room & cutaway cache + reusable scratch objects
   private enclosedCells: boolean[][] = [];
   private interiorCells = new Set<string>();
   private enclosedCellCount = 0;
   private readonly camForwardScratch = new THREE.Vector3();
-  private readonly wallTargetsMap = new Map<string, number>();
+  private readonly wallBlockingMap = new Map<string, boolean>();
   private readonly outlineBoxScratch = new THREE.Box3();
   private readonly outlineSizeScratch = new THREE.Vector3();
   private readonly outlineCenterScratch = new THREE.Vector3();
@@ -510,6 +518,8 @@ export class SceneManager {
   // Visitor camera focus/follow & 3D canvas visitor picking
   private cameraFollowProvider: (() => { x: number; z: number } | null) | null = null;
   private cameraFollowCancelCb: (() => void) | null = null;
+  private cameraLockProvider: (() => { x: number; z: number } | null) | null = null;
+  private cutsceneOverlaysHidden = false;
   private cameraFollowClearedListeners = new Set<() => void>();
   private unsubManualPan: (() => void) | null = null;
   private readonly visitorRaycaster = new THREE.Raycaster();
@@ -578,6 +588,7 @@ export class SceneManager {
 
     this.isoCamera = new IsometricCamera(width, height, onCameraQuarterChange);
     this.unsubManualPan = this.isoCamera.onManualPan(() => {
+      this.cameraLockProvider = null;
       if (!this.cameraFollowProvider) return;
       const cancelCb = this.cameraFollowCancelCb;
       this.cameraFollowProvider = null;
@@ -932,10 +943,47 @@ export class SceneManager {
     }
   }
 
+  /**
+   * Locks or unlocks a structural door (and any connected double-door partner leaves).
+   * Locked doors override both `item.active` and `visitorOpenDoors`, smoothly swinging shut
+   * and staying firmly closed while occupied (e.g. an in-use bathroom).
+   */
+  setDoorLocked(uid: string, locked: boolean): void {
+    const had = this.lockedDoors.has(uid);
+    if (locked) {
+      if (had) return;
+      this.lockedDoors.add(uid);
+    } else {
+      if (!had) return;
+      this.lockedDoors.delete(uid);
+    }
+
+    const groupUids = this.doorPartnerGroups.get(uid) ?? [uid];
+    for (let i = 0; i < groupUids.length; i++) {
+      const entry = this.renderedItems.get(groupUids[i]);
+      if (!entry || !entry.doorPivot) continue;
+      entry.doorTargetOpen = this.isDoorEffectivelyOpen(entry) ? 1 : 0;
+      if (
+        Math.abs(entry.doorOpenProgress - entry.doorTargetOpen) > 0.001 &&
+        !this.animatingDoors.includes(entry)
+      ) {
+        entry.doorPivot.matrixAutoUpdate = true;
+        this.animatingDoors.push(entry);
+        this.markShadowsDirty();
+      }
+    }
+  }
+
   private isDoorEffectivelyOpen(entry: RenderedItemEntry): boolean {
+    if (this.lockedDoors.has(entry.uid)) return false;
+    const partners = this.doorPartnerGroups.get(entry.uid);
+    if (partners) {
+      for (let i = 0; i < partners.length; i++) {
+        if (this.lockedDoors.has(partners[i])) return false;
+      }
+    }
     if (entry.item.active) return true;
     if (this.visitorOpenDoors.has(entry.uid)) return true;
-    const partners = this.doorPartnerGroups.get(entry.uid);
     if (partners) {
       for (let i = 0; i < partners.length; i++) {
         if (this.visitorOpenDoors.has(partners[i])) return true;
@@ -956,8 +1004,60 @@ export class SceneManager {
     pivot.updateMatrix();
   }
 
+  /**
+   * Opens or closes a `toilet_cozy` lid smoothly when a visitor or staff member
+   * sits on or leaves it, without snapping or rebuilding meshes.
+   */
+  setToiletOccupied(uid: string, occupied: boolean): void {
+    const had = this.occupiedToilets.has(uid);
+    if (occupied) {
+      if (had) return;
+      this.occupiedToilets.add(uid);
+    } else {
+      if (!had) return;
+      this.occupiedToilets.delete(uid);
+    }
+
+    const entry = this.renderedItems.get(uid);
+    if (!entry || !entry.toiletLidPivot) return;
+    entry.toiletLidTarget = this.isToiletEffectivelyOpen(entry) ? 1 : 0;
+    if (
+      Math.abs(entry.toiletLidProgress - entry.toiletLidTarget) > 0.001 &&
+      !this.animatingToiletLids.includes(entry)
+    ) {
+      entry.toiletLidPivot.matrixAutoUpdate = true;
+      this.animatingToiletLids.push(entry);
+      this.markShadowsDirty();
+    }
+  }
+
+  private isToiletEffectivelyOpen(entry: RenderedItemEntry): boolean {
+    return Boolean(entry.item.active) || this.occupiedToilets.has(entry.uid);
+  }
+
+  private applyToiletLidTransform(entry: RenderedItemEntry): void {
+    const pivot = entry.toiletLidPivot;
+    if (!pivot) return;
+    pivot.rotation.x = entry.toiletLidOpenAngle * entry.toiletLidProgress;
+    pivot.updateMatrix();
+  }
+
   private syncGridVisibility(): void {
-    this._gridVisual.setGridVisible(this.store.isEditMode() || this.store.isGridVisible());
+    this._gridVisual.setGridVisible(
+      !this.cutsceneOverlaysHidden && (this.store.isEditMode() || this.store.isGridVisible()),
+    );
+  }
+
+  /**
+   * Cutscenes hide everything that is interface rather than world: hover and selection outlines,
+   * placement ghosts and guides (all under `overlayRoot`) and the grid lines. Passing `false`
+   * puts each back exactly as the current mode wants it.
+   */
+  setCutsceneOverlaysHidden(hidden: boolean): void {
+    if (this.cutsceneOverlaysHidden === hidden) return;
+    this.cutsceneOverlaysHidden = hidden;
+    this.overlayRoot.visible = !hidden;
+    this.syncGridVisibility();
   }
 
   private updateShadowFrustum(gridWidth: number, gridDepth: number): void {
@@ -1056,6 +1156,23 @@ export class SceneManager {
     this.cameraFollowCancelCb = provider ? (onCleared ?? null) : null;
   }
 
+  /** Clears the follow provider only if it is still `provider`; returns whether it was. */
+  clearCameraFollowProvider(provider: () => { x: number; z: number } | null): boolean {
+    if (this.cameraFollowProvider !== provider) return false;
+    this.cameraFollowProvider = null;
+    this.cameraFollowCancelCb = null;
+    return true;
+  }
+
+  /**
+   * Scripted camera lock for cutscenes. It sits above the player's follow provider instead of
+   * replacing it, so whatever the player is following (or picks mid-scene) resumes untouched
+   * the moment the lock is released. A manual pan breaks the lock, like any follow.
+   */
+  setCameraLockProvider(provider: (() => { x: number; z: number } | null) | null): void {
+    this.cameraLockProvider = provider;
+  }
+
   onCameraFollowCleared(listener: () => void): () => void {
     this.cameraFollowClearedListeners.add(listener);
     return () => this.cameraFollowClearedListeners.delete(listener);
@@ -1063,6 +1180,10 @@ export class SceneManager {
 
   isCameraFollowing(): boolean {
     return this.cameraFollowProvider !== null;
+  }
+
+  isCameraLocked(): boolean {
+    return this.cameraLockProvider !== null;
   }
 
   /**
@@ -2068,10 +2189,20 @@ export class SceneManager {
       }
     }
 
-    // Prune stale visitor-open door UIDs and stale movingHiddenUid
+    // Prune stale visitor-open door UIDs, locked doors, occupied toilets, and stale movingHiddenUid
     for (const vUid of this.visitorOpenDoors) {
       if (!regularIds.has(vUid)) {
         this.visitorOpenDoors.delete(vUid);
+      }
+    }
+    for (const lUid of this.lockedDoors) {
+      if (!regularIds.has(lUid)) {
+        this.lockedDoors.delete(lUid);
+      }
+    }
+    for (const tUid of this.occupiedToilets) {
+      if (!regularIds.has(tUid)) {
+        this.occupiedToilets.delete(tUid);
       }
     }
     if (this.movingHiddenUid && !nextIds.has(this.movingHiddenUid)) {
@@ -2084,6 +2215,12 @@ export class SceneManager {
         this.itemsRoot.remove(entry.group);
         this.disposeGroup(entry.group);
         this.renderedItems.delete(uid);
+        this.lockedDoors.delete(uid);
+        this.occupiedToilets.delete(uid);
+        const lidIdx = this.animatingToiletLids.indexOf(entry);
+        if (lidIdx !== -1) {
+          this.animatingToiletLids.splice(lidIdx, 1);
+        }
         shadowsDirty = true;
       }
     }
@@ -2098,6 +2235,7 @@ export class SceneManager {
       const { item, def } = regularItems[i];
       const existing = this.renderedItems.get(item.uid);
       const isDoor = isDoorDef(def);
+      const isToilet = def.id === 'toilet_cozy';
       const isOpening =
         def.layer === 'wall' &&
         def.wallKind === 'structure' &&
@@ -2106,8 +2244,9 @@ export class SceneManager {
       const resolvedWallStyle = isOpening ? resolveOpeningWallStyle(item) : null;
       const nextWallStyleKey = resolvedWallStyle?.key ?? '';
 
-      // Structural doors animate their DoorPivot smoothly instead of rebuilding when toggled!
-      const activeChangedNeedsRebuild = !isDoor && existing?.item.active !== item.active;
+      // Structural doors and toilet_cozy animate their pivots smoothly instead of rebuilding when toggled!
+      const activeChangedNeedsRebuild =
+        !isDoor && !isToilet && existing?.item.active !== item.active;
       const needsRebuild =
         !existing ||
         existing.item.itemId !== item.itemId ||
@@ -2147,6 +2286,8 @@ export class SceneManager {
       let doorIsSliding = existing?.doorIsSliding ?? false;
       let doorSlideSign = existing?.doorSlideSign ?? -1;
       let doorSlideDistance = existing?.doorSlideDistance ?? 0.36;
+      let toiletLidPivot: THREE.Object3D | null = existing?.toiletLidPivot ?? null;
+      let toiletLidOpenAngle = existing?.toiletLidOpenAngle ?? DEFAULT_TOILET_LID_OPEN_ANGLE;
       const bounceTime = existing?.bounceTime ?? 0;
 
       if (needsRebuild) {
@@ -2155,13 +2296,14 @@ export class SceneManager {
           this.disposeGroup(existing.group);
         }
         group = this.assetLoader.createPlaceholderMesh(def, item.variantId, {
-          active: isDoor ? false : item.active,
+          active: isDoor || isToilet ? false : item.active,
           mergeSide: nextMergeSide,
           wallSurfaceColor: resolvedWallStyle?.wallSurfaceColor,
           wallSurfaceAccent: resolvedWallStyle?.wallSurfaceAccent,
         });
         spinTargets = [];
         doorPivot = null;
+        toiletLidPivot = null;
         group.userData.itemUid = item.uid;
         group.traverse((child) => {
           child.userData.itemUid = item.uid;
@@ -2169,6 +2311,8 @@ export class SceneManager {
             spinTargets.push(child);
           } else if (child.name === 'DoorPivot') {
             doorPivot = child;
+          } else if (child.name === 'ToiletLidPivot') {
+            toiletLidPivot = child;
           }
         });
 
@@ -2194,6 +2338,14 @@ export class SceneManager {
               : nextMergeSide
                 ? 0.62
                 : 0.36;
+        }
+
+        if (isToilet && toiletLidPivot) {
+          const tp = toiletLidPivot as THREE.Object3D;
+          toiletLidOpenAngle =
+            typeof tp.userData.openAngle === 'number'
+              ? tp.userData.openAngle
+              : DEFAULT_TOILET_LID_OPEN_ANGLE;
         }
 
         this.itemsRoot.add(group);
@@ -2273,7 +2425,9 @@ export class SceneManager {
         }
       }
 
-      const dynamicSubtrees = doorPivot ? [...spinTargets, doorPivot] : spinTargets;
+      const dynamicSubtrees: THREE.Object3D[] = [...spinTargets];
+      if (doorPivot) dynamicSubtrees.push(doorPivot);
+      if (toiletLidPivot) dynamicSubtrees.push(toiletLidPivot);
       const keepDynamicMatrix =
         isDynamicGroup || bounceTime > 0 || placeAnimTime >= 0 || transformAnimTime >= 0;
       this.freezeStaticSubtree(group, dynamicSubtrees, keepDynamicMatrix);
@@ -2313,6 +2467,10 @@ export class SceneManager {
         doorIsSliding,
         doorSlideSign,
         doorSlideDistance,
+        toiletLidPivot,
+        toiletLidOpenAngle,
+        toiletLidProgress: existing ? existing.toiletLidProgress : 0,
+        toiletLidTarget: 0,
         isDynamicGroup,
       };
 
@@ -2326,6 +2484,16 @@ export class SceneManager {
         this.applyDoorPivotTransform(entry);
       }
 
+      // Sync smooth toilet lid open state (snap on initial creation/load, lerp on toggle!)
+      if (isToilet && entry.toiletLidPivot) {
+        const targetOpen = this.isToiletEffectivelyOpen(entry) ? 1 : 0;
+        entry.toiletLidTarget = targetOpen;
+        if (!existing || !allowMotionAnim) {
+          entry.toiletLidProgress = targetOpen;
+        }
+        this.applyToiletLidTransform(entry);
+      }
+
       this.renderedItems.set(item.uid, entry);
     }
 
@@ -2337,6 +2505,7 @@ export class SceneManager {
     this.bouncingEntries = [];
     this.animatingEntries = [];
     this.animatingDoors = [];
+    this.animatingToiletLids = [];
 
     for (const entry of this.renderedItems.values()) {
       const def = entry.def;
@@ -2362,6 +2531,13 @@ export class SceneManager {
         Math.abs(entry.doorOpenProgress - entry.doorTargetOpen) > 0.001
       ) {
         this.animatingDoors.push(entry);
+      }
+      if (
+        entry.toiletLidPivot &&
+        Math.abs(entry.toiletLidProgress - entry.toiletLidTarget) > 0.001
+      ) {
+        entry.toiletLidPivot.matrixAutoUpdate = true;
+        this.animatingToiletLids.push(entry);
       }
     }
 
@@ -2703,15 +2879,31 @@ export class SceneManager {
     this.ceilingRoot.visible = this.store.isCeilingVisible();
   }
 
+  private getEffectiveWallCutawayOpacity(): number {
+    const raw = this.store.getWallCutawayOpacity();
+    return Number.isFinite(raw) ? THREE.MathUtils.clamp(raw, 0, 1) : 0.16;
+  }
+
   private applyWallOpacityToGroup(group: THREE.Group, factor: number): boolean {
     let shadowChanged = false;
+    const hideMeshes = factor <= 0.015;
     group.userData.isTranslucentCutaway = factor < 0.55;
     group.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments)) return;
+      if (obj.userData.baseVisible === undefined) {
+        obj.userData.baseVisible = obj.visible;
+      }
+      const nextVisible = hideMeshes ? false : (obj.userData.baseVisible as boolean);
+      if (obj.visible !== nextVisible) {
+        obj.visible = nextVisible;
+        shadowChanged = true;
+      }
+
       if (!(obj instanceof THREE.Mesh)) return;
       if (obj.userData.baseCastShadow === undefined) {
         obj.userData.baseCastShadow = obj.castShadow;
       }
-      const nextCast = factor >= 0.65 ? (obj.userData.baseCastShadow as boolean) : false;
+      const nextCast = !hideMeshes && factor >= 0.65 ? (obj.userData.baseCastShadow as boolean) : false;
       if (obj.castShadow !== nextCast) {
         obj.castShadow = nextCast;
         shadowChanged = true;
@@ -2841,22 +3033,26 @@ export class SceneManager {
     }
 
     const mode = this.store.getWallViewMode();
+    const cutOpacity = this.getEffectiveWallCutawayOpacity();
     const smooth = dt > 0 ? 1 - Math.exp(-14 * dt) : 1;
 
-    this.wallTargetsMap.clear();
+    this.wallBlockingMap.clear();
     let anyMoving = false;
     let anyShadowChanged = false;
 
     // Pass 1: pre-filtered structural walls (Sims-style away-from-camera interior visibility check)
     for (let i = 0; i < this.wallEntries.length; i++) {
       const entry = this.wallEntries[i];
+      let isBlocking = false;
       let target = 1.0;
       if (mode === 'solid') {
+        isBlocking = false;
         target = 1.0;
       } else if (mode === 'translucent') {
-        target = 0.2;
+        isBlocking = true;
+        target = cutOpacity;
       } else {
-        const isBlocking = this.isWallEdgeBlockingInterior(
+        isBlocking = this.isWallEdgeBlockingInterior(
           entry.item.x,
           entry.item.z,
           entry.item.rotation,
@@ -2867,10 +3063,10 @@ export class SceneManager {
           toCamX,
           toCamZ,
         );
-        target = isBlocking ? 0.16 : 1.0;
+        target = isBlocking ? cutOpacity : 1.0;
       }
 
-      this.wallTargetsMap.set(entry.uid, target);
+      this.wallBlockingMap.set(entry.uid, isBlocking);
 
       const shouldSnap = snapUninit && !entry.wallOpacityInitialized;
       const nextOp = shouldSnap
@@ -2882,7 +3078,7 @@ export class SceneManager {
         anyMoving = true;
       }
 
-      if (shouldSnap || Math.abs(snapped - entry.wallOpacity) > 0.001) {
+      if (shouldSnap || Math.abs(snapped - entry.wallOpacity) > 1e-4) {
         entry.wallOpacity = snapped;
         entry.wallOpacityInitialized = true;
         if (this.applyWallOpacityToGroup(entry.group, snapped)) {
@@ -2903,11 +3099,11 @@ export class SceneManager {
       if (mode === 'solid') {
         target = 1.0;
       } else if (mode === 'translucent') {
-        target = 0.22;
+        target = cutOpacity;
       } else {
         const isBlocking =
-          entry.item.parentUid && this.wallTargetsMap.has(entry.item.parentUid)
-            ? (this.wallTargetsMap.get(entry.item.parentUid) ?? 1.0) < 0.9
+          entry.item.parentUid && this.wallBlockingMap.has(entry.item.parentUid)
+            ? Boolean(this.wallBlockingMap.get(entry.item.parentUid))
             : this.isWallEdgeBlockingInterior(
                 entry.item.x,
                 entry.item.z,
@@ -2919,7 +3115,7 @@ export class SceneManager {
                 toCamX,
                 toCamZ,
               );
-        target = isBlocking ? 0.16 : 1.0;
+        target = isBlocking ? cutOpacity : 1.0;
       }
 
       const shouldSnap = snapUninit && !entry.wallOpacityInitialized;
@@ -2932,7 +3128,7 @@ export class SceneManager {
         anyMoving = true;
       }
 
-      if (shouldSnap || Math.abs(snapped - entry.wallOpacity) > 0.001) {
+      if (shouldSnap || Math.abs(snapped - entry.wallOpacity) > 1e-4) {
         entry.wallOpacity = snapped;
         entry.wallOpacityInitialized = true;
         if (this.applyWallOpacityToGroup(entry.group, snapped)) {
@@ -3193,6 +3389,32 @@ export class SceneManager {
     }
   }
 
+  /** Smoothly lerps hinged ToiletLidPivots for manual clicks and occupied bathroom visits. */
+  private updateToiletLidAnimations(dt: number): void {
+    if (this.animatingToiletLids.length === 0) return;
+    const smooth = 1 - Math.exp(-14 * dt);
+    for (let i = this.animatingToiletLids.length - 1; i >= 0; i--) {
+      const entry = this.animatingToiletLids[i];
+      if (!entry.toiletLidPivot) {
+        const last = this.animatingToiletLids.pop()!;
+        if (i < this.animatingToiletLids.length) this.animatingToiletLids[i] = last;
+        continue;
+      }
+      const next = THREE.MathUtils.lerp(entry.toiletLidProgress, entry.toiletLidTarget, smooth);
+      if (Math.abs(next - entry.toiletLidTarget) < 0.003) {
+        entry.toiletLidProgress = entry.toiletLidTarget;
+        this.applyToiletLidTransform(entry);
+        entry.toiletLidPivot.updateMatrixWorld(true);
+        const last = this.animatingToiletLids.pop()!;
+        if (i < this.animatingToiletLids.length) this.animatingToiletLids[i] = last;
+        this.markShadowsDirty();
+      } else {
+        entry.toiletLidProgress = next;
+        this.applyToiletLidTransform(entry);
+      }
+    }
+  }
+
   /** Advances the smooth dynamic Day/Night cycle when `store.isTimeCycleRunning()` is enabled. */
   private updateRunningTimeCycle(dt: number): void {
     if (!this.store.isTimeCycleRunning()) {
@@ -3269,7 +3491,8 @@ export class SceneManager {
       this.bouncingEntries.length > 0 ||
       this.bassPulseEntries.length > 0 ||
       this.animatingEntries.length > 0 ||
-      this.animatingDoors.length > 0;
+      this.animatingDoors.length > 0 ||
+      this.animatingToiletLids.length > 0;
 
     if (hasDynamicShadowMotion) {
       this.dynamicShadowAccum += dt;
@@ -3299,8 +3522,8 @@ export class SceneManager {
       this.simElapsedTime += simDt;
 
       // Live visitor camera follow (skipped in cinematic mode; auto-cleared on manual pan/reset)
-      if (this.cameraFollowProvider && !this.isoCamera.isCinematicMode()) {
-        const followPos = this.cameraFollowProvider();
+      if ((this.cameraLockProvider || this.cameraFollowProvider) && !this.isoCamera.isCinematicMode()) {
+        const followPos = this.cameraLockProvider?.() ?? this.cameraFollowProvider?.();
         if (followPos && Number.isFinite(followPos.x) && Number.isFinite(followPos.z)) {
           this.isoCamera.setTargetSmooth(followPos.x, followPos.z);
         }
@@ -3312,7 +3535,9 @@ export class SceneManager {
       this.updateCloudTransition(realDt);
       this.updateWallTranslucency(realDt, false);
       this.updateItemAnimations(realDt);
-      this.updateDoorAnimations(simDt > 0 ? simDt : realDt);
+      const hingeDt = simDt > 0 ? simDt : realDt;
+      this.updateDoorAnimations(hingeDt);
+      this.updateToiletLidAnimations(hingeDt);
 
       // Simulation-driven systems scale cleanly by 0x / 1x / 2x / 5x
       if (simDt > 0) {
@@ -3429,7 +3654,9 @@ export class SceneManager {
     }
     this.renderedItems.clear();
     this.visitorOpenDoors.clear();
+    this.lockedDoors.clear();
     this.doorPartnerGroups.clear();
+    this.occupiedToilets.clear();
     this.wallEntries = [];
     this.mountedEntries = [];
     this.spinnerEntries = [];
@@ -3437,6 +3664,7 @@ export class SceneManager {
     this.bouncingEntries = [];
     this.animatingEntries = [];
     this.animatingDoors = [];
+    this.animatingToiletLids = [];
     for (const outline of this.selectionOutlinePool) {
       outline.geometry.dispose();
       (outline.material as THREE.Material).dispose();
@@ -3453,6 +3681,7 @@ export class SceneManager {
     this.unsubManualPan = null;
     this.cameraFollowProvider = null;
     this.cameraFollowCancelCb = null;
+    this.cameraLockProvider = null;
     this.cameraFollowClearedListeners.clear();
     this.shaderListeners.clear();
     this.shaderPipeline.dispose();

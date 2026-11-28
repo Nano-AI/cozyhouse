@@ -37,6 +37,12 @@ export interface MeshOptions extends MatOptions {
   parent?: THREE.Object3D;
   castShadow?: boolean;
   receiveShadow?: boolean;
+  /** `torus` only: sweep angle in radians (default full circle). */
+  arc?: number;
+  /** `sphere` only: polar sweep from the top pole (Math.PI / 2 = upper dome); rings scale with it. */
+  thetaLength?: number;
+  /** `sphere` only: explicit ring count along the polar sweep. */
+  rings?: number;
 }
 
 export interface ModelContext {
@@ -229,14 +235,26 @@ export function createModelContext(
   const cyl: ModelContext['cyl'] = (rTop, rBot, h, segs, color, x, y, z, opts) =>
     placeMesh(new THREE.CylinderGeometry(rTop, rBot, h, segs), color, x, y, z, opts);
 
-  const sphere: ModelContext['sphere'] = (r, segs, color, x, y, z, opts) =>
-    placeMesh(new THREE.SphereGeometry(r, segs, Math.max(4, Math.round(segs * 0.75))), color, x, y, z, opts);
+  const sphere: ModelContext['sphere'] = (r, segs, color, x, y, z, opts) => {
+    const theta = opts?.thetaLength;
+    const rings =
+      opts?.rings ??
+      (theta ? Math.max(2, Math.round((segs * 0.75 * theta) / Math.PI)) : Math.max(4, Math.round(segs * 0.75)));
+    return placeMesh(
+      new THREE.SphereGeometry(r, segs, rings, 0, Math.PI * 2, 0, theta ?? Math.PI),
+      color,
+      x,
+      y,
+      z,
+      opts,
+    );
+  };
 
   const cone: ModelContext['cone'] = (r, h, segs, color, x, y, z, opts) =>
     placeMesh(new THREE.ConeGeometry(r, h, segs), color, x, y, z, opts);
 
   const torus: ModelContext['torus'] = (r, tube, radialSegs, tubularSegs, color, x, y, z, opts) =>
-    placeMesh(new THREE.TorusGeometry(r, tube, radialSegs, tubularSegs), color, x, y, z, opts);
+    placeMesh(new THREE.TorusGeometry(r, tube, radialSegs, tubularSegs, opts?.arc), color, x, y, z, opts);
 
   const legs: ModelContext['legs'] = (
     w,

@@ -2,6 +2,7 @@ import './ui/styles.css';
 import { AudioModule } from './audio/AudioModule';
 import { loadGameData } from './data/loader';
 import { PlacementController } from './engine/PlacementController';
+import { HorrorDirector } from './events/HorrorDirector';
 import { SceneManager } from './engine/SceneManager';
 import { decodeHouseFromShareLink, extractShareCodeFromHash } from './save/shareLink';
 import { backupHouseStorage, loadHouseFromStorage, saveHouseToStorage } from './save/storage';
@@ -11,6 +12,165 @@ import { HouseStore } from './state/houseStore';
 import { HudController } from './ui/HudController';
 import { VisitorModule } from './visitors/VisitorModule';
 
+type LoaderStage = 1 | 2 | 3 | 4 | 5 | 6;
+
+interface LoaderMilestone {
+  stage: LoaderStage;
+  pct: number;
+  label: string;
+}
+
+interface BootLoader {
+  setStage: (stage: LoaderStage, pct: number, label: string) => void;
+  finish: () => Promise<void>;
+  dismissImmediate: () => void;
+}
+
+function createBootLoader(): BootLoader {
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let dismissed = false;
+  let lastDomUpdateAt = startedAt;
+  let displayedStage: LoaderStage = 1;
+  const queuedMilestones: LoaderMilestone[] = [];
+  const pendingTimers = new Set<number>();
+
+  const getElements = () => ({
+    root: document.getElementById('cozy-loader'),
+    bar: document.getElementById('cozy-loader-bar') as HTMLElement | null,
+    label: document.getElementById('cozy-loader-label'),
+  });
+
+  const applyToDom = (stage: LoaderStage, pct: number, label: string): void => {
+    if (dismissed) return;
+    const { root, bar, label: labelEl } = getElements();
+    if (!root) return;
+    displayedStage = stage;
+    lastDomUpdateAt = now();
+    root.dataset.stage = String(stage);
+    if (bar) {
+      bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    }
+    if (labelEl) {
+      labelEl.textContent = label;
+    }
+  };
+
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      if (ms <= 0 || dismissed) {
+        resolve();
+        return;
+      }
+      const id = window.setTimeout(() => {
+        pendingTimers.delete(id);
+        resolve();
+      }, ms);
+      pendingTimers.add(id);
+    });
+
+  const nextFrame = (): Promise<void> =>
+    new Promise((resolve) => {
+      if (dismissed || typeof window.requestAnimationFrame !== 'function') {
+        resolve();
+        return;
+      }
+      window.requestAnimationFrame(() => resolve());
+    });
+
+  const removeNodes = (): void => {
+    document.getElementById('cozy-loader')?.remove();
+    document.getElementById('cozy-loader-styles')?.remove();
+  };
+
+  const dismissImmediate = (): void => {
+    dismissed = true;
+    queuedMilestones.length = 0;
+    for (const id of pendingTimers) {
+      window.clearTimeout(id);
+    }
+    pendingTimers.clear();
+    removeNodes();
+  };
+
+  const setStage = (stage: LoaderStage, pct: number, label: string): void => {
+    if (dismissed) return;
+    const { root } = getElements();
+    if (!root) return;
+
+    // Apply immediately for stage 1, reduced-motion, or when enough time elapsed since last paint;
+    // otherwise queue so synchronous local-boot stages animate smoothly instead of collapsing into 1 frame.
+    if (stage === 1 || prefersReducedMotion || now() - lastDomUpdateAt >= 90) {
+      queuedMilestones.length = 0;
+      applyToDom(stage, pct, label);
+    } else {
+      const existingIdx = queuedMilestones.findIndex((m) => m.stage === stage);
+      const entry: LoaderMilestone = { stage, pct, label };
+      if (existingIdx >= 0) {
+        queuedMilestones[existingIdx] = entry;
+      } else {
+        queuedMilestones.push(entry);
+      }
+    }
+  };
+
+  const finish = async (): Promise<void> => {
+    if (dismissed) return;
+    const { root } = getElements();
+    if (!root) return;
+
+    // Wait for the first 3D WebGL frame to paint cleanly behind the overlay
+    await nextFrame();
+    if (dismissed) return;
+
+    const MIN_DISPLAY_FLOOR_MS = 750;
+    const remainingFloor = Math.max(0, MIN_DISPLAY_FLOOR_MS - (now() - startedAt));
+
+    if (!prefersReducedMotion && remainingFloor > 0) {
+      // Step cleanly through any remaining intermediate stages within the display floor
+      const remainingStages = queuedMilestones.filter((m) => m.stage > displayedStage);
+      queuedMilestones.length = 0;
+      if (remainingStages.length > 0) {
+        const stepMs = Math.max(85, Math.floor(remainingFloor / remainingStages.length));
+        for (const milestone of remainingStages) {
+          if (dismissed) return;
+          applyToDom(milestone.stage, milestone.pct, milestone.label);
+          await sleep(stepMs);
+        }
+      } else {
+        await sleep(remainingFloor);
+      }
+    } else {
+      queuedMilestones.length = 0;
+    }
+
+    if (dismissed) return;
+
+    // Final stage: golden glow & sparkles
+    applyToDom(6, 100, 'Welcome home!');
+    await sleep(prefersReducedMotion ? 100 : 220);
+    if (dismissed) return;
+
+    const currentRoot = document.getElementById('cozy-loader');
+    if (currentRoot) {
+      currentRoot.classList.add('is-leaving');
+      await sleep(prefersReducedMotion ? 160 : 380);
+    }
+    if (!dismissed) {
+      dismissImmediate();
+    }
+  };
+
+  return { setStage, finish, dismissImmediate };
+}
+
+const bootLoader = createBootLoader();
+
 async function bootstrap(): Promise<void> {
   const viewportEl = document.getElementById('viewport');
   const hudEl = document.getElementById('hud');
@@ -18,6 +178,7 @@ async function bootstrap(): Promise<void> {
     throw new Error('Missing #viewport or #hud mount containers.');
   }
 
+  bootLoader.setStage(1, 18, 'Laying the foundation…');
   const data = await loadGameData('./data');
 
   let sharedHouse = null;
@@ -40,9 +201,14 @@ async function bootstrap(): Promise<void> {
   const savedState = sharedHouse ? null : loadHouseFromStorage(data);
   const initialHouse = sharedHouse ?? savedState ?? createStarterHouse(data);
 
+  bootLoader.setStage(2, 38, 'Raising the walls…');
   const store = new HouseStore(data, initialHouse);
+
+  bootLoader.setStage(3, 58, 'Adding the roof & yard…');
   const sceneManager = new SceneManager(viewportEl, store);
   const sceneryModule = new SceneryModule(store, sceneManager);
+
+  bootLoader.setStage(4, 76, 'Opening doors & windows…');
   const visitorModule = new VisitorModule(store, sceneManager);
   const audioModule = new AudioModule();
 
@@ -58,11 +224,30 @@ async function bootstrap(): Promise<void> {
     (info) => hud?.setHoverItem(info),
   );
 
+  bootLoader.setStage(5, 90, 'Warming up the hearth…');
   hud = new HudController(hudEl, store, sceneManager, placement, {
     visitorModule,
     audioModule,
     sceneryModule,
   });
+
+  // Very first visit (no saved house, not opening a share link): offer New House or a preset.
+  const WELCOMED_KEY = 'cozyhouse:welcomed';
+  let welcomed = true;
+  try {
+    welcomed = localStorage.getItem(WELCOMED_KEY) === '1';
+  } catch {
+    // Storage blocked: skip the chooser rather than show it on every load
+  }
+  if (!welcomed && !savedState && !sharedHouse) {
+    hud.showWelcomeChooser(() => {
+      try {
+        localStorage.setItem(WELCOMED_KEY, '1');
+      } catch {
+        // Ignore storage errors
+      }
+    });
+  }
 
   if (sharedHouse) {
     store.notify('Loaded shared house!', 'success');
@@ -101,6 +286,8 @@ async function bootstrap(): Promise<void> {
   store.on('houseChanged', ({ reason }) => {
     // Ignore 24h running time-cycle ticks so they never starve autosave debounce or spam "Saving…"
     if (reason === 'timeOfDay') return;
+    // Visitors and staff using items isn't a player edit: never let it overwrite the local save while viewing a shared link.
+    if (viewingUneditedShared && reason === 'sim-interact') return;
 
     if (viewingUneditedShared) {
       backupHouseStorage('cozyhouse:save:backup');
@@ -121,8 +308,31 @@ async function bootstrap(): Promise<void> {
 
   window.addEventListener('pagehide', flushSave);
 
+  // [horror-events hook] The Last Guest: rare night-weather event (src/events/HorrorDirector.ts)
+  const horrorDirector = new HorrorDirector({ store, sceneManager, visitorModule, audioModule });
+  // Gojo is the one guest The Last Guest can't take: Red + Blue → Hollow Purple erases him instead.
+  horrorDirector.onGojoConfronts = (_gojo, guestPos) => {
+    const view = horrorDirector.getPlayerView();
+    let banished = false;
+    const banish = () => {
+      if (banished) return;
+      banished = true;
+      horrorDirector.banish();
+    };
+    const started = visitorModule.playHollowPurple('gojo', guestPos, {
+      withVoice: true, // Gojo's own lines from the episode
+      onHit: banish,
+      onDone: () => {
+        banish();
+        if (view) sceneManager.isoCamera.restoreView(view.zoom, view.x, view.z);
+      },
+    });
+    if (!started) banish();
+  };
+
   // Expose debug handle for local inspection & testing
   (window as unknown as Record<string, unknown>).__cozyhouse = {
+    horrorDirector,
     store,
     sceneManager,
     sceneryModule,
@@ -130,9 +340,12 @@ async function bootstrap(): Promise<void> {
     audioModule,
     hud,
   };
+
+  void bootLoader.finish();
 }
 
 bootstrap().catch((err) => {
+  bootLoader.dismissImmediate();
   console.error('[Cozyhouse] Startup failed:', err);
   const hudEl = document.getElementById('hud');
   if (hudEl) {

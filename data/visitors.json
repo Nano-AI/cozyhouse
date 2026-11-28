@@ -314,6 +314,30 @@
       ]
     },
     {
+      "id": "toji",
+      "name": "Toji Fushiguro",
+      "special": true,
+      "archetypeIcon": "🗡️",
+      "description": "Laid-back freelancer with a scarred smirk, a pet worm full of odd jobs, and a nose for good food, strong drinks, and a comfy place to loaf.",
+      "color": "#3F4450",
+      "accentColor": "#B9B4C9",
+      "model": "models/visitors/toji.glb",
+      "likedTags": ["food", "drinks", "bar", "cozy", "kitchen"],
+      "dislikedTags": [],
+      "preferredInteractions": ["sit", "eat", "sip"],
+      "walkSpeed": 1.75,
+      "patienceSeconds": 40,
+      "voiceProfile": {
+        "basePitch": 168,
+        "pitchVariance": 34,
+        "syllableRate": 5.6,
+        "waveform": "sawtooth"
+      },
+      "personas": [
+        { "name": "Toji Fushiguro", "pronouns": "he/him", "trait": "Loafs on the best seat in the house, eyes the snacks, and keeps one hand on a very short spear." }
+      ]
+    },
+    {
       "id": "baki",
       "name": "Baki Hanma",
       "special": true,
@@ -394,7 +418,7 @@
       "color": "#3A3F4B",
       "accentColor": "#3A3F4B",
       "model": "models/visitors/john-wick.glb",
-      "likedTags": ["pets", "cozy", "quiet"],
+      "likedTags": ["pet", "cozy", "quiet"],
       "dislikedTags": ["party"],
       "preferredInteractions": ["pet_cat", "admire", "sit"],
       "walkSpeed": 1.6,
@@ -479,6 +503,77 @@
       },
       "personas": [
         { "name": "Rick Sanchez", "pronouns": "he/him", "trait": "Steps out of a swirling green portal gun rift, critiques the multiverse's best drink counter, and vanishes at will." }
+      ]
+    },
+    {
+      "id": "adi",
+      "name": "Adi",
+      "special": true,
+      "archetypeIcon": "👓",
+      "description": "The house's own developer and an all-of-the-above enjoyer: music, art, plants, coffee, a good party or a quiet nap, he finds something to love in every room.",
+      "color": "#8A7562",
+      "accentColor": "#EDE6D8",
+      "model": "models/visitors/adi.glb",
+      "likedTags": [
+        "art",
+        "bar",
+        "cafe",
+        "cat",
+        "coffee",
+        "cook",
+        "cozy",
+        "dance",
+        "decor",
+        "diner",
+        "dining",
+        "drinks",
+        "food",
+        "home",
+        "kitchen",
+        "light",
+        "media",
+        "music",
+        "nightlife",
+        "party",
+        "pet",
+        "plants",
+        "plushie",
+        "quiet",
+        "read",
+        "seating",
+        "serve",
+        "sleep",
+        "window",
+        "work",
+        "bathroom",
+        "rug"
+      ],
+      "dislikedTags": [],
+      "preferredInteractions": [
+        "admire",
+        "admire_plant",
+        "browse_shelf",
+        "dance",
+        "look_out_window",
+        "order_coffee",
+        "pet_cat",
+        "sip",
+        "sit"
+      ],
+      "walkSpeed": 1.5,
+      "patienceSeconds": 38,
+      "voiceProfile": {
+        "basePitch": 170,
+        "pitchVariance": 40,
+        "syllableRate": 6.0,
+        "waveform": "triangle"
+      },
+      "personas": [
+        {
+          "name": "Adi",
+          "pronouns": "he/him",
+          "trait": "Wanders in pushing his round glasses up, humming along to the playlist, stopping at every painting and plant, and happily settling into whatever room he lands in."
+        }
       ]
     }
   ]

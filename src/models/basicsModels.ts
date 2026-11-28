@@ -52,7 +52,7 @@ function cleanRing2D(pts: THREE.Vector2[]): THREE.Vector2[] {
  * Building caps + sidewalls explicitly guarantees 100% solid front (+Z), back (-Z), and
  * outward sidewall faces with clean box-projected UVs and exact flat normals.
  */
-function buildSolidExtrudeGeometry(
+export function buildSolidExtrudeGeometry(
   shape: THREE.Shape,
   depth: number,
   curveSegments = 12,
@@ -237,19 +237,25 @@ function addWallMoldings(
   ctx.box(trimW, 0.033, t + 0.048, ctx.shade(crownColor, 0.06), 0, h - 0.0225, 0, { roughness: 0.7 });
 }
 
-/** Creates a 1.0 x h rectangular wall shape with an arched opening cutout from floor or sill. */
+/**
+ * Creates a 1.0 x h rectangular wall shape with an arched opening cutout from floor or sill.
+ * `arcR` may sit inside the casing trim band (> openHalfW): the wall's arc edge is then fully
+ * buried in the trim, so callers can extrude it with very few curve segments.
+ */
 function makeWallWithArchOpening(
   h: number,
   openHalfW: number,
   bottomY: number,
   springY: number,
+  arcR = openHalfW,
 ): THREE.Shape {
   const shape = new THREE.Shape();
   if (bottomY <= 0.001) {
     shape.moveTo(-0.5, 0);
     shape.lineTo(-openHalfW, 0);
     shape.lineTo(-openHalfW, springY);
-    shape.absarc(0, springY, openHalfW, Math.PI, 0, true);
+    shape.absarc(0, springY, arcR, Math.PI, 0, true);
+    shape.lineTo(openHalfW, springY);
     shape.lineTo(openHalfW, 0);
     shape.lineTo(0.5, 0);
     shape.lineTo(0.5, h);
@@ -266,7 +272,8 @@ function makeWallWithArchOpening(
     hole.moveTo(-openHalfW, bottomY);
     hole.lineTo(openHalfW, bottomY);
     hole.lineTo(openHalfW, springY);
-    hole.absarc(0, springY, openHalfW, 0, Math.PI, false);
+    hole.absarc(0, springY, arcR, 0, Math.PI, false);
+    hole.lineTo(-openHalfW, springY);
     hole.closePath();
     shape.holes.push(hole);
   }
@@ -593,14 +600,15 @@ function buildWallArch(ctx: ModelContext): void {
   const springY = 1.76;
 
   // Main extruded wall with smooth semicircular arch opening
-  const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY);
-  extrudeCentered(ctx, wallShape, t, primary, { roughness: 0.85, curveSegments: 14 });
+  // (arc edge buried mid-way inside the trim rim below, so 6 segments are plenty)
+  const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY, openHalfW + 0.0175);
+  extrudeCentered(ctx, wallShape, t, primary, { roughness: 0.85, curveSegments: 3 });
 
   // Sculpted arch surround trim rim on both faces (+0.012 per face, starts cleanly above baseboard 0.138)
   const trimShape = makeArchTrimShape(openHalfW - 0.005, 0.045, 0.138, springY);
   extrudeCentered(ctx, trimShape, t + 0.024, shade(primary, 0.1), {
     roughness: 0.74,
-    curveSegments: 14,
+    curveSegments: 11,
   });
 
   // Baseboard cuffs cleanly above floor tile top (0.024): y = [0.028..0.138], inset 0.004 from +-0.5
@@ -888,27 +896,28 @@ function buildDoorArched(ctx: ModelContext): void {
     const isLeft = mergeSide === 'left';
     const R = 0.89; // from outer jamb (-0.39) to center seam (+0.50)
     const springY = 1.42;
-    const apexY = springY + R; // 2.31 (leaves 0.29 spandrel below h = 2.60)
+    const wallR = R + 0.02; // wall cut edge buried mid-way inside the trim rim (coarse arc is hidden)
 
     const wallShape = new THREE.Shape();
     if (isLeft) {
       wallShape.moveTo(-0.5, 0);
       wallShape.lineTo(-0.39, 0);
       wallShape.lineTo(-0.39, springY);
-      wallShape.absarc(0.5, springY, R, Math.PI, Math.PI / 2, true);
+      wallShape.absarc(0.5, springY, wallR, Math.PI, Math.PI / 2, true);
       wallShape.lineTo(0.5, h);
       wallShape.lineTo(-0.5, h);
       wallShape.closePath();
     } else {
-      wallShape.moveTo(-0.5, apexY);
-      wallShape.absarc(-0.5, springY, R, Math.PI / 2, 0, true);
+      wallShape.moveTo(-0.5, springY + wallR);
+      wallShape.absarc(-0.5, springY, wallR, Math.PI / 2, 0, true);
+      wallShape.lineTo(0.39, springY);
       wallShape.lineTo(0.39, 0);
       wallShape.lineTo(0.5, 0);
       wallShape.lineTo(0.5, h);
       wallShape.lineTo(-0.5, h);
       wallShape.closePath();
     }
-    extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 16 });
+    extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 3 });
 
     // Sculpted quarter-arch surround trim rim starting cleanly above floor tile top (y = 0.028)
     const trimW = 0.048;
@@ -935,7 +944,7 @@ function buildDoorArched(ctx: ModelContext): void {
     }
     extrudeCentered(ctx, trimShape, t + 0.026, wallTrim, {
       roughness: 0.74,
-      curveSegments: 16,
+      curveSegments: 10,
     });
 
     // Threshold proudly above floor tile top (0.024): y = [0.028 .. 0.040]
@@ -977,7 +986,7 @@ function buildDoorArched(ctx: ModelContext): void {
     extrudeCentered(ctx, leafShape, leafD, primary, {
       parent: pivot,
       roughness: 0.72,
-      curveSegments: 16,
+      curveSegments: 10,
     });
 
     // Matching curved quarter-arch recessed accent panel cleanly proud (+0.007 per face)
@@ -1004,12 +1013,12 @@ function buildDoorArched(ctx: ModelContext): void {
     extrudeCentered(ctx, panelShape, leafD + 0.014, shade(primary, -0.09), {
       parent: pivot,
       roughness: 0.78,
-      curveSegments: 14,
+      curveSegments: 10,
     });
 
     // Sleek flush brass barrel hinges along hinge edge & brass doorknob near center seam
     for (const hy of [0.42, 1.24]) {
-      ctx.cyl(0.014, 0.014, 0.09, 7, BRASS_DARK, spec.leafDir * 0.014, hy, 0, {
+      ctx.cyl(0.014, 0.014, 0.09, 5, BRASS_DARK, spec.leafDir * 0.014, hy, 0, {
         parent: pivot,
         roughness: 0.34,
         metalness: 0.62,
@@ -1022,7 +1031,7 @@ function buildDoorArched(ctx: ModelContext): void {
       metalness: 0.62,
     });
     for (const sz of [-0.056, 0.056]) {
-      ctx.sphere(0.034, 8, BRASS, knobX, 0.98, sz, {
+      ctx.sphere(0.034, 6, BRASS, knobX, 0.98, sz, {
         parent: pivot,
         roughness: 0.28,
         metalness: 0.68,
@@ -1054,7 +1063,7 @@ function buildDoorArched(ctx: ModelContext): void {
       roughness: 0.78,
     });
     for (const sz of [-0.056, 0.056]) {
-      ctx.sphere(0.034, 8, BRASS, spec.leafW - 0.09, 0.98, sz, {
+      ctx.sphere(0.034, 6, BRASS, spec.leafW - 0.09, 0.98, sz, {
         parent: pivot,
         roughness: 0.28,
         metalness: 0.68,
@@ -1067,13 +1076,14 @@ function buildDoorArched(ctx: ModelContext): void {
   const openHalfW = 0.39;
   const springY = 1.68;
 
-  const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY);
-  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 16 });
+  // Wall arc edge is buried mid-way inside the trim rim, so 6 segments are plenty
+  const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY, openHalfW + 0.02);
+  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 3 });
 
   const trimShape = makeArchTrimShape(openHalfW - 0.004, 0.048, 0.028, springY);
   extrudeCentered(ctx, trimShape, t + 0.026, wallTrim, {
     roughness: 0.74,
-    curveSegments: 16,
+    curveSegments: 12,
   });
 
   // Threshold proudly above floor tile top (0.024): y = [0.028 .. 0.040]
@@ -1096,7 +1106,7 @@ function buildDoorArched(ctx: ModelContext): void {
   extrudeCentered(ctx, leafShape, leafD, primary, {
     parent: pivot,
     roughness: 0.72,
-    curveSegments: 16,
+    curveSegments: 12,
   });
 
   const insetShape = new THREE.Shape();
@@ -1108,12 +1118,12 @@ function buildDoorArched(ctx: ModelContext): void {
   extrudeCentered(ctx, insetShape, leafD + 0.014, shade(primary, -0.09), {
     parent: pivot,
     roughness: 0.78,
-    curveSegments: 14,
+    curveSegments: 12,
   });
 
   // Sleek flush brass barrel hinges & brass doorknob + escutcheon
   for (const hy of [0.42, 1.38]) {
-    ctx.cyl(0.014, 0.014, 0.09, 7, BRASS_DARK, 0.014, hy, 0, {
+    ctx.cyl(0.014, 0.014, 0.09, 5, BRASS_DARK, 0.014, hy, 0, {
       parent: pivot,
       roughness: 0.34,
       metalness: 0.62,
@@ -1125,7 +1135,7 @@ function buildDoorArched(ctx: ModelContext): void {
     metalness: 0.62,
   });
   for (const sz of [-0.056, 0.056]) {
-    ctx.sphere(0.034, 8, BRASS, 0.68, 0.98, sz, {
+    ctx.sphere(0.034, 6, BRASS, 0.68, 0.98, sz, {
       parent: pivot,
       roughness: 0.28,
       metalness: 0.68,
@@ -1321,15 +1331,16 @@ function buildWindowArched(ctx: ModelContext): void {
   const openHalfW = 0.37;
 
   // Extruded wall with exact arched window cutout inheriting host wall finish
-  const wallShape = makeWallWithArchOpening(h, openHalfW, sillY, springY);
-  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 14 });
+  // (arc edge buried mid-way inside the casing rim below, so 6 segments are plenty)
+  const wallShape = makeWallWithArchOpening(h, openHalfW, sillY, springY, openHalfW + 0.02);
+  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 3 });
   addWallMoldings(ctx, wallTone, h, { baseboardTrim: wallTrim });
 
   // Deep protruding sill: y = [0.825 .. 0.885]
   ctx.box(0.88, 0.06, t + 0.088, frameCol, 0, 0.855, 0, { roughness: 0.62 });
   // Sculpted arched casing rim strictly starting above sill at y = 0.885
   const trimShape = makeArchTrimShape(openHalfW - 0.005, 0.048, 0.885, springY);
-  extrudeCentered(ctx, trimShape, t + 0.032, frameCol, { roughness: 0.64, curveSegments: 14 });
+  extrudeCentered(ctx, trimShape, t + 0.032, frameCol, { roughness: 0.64, curveSegments: 13 });
 
   // Cross mullions with distinct Z depth (horizontal 0.080 vs vertical 0.064 -> +0.008 per face!)
   const mullionCol = shade(frameCol, -0.06);
@@ -1337,19 +1348,20 @@ function buildWindowArched(ctx: ModelContext): void {
   const vLen = springY - 0.888 + openHalfW - 0.02;
   ctx.box(0.034, vLen, 0.064, mullionCol, 0, 0.888 + vLen / 2, 0, { roughness: 0.65 });
 
-  // Exact arched glass pane cleanly inside mullions
+  // Arched glass pane; its edge tucks 0.015 into the casing rim so a coarse arc stays hidden
+  const glassR = openHalfW + 0.01;
   const glassShape = new THREE.Shape();
-  glassShape.moveTo(-openHalfW + 0.01, 0.888);
-  glassShape.lineTo(openHalfW - 0.01, 0.888);
-  glassShape.lineTo(openHalfW - 0.01, springY);
-  glassShape.absarc(0, springY, openHalfW - 0.01, 0, Math.PI, false);
+  glassShape.moveTo(-glassR, 0.888);
+  glassShape.lineTo(glassR, 0.888);
+  glassShape.lineTo(glassR, springY);
+  glassShape.absarc(0, springY, glassR, 0, Math.PI, false);
   glassShape.closePath();
   extrudeCentered(ctx, glassShape, 0.022, primary, {
     opacity: 0.38,
     roughness: 0.1,
     metalness: 0.12,
     castShadow: false,
-    curveSegments: 14,
+    curveSegments: 4,
   });
 }
 
