@@ -17,6 +17,7 @@ import { decodeHouseFromShareLink, encodeHouseToShareUrl } from '../save/shareLi
 import type { SceneryModule } from '../scenery/SceneryModule';
 import { createEmptyHouse, createStarterHouse } from '../state/defaultHouse';
 import { HOUSE_PRESETS, createPresetHouse } from '../state/housePresets';
+import { createNewHouse } from '../state/newHouse';
 import type {
   EraseFilter,
   ExpandSide,
@@ -57,7 +58,7 @@ type StaffPositionStore = HouseStore & {
   setStaffPosition?: (staffId: string, x: number, z: number, assignedItemUid?: string) => boolean;
 };
 
-type PopoverKind = 'room' | 'atmosphere' | 'walls' | 'visitors' | 'menu' | 'lot' | null;
+type PopoverKind = 'room' | 'atmosphere' | 'walls' | 'visitors' | 'help' | 'menu' | 'lot' | null;
 type BasicsGroupId = 'floors' | 'walls' | 'doors' | 'windows';
 
 interface SubcategoryDef {
@@ -188,6 +189,7 @@ const VISITOR_ARCHETYPE_ICONS: Record<string, string> = {
   rocky: '🕷️',
   homer: '🍩',
   rick: '🌀',
+  adi: '👓',
 };
 
 const EMOTE_ID_TO_EMOJI: Record<string, string> = {
@@ -557,6 +559,7 @@ export class HudController {
   private visitorCountEl!: HTMLSpanElement;
   private shareBtnEl!: HTMLButtonElement;
   private soundBtnEl!: HTMLButtonElement;
+  private helpBtnEl!: HTMLButtonElement;
   private menuBtnEl!: HTMLButtonElement;
   private simSpeedPillEl!: HTMLDivElement;
   private simSpeedBtns: Array<{ btn: HTMLButtonElement; speed: SimSpeed }> = [];
@@ -592,6 +595,7 @@ export class HudController {
   private atmospherePopoverEl!: HTMLDivElement;
   private wallsPopoverEl!: HTMLDivElement;
   private visitorsPopoverEl!: HTMLDivElement;
+  private helpPopoverEl!: HTMLDivElement;
   private menuPopoverEl!: HTMLDivElement;
   private lotPopoverEl!: HTMLDivElement;
   private fileInputEl!: HTMLInputElement;
@@ -825,12 +829,14 @@ export class HudController {
         this.atmospherePopoverEl,
         this.wallsPopoverEl,
         this.visitorsPopoverEl,
+        this.helpPopoverEl,
         this.menuPopoverEl,
         this.lotPopoverEl,
         this.roomBtnEl,
         this.atmosphereBtnEl,
         this.wallViewBtnEl,
         this.visitorsBtnEl,
+        this.helpBtnEl,
         this.menuBtnEl,
         this.lotSizeBtnEl,
       ];
@@ -1056,6 +1062,101 @@ export class HudController {
     );
   }
 
+  private startNewHouseWithTransition(): void {
+    this.runCloudTransition(
+      () => {
+        this.store.loadPreset(createNewHouse(this.store.data));
+        this.store.notify('New house started. Open Build to furnish it (Undo brings the old one back).', 'info');
+      },
+      'New House',
+      'room_home',
+    );
+  }
+
+  /**
+   * First-visit chooser: start from an empty room or move into one of the preset houses.
+   * Closing it (Esc, the close button or the backdrop) keeps the starter house that is already loaded.
+   */
+  showWelcomeChooser(onDone?: () => void): void {
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const backdrop = document.createElement('div');
+    backdrop.className = 'polaroid-modal-backdrop welcome-backdrop';
+    const card = document.createElement('div');
+    card.className = 'welcome-card';
+    card.setAttribute('role', 'dialog');
+    card.setAttribute('aria-modal', 'true');
+    card.setAttribute('aria-labelledby', 'welcome-title');
+
+    const title = document.createElement('h2');
+    title.id = 'welcome-title';
+    title.className = 'welcome-title';
+    title.textContent = 'Welcome to Cozyhouse';
+    const sub = document.createElement('p');
+    sub.className = 'welcome-sub';
+    sub.textContent = 'Start with an empty room, or move into a ready-made house. You can switch any time from the menu.';
+
+    const grid = document.createElement('div');
+    grid.className = 'welcome-grid';
+    let finished = false;
+    const finish = (choose?: () => void) => {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener('keydown', onKey, true);
+      backdrop.remove();
+      previouslyFocused?.focus?.();
+      choose?.();
+      onDone?.();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        finish();
+      }
+    };
+    const addChoice = (name: string, desc: string, icon: Parameters<typeof createStorybookIconEl>[0], choose: () => void, isNew = false) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = isNew ? 'welcome-choice welcome-choice--new' : 'welcome-choice';
+      btn.appendChild(createStorybookIconEl(icon, 30));
+      const label = document.createElement('span');
+      label.className = 'welcome-choice-name';
+      label.textContent = name;
+      const d = document.createElement('span');
+      d.className = 'welcome-choice-desc';
+      d.textContent = desc;
+      btn.append(label, d);
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        finish(choose);
+      });
+      grid.appendChild(btn);
+      return btn;
+    };
+    const firstBtn = addChoice('New House', 'An empty room to build from scratch', 'room_home', () => this.startNewHouseWithTransition(), true);
+    for (const preset of HOUSE_PRESETS) {
+      const view = this.store.data.viewsById.get(preset.sceneryViewId);
+      addChoice(preset.name, view ? `Furnished · ${view.name}` : 'Furnished', getRoomStorybookIconName(preset.icon), () =>
+        this.switchPresetWithTransition(preset.id),
+      );
+    }
+
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'btn welcome-skip';
+    close.textContent = 'Keep the starter house';
+    close.addEventListener('click', () => finish());
+
+    card.append(title, sub, grid, close);
+    backdrop.appendChild(card);
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) finish();
+    });
+    window.addEventListener('keydown', onKey, true);
+    this.root.appendChild(backdrop);
+    firstBtn.focus();
+  }
+
   private switchPresetWithTransition(presetId: string): void {
     const preset = HOUSE_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
@@ -1122,7 +1223,7 @@ export class HudController {
     // Hidden file input for house import
     this.fileInputEl = document.createElement('input');
     this.fileInputEl.type = 'file';
-    this.fileInputEl.accept = '.json,.cozyhouse.json,application/json';
+    this.fileInputEl.accept = '.house,.json,.cozyhouse.json,application/json';
     this.fileInputEl.style.display = 'none';
     this.fileInputEl.addEventListener('change', () => {
       void this.handleImportSelected();
@@ -1436,6 +1537,17 @@ export class HudController {
       this.syncSoundButton();
     });
 
+    this.helpBtnEl = document.createElement('button');
+    this.helpBtnEl.type = 'button';
+    this.helpBtnEl.className = 'icon-btn help-btn tooltip-right';
+    this.helpBtnEl.dataset.tooltip = 'Controls & Info';
+    this.helpBtnEl.setAttribute('aria-label', 'Controls and Info');
+    this.helpBtnEl.appendChild(createIconEl('info', 21));
+    this.helpBtnEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.togglePopover('help');
+    });
+
     this.menuBtnEl = document.createElement('button');
     this.menuBtnEl.type = 'button';
     this.menuBtnEl.className = 'icon-btn menu-btn tooltip-right';
@@ -1453,6 +1565,7 @@ export class HudController {
       this.visitorsBtnEl,
       this.shareBtnEl,
       this.soundBtnEl,
+      this.helpBtnEl,
       this.menuBtnEl,
     );
 
@@ -1615,6 +1728,10 @@ export class HudController {
     this.visitorsPopoverEl = document.createElement('div');
     this.visitorsPopoverEl.className = 'hud-popover visitors-popover hidden';
     this.root.appendChild(this.visitorsPopoverEl);
+
+    this.helpPopoverEl = document.createElement('div');
+    this.helpPopoverEl.className = 'hud-popover help-popover hidden';
+    this.root.appendChild(this.helpPopoverEl);
 
     this.menuPopoverEl = document.createElement('div');
     this.menuPopoverEl.className = 'hud-popover menu-popover hidden';
@@ -1814,12 +1931,14 @@ export class HudController {
     this.atmospherePopoverEl.classList.toggle('hidden', kind !== 'atmosphere');
     this.wallsPopoverEl.classList.toggle('hidden', kind !== 'walls');
     this.visitorsPopoverEl.classList.toggle('hidden', kind !== 'visitors');
+    this.helpPopoverEl.classList.toggle('hidden', kind !== 'help');
     this.menuPopoverEl.classList.toggle('hidden', kind !== 'menu');
     this.lotPopoverEl.classList.toggle('hidden', kind !== 'lot');
 
     this.roomBtnEl.classList.toggle('active-trigger', kind === 'room');
     this.atmosphereBtnEl.classList.toggle('active-trigger', kind === 'atmosphere');
     this.visitorsBtnEl.classList.toggle('active-trigger', kind === 'visitors');
+    this.helpBtnEl.classList.toggle('active-trigger', kind === 'help');
     this.menuBtnEl.classList.toggle('active-trigger', kind === 'menu');
     this.lotSizeBtnEl.classList.toggle('active-tool', kind === 'lot');
     this.syncWallViewButton();
@@ -1831,6 +1950,7 @@ export class HudController {
       this.positionWallsPopover();
     }
     if (kind === 'visitors') this.renderVisitorsPopover();
+    if (kind === 'help') this.renderHelpPopover();
     if (kind === 'menu') this.renderMenuPopover();
     if (kind === 'lot') this.renderLotPopover();
   }
@@ -4156,6 +4276,21 @@ export class HudController {
 
     const presetsGrid = document.createElement('div');
     presetsGrid.className = 'preset-house-grid';
+    const newHouseCard = document.createElement('button');
+    newHouseCard.type = 'button';
+    newHouseCard.className = 'preset-house-card preset-house-card--new';
+    newHouseCard.title = 'Start over with an empty room';
+    newHouseCard.appendChild(createStorybookIconEl('room_home', 21));
+    const newHouseName = document.createElement('span');
+    newHouseName.className = 'preset-house-name';
+    newHouseName.textContent = 'New House';
+    newHouseCard.appendChild(newHouseName);
+    newHouseCard.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setActivePopover(null);
+      this.startNewHouseWithTransition();
+    });
+    presetsGrid.appendChild(newHouseCard);
     for (const preset of HOUSE_PRESETS) {
       const card = document.createElement('button');
       card.type = 'button';
@@ -4266,11 +4401,11 @@ export class HudController {
 
     actions.append(
       this.makeBtn(
-        'Export',
+        'Save .house',
         () => {
           this.audioModule?.playUiClick();
-          const { filename, bytes } = exportHouseToFile(this.store.getState());
-          this.store.notify(`Exported ${filename} (${bytes} B)`, 'success');
+          const { filename } = exportHouseToFile(this.store.getState());
+          this.store.notify(`Saved ${filename}`, 'success');
           this.setActivePopover(null);
         },
         undefined,
@@ -4278,7 +4413,7 @@ export class HudController {
         14,
       ),
       this.makeBtn(
-        'Import',
+        'Open .house',
         () => {
           this.audioModule?.playUiClick();
           this.fileInputEl.value = '';
@@ -4307,15 +4442,102 @@ export class HudController {
       ),
     );
     this.menuPopoverEl.appendChild(actions);
+  }
 
-    const helpList = document.createElement('ul');
-    helpList.className = 'menu-help-list';
-    helpList.innerHTML = `
-      <li><strong>Scroll / drag</strong>: pan · <strong>Pinch</strong>: zoom · <strong>Q/E</strong>: rotate</li>
-      <li><strong>R</strong>: rotate piece · <strong>Del</strong>: delete · <strong>Cmd/Ctrl+Z</strong>: undo</li>
-      <li><strong>Drag walls/floors</strong> to paint · <strong>Open/Closed</strong> controls drop-in guests</li>
-    `;
-    this.menuPopoverEl.appendChild(helpList);
+  private renderHelpPopover(): void {
+    this.helpPopoverEl.innerHTML = '';
+
+    const header = document.createElement('div');
+    header.className = 'popover-header';
+    const h4 = document.createElement('h4');
+    h4.textContent = 'Controls';
+    const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
+    closeBtn.className = 'btn icon-close';
+    header.append(h4, closeBtn);
+    this.helpPopoverEl.appendChild(header);
+
+    const list = document.createElement('div');
+    list.className = 'help-controls-list';
+
+    const makeControlRow = (
+      badgeNode: HTMLElement,
+      title: string,
+      detail: string,
+    ): HTMLDivElement => {
+      const row = document.createElement('div');
+      row.className = 'help-control-row';
+
+      const badge = document.createElement('div');
+      badge.className = 'help-control-badge';
+      badge.appendChild(badgeNode);
+
+      const text = document.createElement('div');
+      text.className = 'help-control-text';
+      const strong = document.createElement('span');
+      strong.className = 'help-control-title';
+      strong.textContent = title;
+      const sub = document.createElement('span');
+      sub.className = 'help-control-detail';
+      sub.textContent = detail;
+      text.append(strong, sub);
+
+      row.append(badge, text);
+      return row;
+    };
+
+    const makeKbdGroup = (keys: string[], sep = ''): HTMLSpanElement => {
+      const wrap = document.createElement('span');
+      wrap.className = 'help-kbd-group';
+      keys.forEach((k, idx) => {
+        if (idx > 0 && sep) {
+          const s = document.createElement('span');
+          s.className = 'help-kbd-sep';
+          s.textContent = sep;
+          wrap.appendChild(s);
+        }
+        const kbd = document.createElement('kbd');
+        kbd.className = 'help-kbd';
+        kbd.textContent = k;
+        wrap.appendChild(kbd);
+      });
+      return wrap;
+    };
+
+    list.append(
+      makeControlRow(createIconEl('mouse', 16), 'Pan', 'Drag floor · 2-finger drag'),
+      makeControlRow(createIconEl('trackpad', 16), 'Zoom', 'Scroll · Pinch'),
+      makeControlRow(makeKbdGroup(['Q', 'E']), 'Rotate View', 'Turn camera 90°'),
+      makeControlRow(createIconEl('select', 15), 'Interact', 'Click lamps, doors, machines & guests'),
+      makeControlRow(makeKbdGroup(['R']), 'Rotate Item', 'Spin while placing or selected'),
+      makeControlRow(makeKbdGroup(['Shift', 'Click'], '+'), 'Multi-Select', 'Select multiple walls or items'),
+      makeControlRow(makeKbdGroup(['⌘Z', '⌫'], '/'), 'Undo / Delete', 'Undo edit · Remove item'),
+    );
+    this.helpPopoverEl.appendChild(list);
+
+    const tipsRow = document.createElement('div');
+    tipsRow.className = 'help-tips-row';
+    for (const tip of [
+      'Doors & beds merge side-by-side',
+      'Click walls to add windows',
+      'Click any guest to follow',
+    ]) {
+      const chip = document.createElement('span');
+      chip.className = 'help-tip-chip';
+      chip.textContent = tip;
+      tipsRow.appendChild(chip);
+    }
+    this.helpPopoverEl.appendChild(tipsRow);
+
+    const ghLink = document.createElement('a');
+    ghLink.className = 'help-github-btn';
+    ghLink.href = 'https://github.com/Nano-AI/cozyhouse';
+    ghLink.target = '_blank';
+    ghLink.rel = 'noopener noreferrer';
+    ghLink.appendChild(createIconEl('github', 16));
+    const ghSpan = document.createElement('span');
+    ghSpan.textContent = 'View on GitHub';
+    ghLink.appendChild(ghSpan);
+    this.helpPopoverEl.appendChild(ghLink);
   }
 
   private buildVariantSwatches(

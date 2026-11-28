@@ -1851,6 +1851,128 @@ button.btn.icon-close:hover {
   transform-origin: top right;
 }
 
+.help-popover {
+  right: 14px;
+  width: min(330px, calc(100vw - 28px));
+  transform-origin: top right;
+}
+
+/* ── Storybook Controls & Info Popover ── */
+.help-controls-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.help-control-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-elev);
+  border: 1.4px solid var(--hairline-strong);
+  border-radius: 10px;
+  padding: 6px 9px;
+}
+
+.help-control-badge {
+  min-width: 68px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-primary);
+  flex-shrink: 0;
+}
+
+.help-kbd-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.help-kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 21px;
+  padding: 0 5px;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--ink-primary);
+  background: var(--surface-solid);
+  border: 1.5px solid var(--border-ink);
+  border-radius: 6px;
+  box-shadow: 0 1.5px 0 rgba(45, 38, 32, 0.16);
+}
+
+.help-kbd-sep {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+.help-control-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.help-control-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink-primary);
+}
+
+.help-control-detail {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.help-tips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.help-tip-chip {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-primary);
+  background: #fff4cc;
+  border: 1.3px solid var(--hairline-strong);
+  border-radius: 999px;
+  padding: 3px 9px;
+}
+
+.help-github-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  text-decoration: none;
+  border: 1.6px solid var(--border-ink);
+  background: var(--surface-elev);
+  color: var(--ink-primary);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: 0 1.5px 0 rgba(45, 38, 32, 0.14);
+  transition: background 150ms var(--ease-out), transform 110ms var(--ease-out);
+}
+
+.help-github-btn:hover {
+  background: var(--surface-chip);
+}
+
+.help-github-btn:active {
+  transform: scale(0.97);
+}
+
 .lot-popover {
   right: 14px;
   width: min(400px, calc(100vw - 28px));
@@ -3467,5 +3589,104 @@ button.btn.icon-close:hover {
   .island-btn {
     padding: 0 7px;
     font-size: 11.5px;
+  }
+}
+
+/* ── First-visit "Welcome" chooser: New House or a preset ── */
+.welcome-card {
+  background: var(--surface-solid);
+  border: 2px solid var(--border-ink);
+  border-radius: 20px;
+  box-shadow: 0 6px 0 rgba(45, 38, 32, 0.18), 0 24px 56px rgba(35, 30, 26, 0.28);
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px;
+  display: grid;
+  gap: 14px;
+  color: var(--ink-primary);
+}
+
+.welcome-title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.welcome-sub {
+  margin: -6px 0 2px;
+  color: var(--ink-secondary);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.welcome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.welcome-choice {
+  appearance: none;
+  border: 1.6px solid var(--border-ink);
+  background: var(--surface-elev);
+  color: var(--ink-primary);
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  transition: transform 120ms var(--ease-out), background 120ms var(--ease-out);
+}
+
+.welcome-choice:hover {
+  background: #fff4cc;
+}
+
+.welcome-choice:active {
+  transform: scale(0.97);
+}
+
+.welcome-choice:focus-visible,
+.welcome-skip:focus-visible {
+  outline: 2.5px solid var(--accent-live);
+  outline-offset: 2px;
+}
+
+.welcome-choice--new {
+  background: var(--accent-live-soft);
+  border-color: var(--accent-live);
+}
+
+.welcome-choice-name {
+  font-weight: 800;
+  font-size: 14.5px;
+  letter-spacing: -0.01em;
+}
+
+.welcome-choice-desc {
+  color: var(--ink-secondary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.welcome-skip {
+  justify-self: center;
+}
+
+.preset-house-card--new {
+  background: var(--accent-live-soft);
+  border-color: var(--accent-live);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .welcome-choice {
+    transition: none;
   }
 }

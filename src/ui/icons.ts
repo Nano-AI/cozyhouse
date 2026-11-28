@@ -39,7 +39,12 @@ export type IconName =
   | 'upload'
   | 'close'
   | 'check'
-  | 'back';
+  | 'back'
+  | 'info'
+  | 'github'
+  | 'mouse'
+  | 'trackpad'
+  | 'keyboard';
 
 export type StorybookIconName =
   // Time of Day (5)
@@ -161,6 +166,14 @@ const ICON_PATHS: Record<IconName, string> = {
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   back: '<path d="m14.5 6-6 6 6 6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 16.2v-4.7"/><circle cx="12" cy="8.1" r="1.05" fill="currentColor" stroke="none"/>',
+  github:
+    '<path fill="currentColor" stroke="none" d="M12 2.2A9.8 9.8 0 0 0 8.9 21.3c.5.1.7-.2.7-.5v-1.9c-2.7.6-3.3-1.2-3.3-1.2-.4-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.2-4.5-1.1-4.5-4.9 0-1.1.4-2 1-2.7-.1-.2-.4-1.2.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.6.6.7 1 1.6 1 2.7 0 3.8-2.3 4.7-4.5 4.9.4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A9.8 9.8 0 0 0 12 2.2z"/>',
+  mouse: '<rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path d="M12 7v3.2"/>',
+  trackpad:
+    '<rect x="3" y="4.5" width="18" height="15" rx="2.6"/><path d="M3 15.2h18M12 15.2v4.3M9.5 10.6 12 8.2l2.5 2.4"/>',
+  keyboard:
+    '<rect x="2.5" y="5.5" width="19" height="13" rx="2.4"/><path d="M6.5 9.5h.01M10 9.5h.01M13.5 9.5h.01M17 9.5h.01M8 14.5h8"/>',
 };
 
 /**
