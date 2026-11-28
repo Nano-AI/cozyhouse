@@ -317,6 +317,9 @@ export function disposeObjectTree(root: THREE.Object3D): void {
   const materials = new Set<THREE.Material>();
 
   root.traverse((obj) => {
+    if (obj instanceof THREE.InstancedMesh) {
+      obj.dispose();
+    }
     if (
       obj instanceof THREE.Mesh ||
       obj instanceof THREE.LineSegments ||

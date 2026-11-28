@@ -213,6 +213,20 @@ export interface GameDataBundle {
   weathersById: Map<string, WeatherDef>;
 }
 
+export type StaffRole = 'barista' | 'dj' | 'chef' | 'bartender';
+export type StaffKind = 'bot' | 'human';
+
+export interface HiredStaff {
+  id: string;
+  role: StaffRole;
+  kind: StaffKind;
+  name: string;
+  assignedItemUid?: string;
+  accentColor?: string;
+  homeX?: number;
+  homeZ?: number;
+}
+
 /** Runtime representation of one placed item in the house. */
 export interface PlacedItem {
   /** Unique instance ID in the current session. */
@@ -233,6 +247,10 @@ export interface PlacedItem {
   parentUid?: string;
   /** Per-item interactive state (e.g. lamp on/off, door open, disco spinning). */
   active?: boolean;
+  /** Inherited wall finish catalog ID for structural windows & doors punched into a wall. */
+  wallStyleItemId?: string;
+  /** Inherited wall finish variant ID for structural windows & doors punched into a wall. */
+  wallStyleVariantId?: string;
 }
 
 export interface HouseState {
@@ -244,4 +262,6 @@ export interface HouseState {
   timeHour?: number;
   roomTypeOverride: string | null;
   items: PlacedItem[];
+  /** Optional hired Cozy Bots & human staff on duty (defaults to `[]`). */
+  staff?: HiredStaff[];
 }

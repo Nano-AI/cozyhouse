@@ -240,6 +240,246 @@
         { "name": "Ben", "pronouns": "he/him", "trait": "Nothing beats a fluffy bed, a warm lamp, and a quiet afternoon in." },
         { "name": "Sam", "pronouns": "they/them", "trait": "Collects squishy plushies and loves a calm, welcoming sanctuary." }
       ]
+    },
+    {
+      "id": "viking",
+      "name": "Bjorn the Viking",
+      "special": true,
+      "archetypeIcon": "⚔️",
+      "description": "A boisterous horned Norse raider seeking roaring warm light, hearty dining tables, and tall tankards.",
+      "color": "#B84A39",
+      "accentColor": "#B84A39",
+      "model": "models/visitors/viking.glb",
+      "likedTags": ["dining", "drinks", "cozy", "light"],
+      "dislikedTags": ["quiet"],
+      "preferredInteractions": ["sip", "sit", "admire"],
+      "walkSpeed": 1.65,
+      "patienceSeconds": 36,
+      "voiceProfile": {
+        "basePitch": 150,
+        "pitchVariance": 38,
+        "syllableRate": 5.2,
+        "waveform": "sawtooth"
+      },
+      "personas": [
+        { "name": "Bjorn", "pronouns": "he/him", "trait": "Stomps in wearing a horned helmet, toasting every feast table and warm hearth with thunderous cheer." }
+      ]
+    },
+    {
+      "id": "squeaky_chicken",
+      "name": "Squeaky Chicken",
+      "special": true,
+      "archetypeIcon": "🐔",
+      "description": "A wide-eyed screaming yellow rubber chicken radiating pure chaotic party and snack-bar energy.",
+      "color": "#F2C938",
+      "accentColor": "#F2C938",
+      "model": "models/visitors/squeaky-chicken.glb",
+      "likedTags": ["party", "dining", "cafe", "music"],
+      "dislikedTags": ["sleep"],
+      "preferredInteractions": ["dance", "admire", "sip"],
+      "walkSpeed": 1.9,
+      "patienceSeconds": 34,
+      "voiceProfile": {
+        "basePitch": 640,
+        "pitchVariance": 140,
+        "syllableRate": 7.6,
+        "waveform": "sawtooth"
+      },
+      "personas": [
+        { "name": "Squeaky Chicken", "pronouns": "it/they", "trait": "Waddles through the house unleashing dramatic rubber-chicken honks at every beat drop and counter." }
+      ]
+    },
+    {
+      "id": "gojo",
+      "name": "Satoru Gojo",
+      "special": true,
+      "archetypeIcon": "🤞",
+      "description": "Effortlessly cool blindfolded jujutsu sorcerer with a soft spot for warm café treats, art, and glowing light.",
+      "color": "#68A8F5",
+      "accentColor": "#68A8F5",
+      "model": "models/visitors/gojo.glb",
+      "likedTags": ["light", "art", "cozy", "cafe"],
+      "dislikedTags": [],
+      "preferredInteractions": ["admire", "sip", "sit"],
+      "walkSpeed": 1.7,
+      "patienceSeconds": 42,
+      "voiceProfile": {
+        "basePitch": 245,
+        "pitchVariance": 52,
+        "syllableRate": 6.4,
+        "waveform": "triangle"
+      },
+      "personas": [
+        { "name": "Satoru Gojo", "pronouns": "he/him", "trait": "Casually critiques the aesthetics, hunts for café sweets, and occasionally levitates in celestial bliss." }
+      ]
+    },
+    {
+      "id": "baki",
+      "name": "Baki Hanma",
+      "special": true,
+      "archetypeIcon": "🥊",
+      "description": "Relentless martial arts prodigy drawn to pumped-up music, lively parties, and champion-sized dining feasts.",
+      "color": "#D95B43",
+      "accentColor": "#D95B43",
+      "model": "models/visitors/baki.glb",
+      "likedTags": ["party", "music", "dining"],
+      "dislikedTags": ["sleep"],
+      "preferredInteractions": ["dance", "admire", "sit"],
+      "walkSpeed": 1.95,
+      "patienceSeconds": 32,
+      "voiceProfile": {
+        "basePitch": 205,
+        "pitchVariance": 46,
+        "syllableRate": 6.8,
+        "waveform": "triangle"
+      },
+      "personas": [
+        { "name": "Baki Hanma", "pronouns": "he/him", "trait": "Treats every room like an underground arena, throwing flashy roundhouse kicks between hearty meals." }
+      ]
+    },
+    {
+      "id": "shakespeare",
+      "name": "William Shakespeare",
+      "special": true,
+      "archetypeIcon": "🪶",
+      "description": "The Bard himself, squinting thoughtfully at bookshelves, fine art, and tasteful decor with quill poised.",
+      "color": "#8B5E83",
+      "accentColor": "#8B5E83",
+      "model": "models/visitors/shakespeare.glb",
+      "likedTags": ["read", "art", "decor", "quiet"],
+      "dislikedTags": ["party", "nightlife"],
+      "preferredInteractions": ["browse_shelf", "admire", "sit"],
+      "walkSpeed": 1.35,
+      "patienceSeconds": 40,
+      "voiceProfile": {
+        "basePitch": 235,
+        "pitchVariance": 58,
+        "syllableRate": 5.4,
+        "waveform": "sine"
+      },
+      "personas": [
+        { "name": "William Shakespeare", "pronouns": "he/him", "trait": "Stares deeply at your decor with an Elizabethan ruff and feathered quill, composing sonnets on the spot." }
+      ]
+    },
+    {
+      "id": "philosopher",
+      "name": "Socrates",
+      "special": true,
+      "archetypeIcon": "🤔",
+      "description": "Athenian sage who seeks a quiet seat and good books to strike The Thinker pose and ponder existence.",
+      "color": "#C8B08A",
+      "accentColor": "#C8B08A",
+      "model": "models/visitors/philosopher.glb",
+      "likedTags": ["seating", "quiet", "read", "cozy"],
+      "dislikedTags": ["party"],
+      "preferredInteractions": ["sit", "browse_shelf", "admire"],
+      "walkSpeed": 1.25,
+      "patienceSeconds": 44,
+      "voiceProfile": {
+        "basePitch": 190,
+        "pitchVariance": 30,
+        "syllableRate": 4.4,
+        "waveform": "sine"
+      },
+      "personas": [
+        { "name": "Socrates", "pronouns": "he/him", "trait": "Draped in a classic Greek toga, he rests chin on fist to ask why the chair is cozy—and whether chairs exist." }
+      ]
+    },
+    {
+      "id": "john_wick",
+      "name": "John Wick",
+      "special": true,
+      "archetypeIcon": "🐾",
+      "description": "A sharply suited man of quiet focus who immediately softens around pets, peaceful nooks, and cozy rugs.",
+      "color": "#3A3F4B",
+      "accentColor": "#3A3F4B",
+      "model": "models/visitors/john-wick.glb",
+      "likedTags": ["pets", "cozy", "quiet"],
+      "dislikedTags": ["party"],
+      "preferredInteractions": ["pet_cat", "admire", "sit"],
+      "walkSpeed": 1.6,
+      "patienceSeconds": 40,
+      "voiceProfile": {
+        "basePitch": 165,
+        "pitchVariance": 20,
+        "syllableRate": 4.6,
+        "waveform": "triangle"
+      },
+      "personas": [
+        { "name": "John Wick", "pronouns": "he/him", "trait": "Walks in with quiet intensity, kneels immediately to pet every furry friend, and respects a calm sanctuary." }
+      ]
+    },
+    {
+      "id": "rocky",
+      "name": "Rocky",
+      "special": true,
+      "archetypeIcon": "🕷️",
+      "description": "Brilliant five-legged Eridian engineer who speaks in warm musical chords and adores lights, music, and plants.",
+      "color": "#8A7B68",
+      "accentColor": "#8A7B68",
+      "model": "models/visitors/rocky.glb",
+      "likedTags": ["music", "decor", "light", "plants", "cozy"],
+      "dislikedTags": [],
+      "preferredInteractions": ["admire", "admire_plant", "dance"],
+      "walkSpeed": 1.85,
+      "patienceSeconds": 44,
+      "voiceProfile": {
+        "basePitch": 340,
+        "pitchVariance": 95,
+        "syllableRate": 6.6,
+        "waveform": "sine"
+      },
+      "personas": [
+        { "name": "Rocky", "pronouns": "he/him", "trait": "Scurries joyfully on five rocky legs, greets new furniture with Eridian chords, and celebrates with jazz hands." }
+      ]
+    },
+    {
+      "id": "homer",
+      "name": "Homer Simpson",
+      "special": true,
+      "archetypeIcon": "🍩",
+      "description": "Snack-loving couch enthusiast on an eternal quest for coffee, donuts, dining tables, and prime nap spots.",
+      "color": "#F5C542",
+      "accentColor": "#F5C542",
+      "model": "models/visitors/homer.glb",
+      "likedTags": ["dining", "cafe", "coffee", "sleep", "seating"],
+      "dislikedTags": ["work"],
+      "preferredInteractions": ["sit", "sip", "order_coffee"],
+      "walkSpeed": 1.4,
+      "patienceSeconds": 40,
+      "voiceProfile": {
+        "basePitch": 185,
+        "pitchVariance": 54,
+        "syllableRate": 5.5,
+        "waveform": "triangle"
+      },
+      "personas": [
+        { "name": "Homer Simpson", "pronouns": "he/him", "trait": "Follows the scent of coffee and pastries straight to the nearest plush couch for snacks and a glorious snooze." }
+      ]
+    },
+    {
+      "id": "rick",
+      "name": "Rick Sanchez",
+      "special": true,
+      "archetypeIcon": "🌀",
+      "description": "Portal-hopping mad scientist dropping in from another dimension to inspect your bar, screens, and party rig.",
+      "color": "#4CD964",
+      "accentColor": "#4CD964",
+      "model": "models/visitors/rick.glb",
+      "likedTags": ["drinks", "nightlife", "party", "media"],
+      "dislikedTags": ["quiet"],
+      "preferredInteractions": ["sip", "admire", "dance"],
+      "walkSpeed": 1.75,
+      "patienceSeconds": 32,
+      "voiceProfile": {
+        "basePitch": 225,
+        "pitchVariance": 65,
+        "syllableRate": 7.4,
+        "waveform": "sawtooth"
+      },
+      "personas": [
+        { "name": "Rick Sanchez", "pronouns": "he/him", "trait": "Steps out of a swirling green portal gun rift, critiques the multiverse's best drink counter, and vanishes at will." }
+      ]
     }
   ]
 }

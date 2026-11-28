@@ -3,6 +3,7 @@ import type { FurnitureItemDef, FurnitureVariant } from '../data/schemas';
 import { getSurfaceTextures, inferSurfaceTextureKind } from './TextureKit';
 
 export const FLOOR_BASE_Y = 0.024;
+export const MAX_METALNESS = 0.42;
 
 export type MergeSide = 'left' | 'right' | 'middle';
 
@@ -12,6 +13,8 @@ export interface ModelBuildOptions {
   active?: boolean;
   hideLabel?: boolean;
   mergeSide?: MergeSide;
+  wallSurfaceColor?: string;
+  wallSurfaceAccent?: string;
 }
 
 export interface MatOptions {
@@ -45,6 +48,8 @@ export interface ModelContext {
   isGhost: boolean;
   isActive: boolean;
   mergeSide?: MergeSide;
+  wallSurfaceColor?: string;
+  wallSurfaceAccent?: string;
   mat(color: string | number, opts?: MatOptions): THREE.MeshStandardMaterial;
   box(
     w: number,
@@ -147,7 +152,8 @@ export function createModelContext(
     const opacity = isGhost ? Math.min(baseOpacity, 0.55) : baseOpacity;
     const transparent = isGhost || opacity < 1;
     const roughness = opts?.roughness ?? 0.78;
-    const metalness = opts?.metalness ?? 0.04;
+    const rawMetalness = opts?.metalness ?? 0.04;
+    const metalness = Math.max(0, Math.min(MAX_METALNESS, rawMetalness));
     const flatShading = opts?.flatShading ?? true;
     const depthWrite = isGhost ? true : opacity >= 0.7;
     const hasEmissive = !isGhost && opts?.emissive !== undefined;
@@ -158,7 +164,7 @@ export function createModelContext(
     const texKind = inferSurfaceTextureKind(
       def,
       roughness,
-      metalness,
+      rawMetalness,
       opacity,
       isGhost,
       hasEmissive,
@@ -260,6 +266,8 @@ export function createModelContext(
     isGhost,
     isActive,
     mergeSide: options?.mergeSide,
+    wallSurfaceColor: options?.wallSurfaceColor,
+    wallSurfaceAccent: options?.wallSurfaceAccent,
     mat,
     box,
     cyl,

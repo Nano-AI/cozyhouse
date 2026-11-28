@@ -329,6 +329,16 @@ export class FoleySynth {
       return;
     }
 
+    if (hasAny(['toilet'])) {
+      this.playToiletFlush(ctx, dest);
+      return;
+    }
+
+    if (hasAny(['bathroom', 'bath', 'shower', 'sink'])) {
+      this.playWaterSplash(ctx, dest);
+      return;
+    }
+
     if (hasAny(['sleep', 'seating', 'plushie', 'bed', 'sofa', 'chair', 'beanbag', 'cushion', 'armchair', 'loveseat'])) {
       this.playCushionPoof(ctx, dest);
       return;
@@ -339,7 +349,7 @@ export class FoleySynth {
       return;
     }
 
-    if (hasAny(['cook', 'kitchen', 'stove', 'toaster', 'microwave', 'fridge', 'sink'])) {
+    if (hasAny(['cook', 'kitchen', 'stove', 'toaster', 'microwave', 'fridge'])) {
       this.playKitchenChime(ctx, dest);
       return;
     }
@@ -457,6 +467,162 @@ export class FoleySynth {
     rg.connect(dest);
     rumble.start(now, Math.random() * 1.2);
     rumble.stop(now + 2.7);
+  }
+
+  playBotChirp(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(3400, now);
+    lp.connect(dest);
+
+    // Friendly tiny two-tone Cozy Bot chime (A5 -> E6 with gentle upward slide)
+    const tones: readonly [number, number, number, number][] = [
+      [0.0, jitter(880, 0.03), 0.068, 0.20],
+      [0.072, jitter(1318.5, 0.03), 0.115, 0.22],
+    ];
+    for (const [offset, freq, dur, amp] of tones) {
+      const start = now + offset;
+      const osc = ctx.createOscillator();
+      const harm = ctx.createOscillator();
+      const g = ctx.createGain();
+      const hg = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq * 0.96, start);
+      osc.frequency.exponentialRampToValueAtTime(freq, start + 0.018);
+
+      harm.type = 'triangle';
+      harm.frequency.setValueAtTime(freq * 2, start);
+
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.linearRampToValueAtTime(amp, start + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+
+      hg.gain.setValueAtTime(0.0001, start);
+      hg.gain.linearRampToValueAtTime(amp * 0.22, start + 0.005);
+      hg.gain.exponentialRampToValueAtTime(0.0001, start + dur * 0.6);
+
+      osc.connect(g);
+      harm.connect(hg);
+      g.connect(lp);
+      hg.connect(lp);
+
+      osc.start(start);
+      harm.start(start);
+      osc.stop(start + dur + 0.02);
+      harm.stop(start + dur + 0.02);
+    }
+  }
+
+  private playToiletFlush(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+
+    // Tiny playful chrome lever click
+    const lever = ctx.createOscillator();
+    const lGain = ctx.createGain();
+    lever.type = 'triangle';
+    lever.frequency.setValueAtTime(860, now);
+    lever.frequency.exponentialRampToValueAtTime(420, now + 0.022);
+    lGain.gain.setValueAtTime(0.0001, now);
+    lGain.gain.linearRampToValueAtTime(0.20, now + 0.003);
+    lGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+    lever.connect(lGain);
+    lGain.connect(dest);
+    lever.start(now);
+    lever.stop(now + 0.035);
+
+    // Gentle bubbly water swirl (swept bandpass pink noise)
+    const { pink } = getNoiseBuffers(ctx);
+    const src = ctx.createBufferSource();
+    src.buffer = pink;
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(2.2, now + 0.02);
+    bp.frequency.setValueAtTime(520, now + 0.02);
+    bp.frequency.exponentialRampToValueAtTime(1320, now + 0.2);
+    bp.frequency.exponentialRampToValueAtTime(360, now + 0.54);
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0.0001, now + 0.02);
+    nGain.gain.linearRampToValueAtTime(0.22, now + 0.09);
+    nGain.gain.linearRampToValueAtTime(0.16, now + 0.34);
+    nGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.56);
+
+    src.connect(bp);
+    bp.connect(nGain);
+    nGain.connect(dest);
+    src.start(now + 0.02, Math.random() * 1.4, 0.58);
+
+    // Three soft bubbly water blips
+    const bubbles: readonly [number, number, number][] = [
+      [0.09, 360, 560],
+      [0.21, 440, 680],
+      [0.35, 310, 470],
+    ];
+    for (const [offset, f0, f1] of bubbles) {
+      const start = now + offset;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(jitter(f0, 0.05), start);
+      osc.frequency.exponentialRampToValueAtTime(jitter(f1, 0.05), start + 0.065);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.linearRampToValueAtTime(0.14, start + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.075);
+      osc.connect(g);
+      g.connect(dest);
+      osc.start(start);
+      osc.stop(start + 0.085);
+    }
+  }
+
+  private playWaterSplash(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+
+    // Soft shimmering water rush
+    const { pink } = getNoiseBuffers(ctx);
+    const src = ctx.createBufferSource();
+    src.buffer = pink;
+
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(1.5, now);
+    bp.frequency.setValueAtTime(1150, now);
+    bp.frequency.exponentialRampToValueAtTime(2350, now + 0.11);
+    bp.frequency.exponentialRampToValueAtTime(880, now + 0.28);
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0.0001, now);
+    nGain.gain.linearRampToValueAtTime(0.19, now + 0.025);
+    nGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.30);
+
+    src.connect(bp);
+    bp.connect(nGain);
+    nGain.connect(dest);
+    src.start(now, Math.random() * 1.4, 0.32);
+
+    // Delicate rising water droplets
+    const drops: readonly [number, number, number][] = [
+      [0.03, 720, 1140],
+      [0.10, 960, 1460],
+    ];
+    for (const [offset, f0, f1] of drops) {
+      const start = now + offset;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(jitter(f0, 0.04), start);
+      osc.frequency.exponentialRampToValueAtTime(jitter(f1, 0.04), start + 0.055);
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.linearRampToValueAtTime(0.16, start + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.072);
+      osc.connect(g);
+      g.connect(dest);
+      osc.start(start);
+      osc.stop(start + 0.082);
+    }
   }
 
   private playCatChirpPurr(ctx: AudioContext, dest: AudioNode): void {
@@ -923,6 +1089,422 @@ export class FoleySynth {
       osc.start(start);
       osc.stop(start + 0.19);
     }
+  }
+
+  /** Iconic screaming yellow rubber chicken honk-squeak (~0.42s). */
+  playChickenSqueak(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    const duration = 0.42;
+
+    // Resonant nasal bandpass + soft upper-shelf limiter so it's hilarious without harshness
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.setValueAtTime(6.0, now);
+    bp.frequency.setValueAtTime(1280, now);
+    bp.frequency.linearRampToValueAtTime(1420, now + 0.09);
+    bp.frequency.exponentialRampToValueAtTime(1020, now + duration);
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(3400, now);
+
+    const bus = ctx.createGain();
+    bus.gain.setValueAtTime(0.0001, now);
+    bus.gain.linearRampToValueAtTime(0.46, now + 0.014);
+    bus.gain.setValueAtTime(0.42, now + 0.14);
+    bus.gain.exponentialRampToValueAtTime(0.0001, now + duration + 0.03);
+
+    bp.connect(lp);
+    lp.connect(bus);
+    bus.connect(dest);
+
+    // Subtle rubber-reed warble LFO
+    const lfo = ctx.createOscillator();
+    const lfoGain = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(16, now);
+    lfoGain.gain.setValueAtTime(42, now);
+    lfo.connect(lfoGain);
+
+    // Dual detuned sawtooth + triangle oscillators sweeping 1450 -> 2150 -> 620 Hz
+    const voices: readonly [OscillatorType, number][] = [
+      ['sawtooth', 1.0],
+      ['triangle', 1.018],
+    ];
+    voices.forEach(([type, ratio], idx) => {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(1450 * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(2150 * ratio, now + 0.085);
+      osc.frequency.linearRampToValueAtTime(1920 * ratio, now + 0.145);
+      osc.frequency.exponentialRampToValueAtTime(620 * ratio, now + duration);
+
+      lfoGain.connect(osc.frequency);
+      osc.connect(bp);
+      osc.onended = () => {
+        osc.disconnect();
+        if (idx === voices.length - 1) {
+          lfo.disconnect();
+          lfoGain.disconnect();
+          bp.disconnect();
+          lp.disconnect();
+          bus.disconnect();
+        }
+      };
+      osc.start(now);
+      osc.stop(now + duration + 0.04);
+    });
+
+    lfo.start(now);
+    lfo.stop(now + duration + 0.04);
+
+    // Tiny rubber-reed air squeeze puff
+    this.playFilteredNoiseBurst(ctx, dest, now, 'pink', 1600, 2.2, 0.1, 0.042);
+  }
+
+  /** Swirling dimensional green portal warp whoosh + bubbly shimmer (~0.65s). */
+  playPortalWarp(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    const duration = 0.65;
+
+    // Swirling sci-fi bandpass + FM LFO
+    const vortexLp = ctx.createBiquadFilter();
+    vortexLp.type = 'lowpass';
+    vortexLp.Q.setValueAtTime(2.6, now);
+    vortexLp.frequency.setValueAtTime(650, now);
+    vortexLp.frequency.exponentialRampToValueAtTime(2800, now + 0.28);
+    vortexLp.frequency.exponentialRampToValueAtTime(520, now + duration);
+
+    const bus = ctx.createGain();
+    bus.gain.setValueAtTime(0.0001, now);
+    bus.gain.linearRampToValueAtTime(0.36, now + 0.06);
+    bus.gain.setValueAtTime(0.32, now + 0.34);
+    bus.gain.exponentialRampToValueAtTime(0.0001, now + duration + 0.03);
+
+    vortexLp.connect(bus);
+    bus.connect(dest);
+
+    // Swirling FM LFO modulating pitch & vortex shimmer
+    const lfo = ctx.createOscillator();
+    const lfoPitch = ctx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.setValueAtTime(11, now);
+    lfo.frequency.linearRampToValueAtTime(19, now + 0.28);
+    lfo.frequency.linearRampToValueAtTime(7.5, now + duration);
+    lfoPitch.gain.setValueAtTime(85, now);
+    lfo.connect(lfoPitch);
+
+    const carriers: readonly [OscillatorType, number][] = [
+      ['sine', 1.0],
+      ['triangle', 1.5],
+    ];
+    carriers.forEach(([type, mult], idx) => {
+      const osc = ctx.createOscillator();
+      osc.type = type;
+      osc.frequency.setValueAtTime(180 * mult, now);
+      osc.frequency.exponentialRampToValueAtTime(880 * mult, now + 0.28);
+      osc.frequency.exponentialRampToValueAtTime(240 * mult, now + duration);
+
+      lfoPitch.connect(osc.frequency);
+      osc.connect(vortexLp);
+      osc.onended = () => {
+        osc.disconnect();
+        if (idx === carriers.length - 1) {
+          lfo.disconnect();
+          lfoPitch.disconnect();
+          vortexLp.disconnect();
+          bus.disconnect();
+        }
+      };
+      osc.start(now);
+      osc.stop(now + duration + 0.04);
+    });
+
+    lfo.start(now);
+    lfo.stop(now + duration + 0.04);
+
+    // Filtered bubbly sci-fi noise shimmer
+    const { pink } = getNoiseBuffers(ctx);
+    const noise = ctx.createBufferSource();
+    noise.buffer = pink;
+    const nBp = ctx.createBiquadFilter();
+    nBp.type = 'bandpass';
+    nBp.Q.setValueAtTime(3.2, now);
+    nBp.frequency.setValueAtTime(620, now);
+    nBp.frequency.exponentialRampToValueAtTime(2500, now + 0.3);
+    nBp.frequency.exponentialRampToValueAtTime(720, now + duration);
+
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(0.0001, now);
+    nGain.gain.linearRampToValueAtTime(0.24, now + 0.09);
+    nGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+    noise.connect(nBp);
+    nBp.connect(nGain);
+    nGain.connect(dest);
+    noise.onended = () => {
+      noise.disconnect();
+      nBp.disconnect();
+      nGain.disconnect();
+    };
+    noise.start(now, Math.random() * 1.4, duration + 0.02);
+
+    // Staggered sci-fi portal bubble blips
+    const bubbles = [
+      { offset: 0.06, f0: 680, f1: 1180 },
+      { offset: 0.17, f0: 960, f1: 1580 },
+      { offset: 0.31, f0: 1240, f1: 860 },
+      { offset: 0.46, f0: 820, f1: 540 },
+    ];
+    for (const b of bubbles) {
+      const t = now + b.offset;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(b.f0, t);
+      osc.frequency.exponentialRampToValueAtTime(b.f1, t + 0.075);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.14, t + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.085);
+      osc.connect(g);
+      g.connect(dest);
+      osc.onended = () => {
+        osc.disconnect();
+        g.disconnect();
+      };
+      osc.start(t);
+      osc.stop(t + 0.095);
+    }
+  }
+
+  /** Punchy Baki roundhouse WHAM + snappy slap + comedic launch whistle. */
+  playComicKick(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+
+    // 1. Crisp low-end punch thump (150 -> 38 Hz)
+    const punch = ctx.createOscillator();
+    const pGain = ctx.createGain();
+    punch.type = 'sine';
+    punch.frequency.setValueAtTime(150, now);
+    punch.frequency.exponentialRampToValueAtTime(38, now + 0.11);
+    pGain.gain.setValueAtTime(0.0001, now);
+    pGain.gain.linearRampToValueAtTime(0.5, now + 0.004);
+    pGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+    punch.connect(pGain);
+    pGain.connect(dest);
+    punch.onended = () => {
+      punch.disconnect();
+      pGain.disconnect();
+    };
+    punch.start(now);
+    punch.stop(now + 0.16);
+
+    // Mid-body comic impact crack
+    const crack = ctx.createOscillator();
+    const cGain = ctx.createGain();
+    crack.type = 'triangle';
+    crack.frequency.setValueAtTime(420, now);
+    crack.frequency.exponentialRampToValueAtTime(105, now + 0.045);
+    cGain.gain.setValueAtTime(0.0001, now);
+    cGain.gain.linearRampToValueAtTime(0.28, now + 0.003);
+    cGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.055);
+    crack.connect(cGain);
+    cGain.connect(dest);
+    crack.onended = () => {
+      crack.disconnect();
+      cGain.disconnect();
+    };
+    crack.start(now);
+    crack.stop(now + 0.065);
+
+    // 2. Snappy slap noise burst
+    this.playFilteredNoiseBurst(ctx, dest, now, 'white', 1450, 0.9, 0.34, 0.055);
+
+    // 3. Brief rising comedic launch slide-whistle (520 -> 1400 Hz)
+    const wStart = now + 0.045;
+    const whistle = ctx.createOscillator();
+    const wGain = ctx.createGain();
+    whistle.type = 'sine';
+    whistle.frequency.setValueAtTime(520, wStart);
+    whistle.frequency.exponentialRampToValueAtTime(1400, wStart + 0.24);
+    wGain.gain.setValueAtTime(0.0001, wStart);
+    wGain.gain.linearRampToValueAtTime(0.26, wStart + 0.018);
+    wGain.gain.setValueAtTime(0.23, wStart + 0.18);
+    wGain.gain.exponentialRampToValueAtTime(0.0001, wStart + 0.27);
+    whistle.connect(wGain);
+    wGain.connect(dest);
+    whistle.onended = () => {
+      whistle.disconnect();
+      wGain.disconnect();
+    };
+    whistle.start(wStart);
+    whistle.stop(wStart + 0.285);
+  }
+
+  /** Ethereal Gojo celestial levitation chime chord shimmer (~1.4s). */
+  playGojoAscend(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    const duration = 1.4;
+
+    // Shimmering lowpass halo bus opening & gently closing
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1400, now);
+    lp.frequency.exponentialRampToValueAtTime(4200, now + 0.55);
+    lp.frequency.exponentialRampToValueAtTime(1850, now + duration);
+    lp.connect(dest);
+
+    // Gentle celestial vibrato LFO
+    const vib = ctx.createOscillator();
+    const vibGain = ctx.createGain();
+    vib.type = 'sine';
+    vib.frequency.setValueAtTime(5.2, now);
+    vibGain.gain.setValueAtTime(4.5, now);
+    vib.connect(vibGain);
+    vib.start(now);
+    vib.stop(now + duration + 0.15);
+
+    // Warm airy sub-root C4 pad
+    const root = ctx.createOscillator();
+    const rGain = ctx.createGain();
+    root.type = 'sine';
+    root.frequency.setValueAtTime(261.63, now);
+    rGain.gain.setValueAtTime(0.0001, now);
+    rGain.gain.linearRampToValueAtTime(0.14, now + 0.28);
+    rGain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+    root.connect(rGain);
+    rGain.connect(lp);
+    root.onended = () => {
+      root.disconnect();
+      rGain.disconnect();
+    };
+    root.start(now);
+    root.stop(now + duration + 0.04);
+
+    // Crystalline major-9th bell shimmer: C5 + G5 + B5 + D6 + E6
+    const shimmerNotes: readonly { freq: number; offset: number; amp: number }[] = [
+      { freq: 523.25, offset: 0.0, amp: 0.15 }, // C5
+      { freq: 783.99, offset: 0.06, amp: 0.14 }, // G5
+      { freq: 987.77, offset: 0.12, amp: 0.13 }, // B5
+      { freq: 1174.66, offset: 0.19, amp: 0.12 }, // D6
+      { freq: 1318.51, offset: 0.26, amp: 0.11 }, // E6
+    ];
+
+    shimmerNotes.forEach((n, idx) => {
+      const start = now + n.offset;
+      const noteEnd = now + duration + 0.05;
+
+      const osc = ctx.createOscillator();
+      const harm = ctx.createOscillator();
+      const g = ctx.createGain();
+      const hg = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(n.freq, start);
+      vibGain.connect(osc.frequency);
+
+      harm.type = 'triangle';
+      harm.frequency.setValueAtTime(n.freq * 2, start);
+
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.linearRampToValueAtTime(n.amp, start + 0.24);
+      g.gain.exponentialRampToValueAtTime(0.0001, noteEnd);
+
+      hg.gain.setValueAtTime(0.0001, start);
+      hg.gain.linearRampToValueAtTime(n.amp * 0.22, start + 0.16);
+      hg.gain.exponentialRampToValueAtTime(0.0001, start + 0.85);
+
+      osc.connect(g);
+      harm.connect(hg);
+      g.connect(lp);
+      hg.connect(lp);
+
+      osc.onended = () => {
+        osc.disconnect();
+        harm.disconnect();
+        g.disconnect();
+        hg.disconnect();
+        if (idx === shimmerNotes.length - 1) {
+          vib.disconnect();
+          vibGain.disconnect();
+          lp.disconnect();
+        }
+      };
+
+      osc.start(start);
+      harm.start(start);
+      osc.stop(noteEnd + 0.03);
+      harm.stop(noteEnd + 0.03);
+    });
+  }
+
+  /** Eridian musical chord speech (3 rapid warm polyphonic harmonic triads, ~0.14s each). */
+  playRockyChords(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+    const transpose = jitter(1.0, 0.06);
+
+    const triads: readonly { offset: number; freqs: readonly [number, number, number]; bend: number }[] = [
+      { offset: 0.0, freqs: [293.66, 440.0, 587.33], bend: 1.025 },
+      { offset: 0.155, freqs: [369.99, 554.37, 659.25], bend: 0.985 },
+      { offset: 0.31, freqs: [392.0, 493.88, 739.99], bend: 1.035 },
+    ];
+
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.Q.setValueAtTime(1.6, now);
+    lp.frequency.setValueAtTime(1650, now);
+    lp.connect(dest);
+
+    triads.forEach((triad, tIdx) => {
+      const start = now + triad.offset;
+      const chordDur = 0.14;
+      const isLastTriad = tIdx === triads.length - 1;
+
+      triad.freqs.forEach((baseHz, nIdx) => {
+        const freq = baseHz * transpose;
+        const osc = ctx.createOscillator();
+        const over = ctx.createOscillator();
+        const g = ctx.createGain();
+        const og = ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, start);
+        osc.frequency.exponentialRampToValueAtTime(freq * triad.bend, start + chordDur);
+
+        over.type = 'sine';
+        over.frequency.setValueAtTime(freq * 2, start);
+        over.frequency.exponentialRampToValueAtTime(freq * 2 * triad.bend, start + chordDur);
+
+        g.gain.setValueAtTime(0.0001, start);
+        g.gain.linearRampToValueAtTime(0.16, start + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, start + chordDur);
+
+        og.gain.setValueAtTime(0.0001, start);
+        og.gain.linearRampToValueAtTime(0.055, start + 0.012);
+        og.gain.exponentialRampToValueAtTime(0.0001, start + chordDur * 0.85);
+
+        osc.connect(g);
+        over.connect(og);
+        g.connect(lp);
+        og.connect(lp);
+
+        const isVeryLast = isLastTriad && nIdx === triad.freqs.length - 1;
+        osc.onended = () => {
+          osc.disconnect();
+          over.disconnect();
+          g.disconnect();
+          og.disconnect();
+          if (isVeryLast) {
+            lp.disconnect();
+          }
+        };
+
+        osc.start(start);
+        over.start(start);
+        osc.stop(start + chordDur + 0.02);
+        over.stop(start + chordDur + 0.02);
+      });
+    });
   }
 
   private playFilteredNoiseBurst(

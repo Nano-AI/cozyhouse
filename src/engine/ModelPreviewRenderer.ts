@@ -1,5 +1,9 @@
 import * as THREE from 'three';
 import type { FurnitureItemDef, VisitorDef } from '../data/schemas';
+import {
+  SPECIAL_CHARACTER_IDS,
+  createSpecialCharacterRig,
+} from '../visitors/SpecialCharacterMeshes';
 import { VisitorMesh, type VisitorVariantIndex } from '../visitors/VisitorMesh';
 import type { AssetLoader } from './AssetLoader';
 
@@ -44,6 +48,7 @@ export class ModelPreviewRenderer {
 
   // Reusable math scratch objects (zero per-thumbnail allocations)
   private readonly boxScratch = new THREE.Box3();
+  private readonly meshBoxScratch = new THREE.Box3();
   private readonly centerScratch = new THREE.Vector3();
   private readonly dirScratch = new THREE.Vector3();
   private readonly cornerScratch = new THREE.Vector3();
@@ -51,6 +56,7 @@ export class ModelPreviewRenderer {
   private readonly fallbackMax = new THREE.Vector3(0.4, 0.8, 0.4);
   private readonly visitorCenter = new THREE.Vector3(0, 0.94, 0.02);
   private readonly visitorDir = new THREE.Vector3(0.32, 0.14, 1.0).normalize();
+  private readonly rockyDir = new THREE.Vector3(0.32, 0.42, 1.0).normalize();
 
   private readonly cache = new Map<string, string>();
   private readonly inflight = new Map<string, Promise<string | null>>();
@@ -69,8 +75,9 @@ export class ModelPreviewRenderer {
     key.position.set(6, 10, 8);
     this.scene.add(key);
 
+    // Offset ~14° off the preview camera's mirror vector so glossy horizontal top faces never blow out to white
     const fill = new THREE.DirectionalLight(0xdce8f7, 0.4);
-    fill.position.set(-6, 5, -6);
+    fill.position.set(-7.4, 4.4, -4.1);
     this.scene.add(fill);
   }
 
@@ -336,12 +343,113 @@ export class ModelPreviewRenderer {
     }
   }
 
+  private computeVisibleBounds(root: THREE.Object3D, out: THREE.Box3): THREE.Box3 {
+    out.makeEmpty();
+    const walk = (obj: THREE.Object3D): void => {
+      if (!obj.visible) return;
+      if (obj instanceof THREE.Mesh && obj.geometry) {
+        if (!obj.geometry.boundingBox) {
+          obj.geometry.computeBoundingBox();
+        }
+        if (obj.geometry.boundingBox) {
+          this.meshBoxScratch.copy(obj.geometry.boundingBox).applyMatrix4(obj.matrixWorld);
+          out.union(this.meshBoxScratch);
+        }
+      }
+      for (let i = 0; i < obj.children.length; i++) {
+        walk(obj.children[i]);
+      }
+    };
+    walk(root);
+    return out;
+  }
+
+  private framePortraitFromBox(
+    box: THREE.Box3,
+    viewDir: THREE.Vector3,
+    padScale: number,
+    minHalf: number,
+  ): void {
+    box.getCenter(this.centerScratch);
+    this.camera.position.copy(this.centerScratch).addScaledVector(viewDir, 12);
+    this.camera.lookAt(this.centerScratch);
+    this.camera.updateMatrixWorld(true);
+
+    const { min, max } = box;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+
+    for (let ix = 0; ix < 2; ix++) {
+      const x = ix === 0 ? min.x : max.x;
+      for (let iy = 0; iy < 2; iy++) {
+        const y = iy === 0 ? min.y : max.y;
+        for (let iz = 0; iz < 2; iz++) {
+          const z = iz === 0 ? min.z : max.z;
+          this.cornerScratch.set(x, y, z).applyMatrix4(this.camera.matrixWorldInverse);
+          if (this.cornerScratch.x < minX) minX = this.cornerScratch.x;
+          if (this.cornerScratch.x > maxX) maxX = this.cornerScratch.x;
+          if (this.cornerScratch.y < minY) minY = this.cornerScratch.y;
+          if (this.cornerScratch.y > maxY) maxY = this.cornerScratch.y;
+        }
+      }
+    }
+
+    const half = Math.max(minHalf, (Math.max(maxX - minX, maxY - minY) * padScale) / 2);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    this.camera.left = cx - half;
+    this.camera.right = cx + half;
+    this.camera.top = cy + half;
+    this.camera.bottom = cy - half;
+    this.camera.near = 0.1;
+    this.camera.far = 40;
+    this.camera.updateProjectionMatrix();
+  }
+
   private renderVisitorSingle(
     def: VisitorDef,
     variantIndex: VisitorVariantIndex,
   ): string | null {
     const renderer = this.ensureRenderer();
     if (!renderer) return null;
+
+    if (SPECIAL_CHARACTER_IDS.has(def.id)) {
+      const rig = createSpecialCharacterRig(def.id);
+      if (rig) {
+        rig.setPose('idle');
+        rig.update(0, 0, 0);
+        this.scene.add(rig.root);
+        rig.root.updateMatrixWorld(true);
+
+        try {
+          this.computeVisibleBounds(rig.root, this.boxScratch);
+          if (this.boxScratch.isEmpty()) {
+            this.boxScratch.set(this.fallbackMin, this.fallbackMax);
+          }
+
+          if (def.id === 'rocky') {
+            // Full-body 3/4 portrait for Rocky's pentagonal carapace + 5 articulated legs
+            this.framePortraitFromBox(this.boxScratch, this.rockyDir, 1.14, 0.42);
+          } else {
+            // Head & upper-shoulders 3/4 portrait preserving horns, comb, and tall hair cleanly
+            const topY = this.boxScratch.max.y;
+            this.boxScratch.min.y = Math.max(this.boxScratch.min.y, topY - 0.66);
+            this.framePortraitFromBox(this.boxScratch, this.visitorDir, 1.12, 0.34);
+          }
+
+          renderer.render(this.scene, this.camera);
+          return renderer.domElement.toDataURL('image/png');
+        } catch {
+          return null;
+        } finally {
+          this.scene.remove(rig.root);
+          rig.dispose();
+        }
+      }
+    }
 
     const visitor = new VisitorMesh(def, variantIndex);
     visitor.speechBubble.sprite.visible = false;

@@ -70,8 +70,9 @@ export type StorybookIconName =
   | 'wall_auto'
   | 'wall_translucent'
   | 'wall_solid'
-  // Share Studio (1)
+  // Share Studio & Staff (2)
   | 'polaroid'
+  | 'staff_bot'
   // Visual Shaders (6)
   | 'shader_default'
   | 'shader_retro_dither'
@@ -94,6 +95,7 @@ export type StorybookIconName =
   | 'room_music_lounge'
   | 'room_reading_nook'
   | 'room_home_kitchen'
+  | 'room_bath'
   | 'room_beach'
   | 'room_cabin'
   | 'room_home'
@@ -307,7 +309,7 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <path d="M4,12.2 12,16.2 20,12.2M8,10v4.2M16,14v4.2" fill="none" stroke="${INK}" stroke-width="1.35" stroke-linecap="round"/>
   `,
 
-  // ── Share Polaroid Camera (1) ──
+  // ── Share Polaroid Camera & Cozy Bot (2) ──
   polaroid: `
     <rect x="3" y="5.4" width="18" height="14.2" rx="3" fill="#FCF3E3" stroke="${INK}" stroke-width="1.8"/>
     <path d="M3.8 14.2h16.4v2.4H3.8z" fill="#ED9E8A"/>
@@ -316,6 +318,15 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <circle cx="10.8" cy="10.2" r="1.1" fill="#FFFDF8"/>
     <rect x="15.8" y="7.2" width="2.8" height="2.2" rx="0.6" fill="#FFD966" stroke="${INK}" stroke-width="1.2"/>
     <path d="M6.4 5.4V4.2h3.4v1.2" fill="#E6C2A3" stroke="${INK}" stroke-width="1.5" stroke-linejoin="round"/>
+  `,
+  staff_bot: `
+    <path d="M12 4.6v2.6" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+    <circle cx="12" cy="3.6" r="1.5" fill="#FFD966" stroke="${INK}" stroke-width="1.4"/>
+    <rect x="4.6" y="7.4" width="14.8" height="11.6" rx="3.4" fill="#FCF3E3" stroke="${INK}" stroke-width="1.8"/>
+    <rect x="7" y="10" width="10" height="5.4" rx="2" fill="#322C2A" stroke="${INK}" stroke-width="1.4"/>
+    <path d="M8.8 12.8c.4-.7 1.2-.7 1.6 0M13.6 12.8c.4-.7 1.2-.7 1.6 0" fill="none" stroke="#8CE4D6" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M2.6 12.2v2.4M21.4 12.2v2.4" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
+    <path d="M9.6 17.2h4.8" stroke="${INK}" stroke-width="1.5" stroke-linecap="round"/>
   `,
 
   // ── Visual Shaders (6) ──
@@ -426,6 +437,13 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <rect x="5" y="10.2" width="14" height="8.2" rx="2.5" fill="#F5DC93" stroke="${INK}" stroke-width="1.8"/>
     <path d="M3.5 11.8h1.5M19 11.8h1.5M9.5 6.4v2M14.5 6.4v2" stroke="${INK}" stroke-width="1.8" stroke-linecap="round"/>
   `,
+  room_bath: `
+    <path d="M4.2 12.2h15.6v2.2a4.6 4.6 0 0 1-4.6 4.6H8.8a4.6 4.6 0 0 1-4.6-4.6v-2.2z" fill="#CBE7E4" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <path d="M3.2 12.2h17.6M7.2 19l-.8 1.6M16.8 19l.8 1.6" stroke="${INK}" stroke-width="1.75" stroke-linecap="round"/>
+    <path d="M6.2 12.2V7.2a1.8 1.8 0 0 1 3.6 0v.6" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+    <circle cx="13.5" cy="9.4" r="1.8" fill="#FFFDF8" stroke="${INK}" stroke-width="1.35"/>
+    <circle cx="16.8" cy="7.4" r="1.3" fill="#FFFDF8" stroke="${INK}" stroke-width="1.3"/>
+  `,
   room_beach: `
     <path d="M4.2 11.6a8 8 0 0 1 15.6 0z" fill="#F4A896" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
     <path d="M9.4 11.6c.4-3.6 1.5-5.8 2.6-6.2 1.1.4 2.2 2.6 2.6 6.2z" fill="#FFFDF8" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
@@ -499,6 +517,10 @@ export function getRoomStorybookIconName(roomId: string): StorybookIconName {
     case 'room_kitchen':
     case 'room_home_kitchen':
       return 'room_home_kitchen';
+    case 'bathroom':
+    case 'cozy_spa_bath':
+    case 'room_bath':
+      return 'room_bath';
     case 'beach_loft':
     case 'beach_retreat':
     case 'room_beach':

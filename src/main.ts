@@ -4,7 +4,7 @@ import { loadGameData } from './data/loader';
 import { PlacementController } from './engine/PlacementController';
 import { SceneManager } from './engine/SceneManager';
 import { decodeHouseFromShareLink, extractShareCodeFromHash } from './save/shareLink';
-import { loadHouseFromStorage, saveHouseToStorage } from './save/storage';
+import { backupHouseStorage, loadHouseFromStorage, saveHouseToStorage } from './save/storage';
 import { SceneryModule } from './scenery/SceneryModule';
 import { createStarterHouse } from './state/defaultHouse';
 import { HouseStore } from './state/houseStore';
@@ -29,6 +29,11 @@ async function bootstrap(): Promise<void> {
       sharedHouse = decoded.state;
     } catch (err) {
       sharedLoadError = err instanceof Error ? err.message : 'Invalid shared house link.';
+    }
+    try {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } catch {
+      // Ignore replaceState restrictions in sandboxed environments
     }
   }
 
@@ -78,17 +83,30 @@ async function bootstrap(): Promise<void> {
   });
 
   // Debounced autosave to localStorage + flush on pagehide
+  // While viewing an unedited shared link, preserve the player's local autosave untouched until their first real edit.
+  let viewingUneditedShared = Boolean(sharedHouse);
   let saveTimer: number | null = null;
   const flushSave = () => {
     if (saveTimer !== null) {
       window.clearTimeout(saveTimer);
       saveTimer = null;
     }
+    if (viewingUneditedShared) {
+      return;
+    }
     const result = saveHouseToStorage(store.getState());
     hud?.setSaveStatus(result.ok ? 'Saved' : 'Save failed');
   };
 
-  store.on('houseChanged', () => {
+  store.on('houseChanged', ({ reason }) => {
+    // Ignore 24h running time-cycle ticks so they never starve autosave debounce or spam "Saving…"
+    if (reason === 'timeOfDay') return;
+
+    if (viewingUneditedShared) {
+      backupHouseStorage('cozyhouse:save:backup');
+      viewingUneditedShared = false;
+    }
+
     hud?.setSaveStatus('Saving…');
     if (saveTimer !== null) {
       window.clearTimeout(saveTimer);
@@ -97,7 +115,7 @@ async function bootstrap(): Promise<void> {
   });
 
   // Ensure initial house is persisted cleanly if first visit (unless viewing a shared link)
-  if (!savedState && !sharedHouse) {
+  if (!savedState && !viewingUneditedShared) {
     saveHouseToStorage(store.getState());
   }
 

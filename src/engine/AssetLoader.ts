@@ -3,6 +3,11 @@ import type { FurnitureItemDef, FurnitureVariant, GameDataBundle } from '../data
 import { buildFurnitureModel } from '../models';
 import type { MergeSide, ModelBuildOptions } from '../models/ModelKit';
 
+export type AssetBuildOptions = ModelBuildOptions & {
+  wallSurfaceColor?: string;
+  wallSurfaceAccent?: string;
+};
+
 /**
  * Lazy asset & sculpted low-poly 3D model factory with prototype caching.
  *
@@ -42,7 +47,8 @@ export class AssetLoader {
   }
 
   /**
-   * Returns the cached read-only prototype `THREE.Group` for `(def.id, variantId, active, mergeSide)`.
+   * Returns the cached read-only prototype `THREE.Group` for
+   * `(def.id, variantId, active, mergeSide, wallSurfaceColor, wallSurfaceAccent)`.
    * Callers MUST NOT mutate the returned prototype or attach it directly to the scene.
    */
   getOrBuildPrototype(
@@ -50,16 +56,28 @@ export class AssetLoader {
     variantId: string,
     active = false,
     mergeSide?: MergeSide,
+    wallSurfaceColor?: string,
+    wallSurfaceAccent?: string,
   ): THREE.Group {
     const variant = this.resolveVariant(def, variantId);
-    const key = `${def.id}__${variant.id}__${active ? 1 : 0}__${mergeSide ?? 'none'}`;
+    const wallStyleSuffix =
+      wallSurfaceColor || wallSurfaceAccent
+        ? `__ws:${wallSurfaceColor ?? ''}:${wallSurfaceAccent ?? ''}`
+        : '';
+    const key = `${def.id}__${variant.id}__${active ? 1 : 0}__${mergeSide ?? 'none'}${wallStyleSuffix}`;
     const cached = this.prototypeCache.get(key);
     if (cached) {
       return cached;
     }
 
     const tabColor = this.data.tabsById.get(def.tab)?.color ?? '#D8CFC2';
-    const proto = buildFurnitureModel(def, variant, tabColor, { active, mergeSide });
+    const buildOpts: AssetBuildOptions = {
+      active,
+      mergeSide,
+      ...(wallSurfaceColor !== undefined ? { wallSurfaceColor } : {}),
+      ...(wallSurfaceAccent !== undefined ? { wallSurfaceAccent } : {}),
+    };
+    const proto = buildFurnitureModel(def, variant, tabColor, buildOpts);
     proto.updateMatrixWorld(true);
 
     const shareMaterials = def.layer !== 'wall';
@@ -126,7 +144,7 @@ export class AssetLoader {
   createPlaceholderMesh(
     def: FurnitureItemDef,
     variantId: string,
-    options?: ModelBuildOptions,
+    options?: AssetBuildOptions,
   ): THREE.Group {
     if (options?.ghost) {
       const variant = this.resolveVariant(def, variantId);
@@ -139,6 +157,8 @@ export class AssetLoader {
       variantId,
       Boolean(options?.active),
       options?.mergeSide,
+      options?.wallSurfaceColor,
+      options?.wallSurfaceAccent,
     );
     return this.clonePrototypeInstance(proto, def.layer === 'wall');
   }

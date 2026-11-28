@@ -6,7 +6,7 @@ interface ActiveBed {
   bedGain: GainNode;
   sources: AudioScheduledSourceNode[];
   nodes: AudioNode[];
-  timers: number[];
+  timers: Set<number>;
   disposed: boolean;
 }
 
@@ -45,7 +45,7 @@ export class WeatherAmbience {
       bedGain,
       sources: [],
       nodes: [bedGain],
-      timers: [],
+      timers: new Set<number>(),
       disposed: false,
     };
 
@@ -74,7 +74,7 @@ export class WeatherAmbience {
     for (const timer of bed.timers) {
       window.clearTimeout(timer);
     }
-    bed.timers = [];
+    bed.timers.clear();
     bed.disposed = true;
 
     try {
@@ -99,7 +99,7 @@ export class WeatherAmbience {
     for (const timer of bed.timers) {
       window.clearTimeout(timer);
     }
-    bed.timers = [];
+    bed.timers.clear();
 
     for (const src of bed.sources) {
       try {
@@ -123,6 +123,16 @@ export class WeatherAmbience {
       }
     }
     bed.nodes = [];
+  }
+
+  private scheduleBedTimer(bed: ActiveBed, fn: () => void, delayMs: number): void {
+    if (bed.disposed) return;
+    const timer = window.setTimeout(() => {
+      bed.timers.delete(timer);
+      if (bed.disposed) return;
+      fn();
+    }, delayMs);
+    bed.timers.add(timer);
   }
 
   private populateBed(ctx: AudioContext, bed: ActiveBed, weather: WeatherDef): void {
@@ -242,12 +252,10 @@ export class WeatherAmbience {
         }
       }
       const nextDelay = 3500 + Math.random() * 3500;
-      const timer = window.setTimeout(scheduleChirp, nextDelay);
-      bed.timers.push(timer);
+      this.scheduleBedTimer(bed, scheduleChirp, nextDelay);
     };
 
-    const initialTimer = window.setTimeout(scheduleChirp, 1200 + Math.random() * 1300);
-    bed.timers.push(initialTimer);
+    this.scheduleBedTimer(bed, scheduleChirp, 1200 + Math.random() * 1300);
   }
 
   private buildRainBed(ctx: AudioContext, bed: ActiveBed, stormy: boolean): void {
@@ -321,11 +329,9 @@ export class WeatherAmbience {
         osc.stop(t + 0.055);
       }
       const nextDelay = (stormy ? 350 : 520) + Math.random() * 680;
-      const timer = window.setTimeout(scheduleDroplet, nextDelay);
-      bed.timers.push(timer);
+      this.scheduleBedTimer(bed, scheduleDroplet, nextDelay);
     };
-    const firstDroplet = window.setTimeout(scheduleDroplet, 450 + Math.random() * 500);
-    bed.timers.push(firstDroplet);
+    this.scheduleBedTimer(bed, scheduleDroplet, 450 + Math.random() * 500);
 
     if (stormy) {
       // Expressive gentle wind gusts
@@ -365,12 +371,10 @@ export class WeatherAmbience {
           src.stop(t + 2.35);
         }
         const nextDelay = 7500 + Math.random() * 7000;
-        const timer = window.setTimeout(scheduleDistantRumble, nextDelay);
-        bed.timers.push(timer);
+        this.scheduleBedTimer(bed, scheduleDistantRumble, nextDelay);
       };
 
-      const initialTimer = window.setTimeout(scheduleDistantRumble, 3000 + Math.random() * 2500);
-      bed.timers.push(initialTimer);
+      this.scheduleBedTimer(bed, scheduleDistantRumble, 3000 + Math.random() * 2500);
     }
   }
 
@@ -405,12 +409,10 @@ export class WeatherAmbience {
         osc.stop(now + 0.66);
       }
       const nextDelay = 3800 + Math.random() * 3600;
-      const timer = window.setTimeout(scheduleShimmer, nextDelay);
-      bed.timers.push(timer);
+      this.scheduleBedTimer(bed, scheduleShimmer, nextDelay);
     };
 
-    const initialTimer = window.setTimeout(scheduleShimmer, 1400 + Math.random() * 1400);
-    bed.timers.push(initialTimer);
+    this.scheduleBedTimer(bed, scheduleShimmer, 1400 + Math.random() * 1400);
   }
 
   private buildFogBed(ctx: AudioContext, bed: ActiveBed): void {
@@ -456,11 +458,9 @@ export class WeatherAmbience {
         });
       }
       const nextDelay = 6000 + Math.random() * 5000;
-      const timer = window.setTimeout(scheduleSwell, nextDelay);
-      bed.timers.push(timer);
+      this.scheduleBedTimer(bed, scheduleSwell, nextDelay);
     };
 
-    const initialTimer = window.setTimeout(scheduleSwell, 2000 + Math.random() * 1600);
-    bed.timers.push(initialTimer);
+    this.scheduleBedTimer(bed, scheduleSwell, 2000 + Math.random() * 1600);
   }
 }

@@ -15,6 +15,8 @@ export { MUSIC_THEME_LABELS, resolveMusicTheme, type MusicStateSnapshot, type Mu
 
 const DEFAULT_VOLUME = 0.85;
 const DEFAULT_WEATHER_VOLUME = 0.75;
+const MASTER_VOLUME_STORAGE_KEY = 'cozyhouse:vol:master';
+const MASTER_MUTED_STORAGE_KEY = 'cozyhouse:vol:muted';
 const WEATHER_VOLUME_STORAGE_KEY = 'cozyhouse:vol:weather';
 const MAX_PENDING_CALLBACKS = 3;
 const PENDING_TTL_MS = 1500;
@@ -58,6 +60,46 @@ type NavigatorWithActivation = Navigator & {
 function clampVolume(value: number, fallback = DEFAULT_VOLUME): number {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(0, Math.min(1, value));
+}
+
+function readStoredMasterVolume(): number {
+  try {
+    if (typeof localStorage === 'undefined') return DEFAULT_VOLUME;
+    const raw = localStorage.getItem(MASTER_VOLUME_STORAGE_KEY);
+    if (raw === null) return DEFAULT_VOLUME;
+    const parsed = Number.parseFloat(raw);
+    return Number.isFinite(parsed) ? clampVolume(parsed, DEFAULT_VOLUME) : DEFAULT_VOLUME;
+  } catch {
+    return DEFAULT_VOLUME;
+  }
+}
+
+function writeStoredMasterVolume(volume: number): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(MASTER_VOLUME_STORAGE_KEY, clampVolume(volume, DEFAULT_VOLUME).toFixed(3));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function readStoredMuted(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const raw = localStorage.getItem(MASTER_MUTED_STORAGE_KEY);
+    return raw === 'true' || raw === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeStoredMuted(muted: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(MASTER_MUTED_STORAGE_KEY, muted ? 'true' : 'false');
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 function readStoredWeatherVolume(): number {
@@ -118,6 +160,8 @@ export class AudioModule {
   private gestureListenersBound = false;
 
   constructor() {
+    this.volume = readStoredMasterVolume();
+    this.muted = readStoredMuted();
     this.weatherVolume = readStoredWeatherVolume();
     this.musicPlayer.setMasterVolume(this.volume, this.muted);
     this.bindGestureUnlock();
@@ -131,10 +175,12 @@ export class AudioModule {
     const next = Boolean(muted);
     const muteChanged = this.muted !== next;
     this.muted = next;
+    writeStoredMuted(this.muted);
 
     let volumeChanged = false;
     if (!next && this.volume <= 0.001) {
       this.volume = DEFAULT_VOLUME;
+      writeStoredMasterVolume(this.volume);
       volumeChanged = true;
     }
 
@@ -170,10 +216,12 @@ export class AudioModule {
     const next = clampVolume(volume);
     const volumeChanged = Math.abs(this.volume - next) > 0.0005;
     this.volume = next;
+    writeStoredMasterVolume(this.volume);
 
     let muteChanged = false;
     if (next > 0 && this.muted) {
       this.muted = false;
+      writeStoredMuted(false);
       muteChanged = true;
     }
 
@@ -355,6 +403,30 @@ export class AudioModule {
 
   playThunder(): void {
     this.withAudioOutput((ctx, dest) => this.foley.playThunder(ctx, this.weatherGain ?? dest));
+  }
+
+  playBotChirp(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playBotChirp(ctx, dest));
+  }
+
+  playChickenSqueak(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playChickenSqueak(ctx, dest));
+  }
+
+  playPortalWarp(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playPortalWarp(ctx, dest));
+  }
+
+  playComicKick(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playComicKick(ctx, dest));
+  }
+
+  playGojoAscend(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playGojoAscend(ctx, dest));
+  }
+
+  playRockyChords(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playRockyChords(ctx, dest));
   }
 
   playGibberishLine(

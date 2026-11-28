@@ -128,6 +128,14 @@
       "accentColor": "#B7CEDC"
     },
     {
+      "id": "bathroom",
+      "label": "Cozy Spa Bath",
+      "priority": 60,
+      "requiredTags": { "bathroom": 2 },
+      "description": "Steamy tiles, fluffy towels, and unhurried soaks.",
+      "accentColor": "#8CC5BE"
+    },
+    {
       "id": "home_kitchen",
       "label": "Home Kitchen",
       "priority": 58,

@@ -7,6 +7,25 @@ const BRASS = '#DFBC6E';
 const BRASS_DARK = '#C49D4C';
 const DARK_WOOD = '#8C6B4B';
 
+type WallSurfaceContext = ModelContext & {
+  wallSurfaceColor?: string;
+  wallSurfaceAccent?: string;
+};
+
+function getWindowWallSurface(ctx: ModelContext): { wallTone: string; wallTrim: string } {
+  const ext = ctx as WallSurfaceContext;
+  const wallTone = ext.wallSurfaceColor ?? WALL_CREAM;
+  const wallTrim = ext.wallSurfaceAccent ?? ctx.shade(wallTone, -0.08);
+  return { wallTone, wallTrim };
+}
+
+function getDoorWallSurface(ctx: ModelContext): { wallTone: string; wallTrim: string } {
+  const ext = ctx as WallSurfaceContext;
+  const wallTone = ext.wallSurfaceColor ?? ctx.accent;
+  const wallTrim = ext.wallSurfaceAccent ?? ctx.shade(wallTone, -0.08);
+  return { wallTone, wallTrim };
+}
+
 /**
  * Removes duplicate consecutive vertices and trailing wrap-around vertex from a 2D polygon ring.
  */
@@ -204,13 +223,13 @@ function addWallMoldings(
   opts?: { skipBaseboard?: boolean; baseboardTrim?: string; crownTrim?: string },
 ): void {
   const t = WALL_THICKNESS;
-  const trimW = 0.990;
+  const trimW = 0.992;
   if (!opts?.skipBaseboard) {
     const baseColor = opts?.baseboardTrim ?? ctx.shade(wallColor, 0.12);
-    // Baseboard cleanly clear of y = 0: y = [0.006 .. 0.122], +0.014 proud per face
-    ctx.box(trimW, 0.116, t + 0.028, baseColor, 0, 0.064, 0, { roughness: 0.72 });
-    // Cap bead strictly above baseboard: y = [0.122 .. 0.140], +0.020 proud per face
-    ctx.box(trimW, 0.018, t + 0.04, ctx.shade(baseColor, -0.09), 0, 0.131, 0, { roughness: 0.75 });
+    // Baseboard cleanly above floor tile top (0.024): y = [0.028 .. 0.130], +0.014 proud per face
+    ctx.box(trimW, 0.102, t + 0.028, baseColor, 0, 0.079, 0, { roughness: 0.72 });
+    // Cap bead strictly above baseboard: y = [0.130 .. 0.148], +0.020 proud per face
+    ctx.box(trimW, 0.018, t + 0.04, ctx.shade(baseColor, -0.09), 0, 0.139, 0, { roughness: 0.75 });
   }
   const crownColor = opts?.crownTrim ?? ctx.shade(wallColor, 0.14);
   // Two non-overlapping stepped crown tiers cleanly below wall top y = h - 0.006
@@ -276,17 +295,17 @@ function makeArchTrimShape(
 }
 
 // ============================================================================
-// FLOOR TILES (6) — strictly y = [0.004 .. 0.024], footprint 0.996 x 0.996
+// FLOOR TILES (6) — tight 0.999 x 0.999 base [0.004..0.020], relief [0.020..0.024]
 // ============================================================================
 
 function buildFloorWood(ctx: ModelContext): void {
   const { primary, shade } = ctx;
-  // Dark seam backing slab: y = [0.004 .. 0.017], inset 0.002 per side
-  ctx.box(0.996, 0.013, 0.996, shade(primary, -0.22), 0, 0.0105, 0, {
+  // Tight dark seam backing slab: y = [0.004 .. 0.020], 0.999 x 0.999 (zero ground cracks!)
+  ctx.box(0.999, 0.016, 0.999, shade(primary, -0.22), 0, 0.012, 0, {
     roughness: 0.88,
     castShadow: false,
   });
-  // 4 longitudinal hardwood plank lanes strictly above backing: y = [0.017 .. 0.024]
+  // 4 longitudinal hardwood plank lanes strictly above backing: y = [0.020 .. 0.024]
   const lanes: Array<{ x: number; splitZ: number; toneA: number; toneB: number }> = [
     { x: -0.371, splitZ: 0.14, toneA: 0.03, toneB: -0.05 },
     { x: -0.124, splitZ: -0.20, toneA: -0.03, toneB: 0.05 },
@@ -299,13 +318,13 @@ function buildFloorWood(ctx: ModelContext): void {
   for (const lane of lanes) {
     const lenA = lane.splitZ - -bound - gap / 2;
     const czA = -bound + lenA / 2;
-    ctx.box(plankW, 0.007, lenA, shade(primary, lane.toneA), lane.x, 0.0205, czA, {
+    ctx.box(plankW, 0.004, lenA, shade(primary, lane.toneA), lane.x, 0.022, czA, {
       roughness: 0.72,
       castShadow: false,
     });
     const lenB = bound - lane.splitZ - gap / 2;
     const czB = bound - lenB / 2;
-    ctx.box(plankW, 0.007, lenB, shade(primary, lane.toneB), lane.x, 0.0205, czB, {
+    ctx.box(plankW, 0.004, lenB, shade(primary, lane.toneB), lane.x, 0.022, czB, {
       roughness: 0.74,
       castShadow: false,
     });
@@ -314,13 +333,12 @@ function buildFloorWood(ctx: ModelContext): void {
 
 function buildFloorHerringbone(ctx: ModelContext): void {
   const { primary, accent, shade } = ctx;
-  // Backing slab: y = [0.004 .. 0.017]
-  ctx.box(0.996, 0.013, 0.996, shade(accent, -0.2), 0, 0.0105, 0, {
+  // Tight backing slab: y = [0.004 .. 0.020]
+  ctx.box(0.999, 0.016, 0.999, shade(accent, -0.2), 0, 0.012, 0, {
     roughness: 0.86,
     castShadow: false,
   });
-  // Two non-overlapping chevron columns of angled parquet slats: y = [0.017 .. 0.024]
-  // Half-extent of (0.205, 0.086) at 45 deg = 0.1029 < offset 0.115 -> strictly zero overlap!
+  // Two non-overlapping chevron columns of angled parquet slats: y = [0.020 .. 0.024]
   const colCenters = [-0.25, 0.25];
   const zRows = [-0.32, 0.0, 0.32];
   const slatL = 0.205;
@@ -331,12 +349,12 @@ function buildFloorHerringbone(ctx: ModelContext): void {
       const rz = zRows[r];
       const leftColor = (r + c) % 2 === 0 ? primary : shade(primary, 0.06);
       const rightColor = (r + c) % 2 === 0 ? accent : shade(accent, -0.05);
-      ctx.box(slatL, 0.007, slatW, leftColor, cx - 0.115, 0.0205, rz, {
+      ctx.box(slatL, 0.004, slatW, leftColor, cx - 0.115, 0.022, rz, {
         rotY: Math.PI / 4,
         roughness: 0.68,
         castShadow: false,
       });
-      ctx.box(slatL, 0.007, slatW, rightColor, cx + 0.115, 0.0205, rz, {
+      ctx.box(slatL, 0.004, slatW, rightColor, cx + 0.115, 0.022, rz, {
         rotY: -Math.PI / 4,
         roughness: 0.72,
         castShadow: false,
@@ -347,12 +365,12 @@ function buildFloorHerringbone(ctx: ModelContext): void {
 
 function buildFloorTile(ctx: ModelContext): void {
   const { primary, shade } = ctx;
-  // Grout backing: y = [0.004 .. 0.017]
-  ctx.box(0.996, 0.013, 0.996, shade(primary, -0.18), 0, 0.0105, 0, {
+  // Tight grout backing: y = [0.004 .. 0.020]
+  ctx.box(0.999, 0.016, 0.999, shade(primary, -0.18), 0, 0.012, 0, {
     roughness: 0.9,
     castShadow: false,
   });
-  // 2x2 glazed ceramic tiles: y = [0.017 .. 0.0235], inner gap 0.044
+  // 2x2 glazed ceramic tiles strictly above backing: y = [0.020 .. 0.024], inner gap 0.044
   const coords: Array<[number, number, number]> = [
     [-0.248, -0.248, 0.0],
     [0.248, -0.248, 0.04],
@@ -360,14 +378,14 @@ function buildFloorTile(ctx: ModelContext): void {
     [0.248, 0.248, -0.02],
   ];
   for (const [x, z, tone] of coords) {
-    ctx.box(0.452, 0.0065, 0.452, shade(primary, tone), x, 0.02025, z, {
+    ctx.box(0.452, 0.004, 0.452, shade(primary, tone), x, 0.022, z, {
       roughness: 0.34,
       metalness: 0.04,
       castShadow: false,
     });
   }
-  // Small center diamond cabochon strictly inside the 0.044 grout cross: y = [0.017 .. 0.024]
-  ctx.box(0.052, 0.007, 0.052, shade(primary, -0.12), 0, 0.0205, 0, {
+  // Small center diamond cabochon strictly inside the 0.044 grout cross: y = [0.020 .. 0.024]
+  ctx.box(0.052, 0.004, 0.052, shade(primary, -0.12), 0, 0.022, 0, {
     rotY: Math.PI / 4,
     roughness: 0.4,
     castShadow: false,
@@ -376,17 +394,17 @@ function buildFloorTile(ctx: ModelContext): void {
 
 function buildFloorTerrazzo(ctx: ModelContext): void {
   const { primary, accent, shade } = ctx;
-  // Edge grout rim: y = [0.004 .. 0.014]
-  ctx.box(0.996, 0.010, 0.996, shade(primary, -0.14), 0, 0.009, 0, {
+  // Tight outer grout rim: y = [0.004 .. 0.016]
+  ctx.box(0.999, 0.012, 0.999, shade(primary, -0.14), 0, 0.010, 0, {
     roughness: 0.85,
     castShadow: false,
   });
-  // Smooth terrazzo slab cleanly above rim: y = [0.014 .. 0.0205]
-  ctx.box(0.980, 0.0065, 0.980, primary, 0, 0.01725, 0, {
+  // Smooth terrazzo slab cleanly above rim: y = [0.016 .. 0.020]
+  ctx.box(0.986, 0.004, 0.986, primary, 0, 0.018, 0, {
     roughness: 0.46,
     castShadow: false,
   });
-  // Scattered non-overlapping pastel terrazzo stone chips strictly on top: y = [0.0205 .. 0.024]
+  // Scattered non-overlapping pastel terrazzo stone chips strictly on top: y = [0.020 .. 0.024]
   const chips: Array<[number, number, number, number, number, string]> = [
     [-0.34, -0.32, 0.10, 0.065, 0.4, accent],
     [-0.08, -0.38, 0.075, 0.075, 1.1, '#E7C888'],
@@ -402,7 +420,7 @@ function buildFloorTerrazzo(ctx: ModelContext): void {
     [0.10, 0.38, 0.095, 0.065, 0.5, '#B8CFC0'],
   ];
   for (const [x, z, w, d, rotY, col] of chips) {
-    ctx.box(w, 0.0035, d, col, x, 0.02225, z, {
+    ctx.box(w, 0.004, d, col, x, 0.022, z, {
       rotY,
       roughness: 0.5,
       castShadow: false,
@@ -412,23 +430,23 @@ function buildFloorTerrazzo(ctx: ModelContext): void {
 
 function buildFloorStone(ctx: ModelContext): void {
   const { primary, shade } = ctx;
-  // Earthy recessed mortar bed: y = [0.004 .. 0.016]
-  ctx.box(0.996, 0.012, 0.996, shade(primary, -0.26), 0, 0.010, 0, {
+  // Tight earthy recessed mortar bed: y = [0.004 .. 0.0195]
+  ctx.box(0.999, 0.0155, 0.999, shade(primary, -0.26), 0, 0.01175, 0, {
     roughness: 0.95,
     castShadow: false,
   });
-  // Non-overlapping sculpted flagstone slabs strictly above mortar: y = [0.016 .. 0.024]
+  // Non-overlapping sculpted flagstone slabs strictly above mortar: y = [0.0195 .. 0.024]
   const stones: Array<[number, number, number, number, number, number, number]> = [
-    [-0.25, -0.28, 0.43, 0.35, 0.008, 0.04, 0.02],
-    [0.24, -0.31, 0.43, 0.29, 0.0074, -0.06, -0.02],
-    [-0.31, 0.10, 0.31, 0.31, 0.008, -0.04, -0.02],
-    [0.06, 0.04, 0.33, 0.29, 0.0076, 0.07, 0.02],
-    [0.36, 0.08, 0.19, 0.35, 0.0074, -0.08, 0.01],
-    [-0.20, 0.38, 0.51, 0.17, 0.0078, 0.02, -0.01],
-    [0.27, 0.38, 0.35, 0.17, 0.0076, -0.03, 0.01],
+    [-0.25, -0.28, 0.43, 0.35, 0.0045, 0.04, 0.02],
+    [0.24, -0.31, 0.43, 0.29, 0.0041, -0.06, -0.02],
+    [-0.31, 0.10, 0.31, 0.31, 0.0045, -0.04, -0.02],
+    [0.06, 0.04, 0.33, 0.29, 0.0042, 0.07, 0.02],
+    [0.36, 0.08, 0.19, 0.35, 0.0041, -0.08, 0.01],
+    [-0.20, 0.38, 0.51, 0.17, 0.0044, 0.02, -0.01],
+    [0.27, 0.38, 0.35, 0.17, 0.0042, -0.03, 0.01],
   ];
   for (const [x, z, w, d, h, tone, rotY] of stones) {
-    ctx.box(w, h, d, shade(primary, tone), x, 0.016 + h / 2, z, {
+    ctx.box(w, h, d, shade(primary, tone), x, 0.0195 + h / 2, z, {
       rotY,
       roughness: 0.86,
       castShadow: false,
@@ -438,12 +456,12 @@ function buildFloorStone(ctx: ModelContext): void {
 
 function buildFloorCheckerboard(ctx: ModelContext): void {
   const { primary, accent, shade } = ctx;
-  // Grout backing: y = [0.004 .. 0.017]
-  ctx.box(0.996, 0.013, 0.996, shade(primary, -0.2), 0, 0.0105, 0, {
+  // Tight grout backing: y = [0.004 .. 0.020]
+  ctx.box(0.999, 0.016, 0.999, shade(primary, -0.2), 0, 0.012, 0, {
     roughness: 0.88,
     castShadow: false,
   });
-  // 2x2 checks strictly above grout: y = [0.017 .. 0.024]
+  // 2x2 checks strictly above grout: y = [0.020 .. 0.024]
   const cells: Array<[number, number, string]> = [
     [-0.248, -0.248, primary],
     [0.248, -0.248, accent],
@@ -451,7 +469,7 @@ function buildFloorCheckerboard(ctx: ModelContext): void {
     [0.248, 0.248, primary],
   ];
   for (const [x, z, col] of cells) {
-    ctx.box(0.470, 0.007, 0.470, col, x, 0.0205, z, {
+    ctx.box(0.470, 0.004, 0.470, col, x, 0.022, z, {
       roughness: 0.36,
       metalness: 0.04,
       castShadow: false,
@@ -476,9 +494,9 @@ function buildWallBrick(ctx: ModelContext): void {
   const t = WALL_THICKNESS;
   // Recessed mortar core (faces at +-0.062)
   ctx.box(1.0, h, t - 0.016, accent, 0, h / 2, 0, { roughness: 0.92 });
-  // Baseboard & top cornice inset 0.005 per side, clear of y = 0 & y = h by 0.006
-  ctx.box(0.990, 0.132, t + 0.028, shade(primary, -0.22), 0, 0.072, 0, { roughness: 0.8 });
-  ctx.box(0.990, 0.060, t + 0.032, shade(primary, -0.18), 0, h - 0.036, 0, { roughness: 0.78 });
+  // Baseboard cleanly above floor tile top (0.024): y = [0.028 .. 0.142], cornice below y = h - 0.006
+  ctx.box(0.992, 0.114, t + 0.028, shade(primary, -0.22), 0, 0.085, 0, { roughness: 0.8 });
+  ctx.box(0.992, 0.060, t + 0.032, shade(primary, -0.18), 0, h - 0.036, 0, { roughness: 0.78 });
 
   // 7 staggered 3D relief brick courses spanning both wall faces (+0.016 proud of mortar!)
   const brickD = t + 0.016;
@@ -521,14 +539,14 @@ function buildWallWainscot(ctx: ModelContext): void {
   ctx.box(1.0, h - railY, t, primary, 0, railY + (h - railY) / 2, 0, { roughness: 0.86 });
   ctx.box(1.0, railY, t, accent, 0, railY / 2, 0, { roughness: 0.78 });
 
-  // Wainscot cladding proudly offset +0.008 per face, cleanly below railY (0.954)
-  ctx.box(0.990, railY - 0.138, t + 0.016, accent, 0, 0.132 + (railY - 0.138) / 2, 0, {
+  // Wainscot cladding proudly offset +0.008 per face, cleanly between baseboard (0.138) and railY (0.954)
+  ctx.box(0.992, railY - 0.144, t + 0.016, accent, 0, 0.138 + (railY - 0.144) / 2, 0, {
     roughness: 0.76,
   });
-  // Baseboard skirting cleanly clear of y = 0: y = [0.006 .. 0.132], +0.016 per face
-  ctx.box(0.990, 0.126, t + 0.032, shade(accent, -0.09), 0, 0.069, 0, { roughness: 0.72 });
+  // Baseboard skirting cleanly above floor tile top (0.024): y = [0.028 .. 0.138], +0.016 per face
+  ctx.box(0.992, 0.110, t + 0.032, shade(accent, -0.09), 0, 0.083, 0, { roughness: 0.72 });
   // Sculpted chair rail ledge cleanly above railY seam: y = [0.966 .. 1.028], +0.024 per face
-  ctx.box(0.990, 0.062, t + 0.048, shade(accent, 0.08), 0, railY + 0.037, 0, { roughness: 0.68 });
+  ctx.box(0.992, 0.062, t + 0.048, shade(accent, 0.08), 0, railY + 0.037, 0, { roughness: 0.68 });
 
   // Two side-by-side framed wainscoting shaker panels (+0.007 then +0.006 proud per face!)
   for (const sx of [-0.24, 0.24]) {
@@ -578,16 +596,16 @@ function buildWallArch(ctx: ModelContext): void {
   const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY);
   extrudeCentered(ctx, wallShape, t, primary, { roughness: 0.85, curveSegments: 14 });
 
-  // Sculpted arch surround trim rim on both faces (+0.012 per face, starts cleanly above baseboard)
-  const trimShape = makeArchTrimShape(openHalfW - 0.005, 0.045, 0.132, springY);
+  // Sculpted arch surround trim rim on both faces (+0.012 per face, starts cleanly above baseboard 0.138)
+  const trimShape = makeArchTrimShape(openHalfW - 0.005, 0.045, 0.138, springY);
   extrudeCentered(ctx, trimShape, t + 0.024, shade(primary, 0.1), {
     roughness: 0.74,
     curveSegments: 14,
   });
 
-  // Baseboard cuffs on the left & right piers (inset 0.004 from +-0.5, y = [0.002..0.132])
+  // Baseboard cuffs cleanly above floor tile top (0.024): y = [0.028..0.138], inset 0.004 from +-0.5
   for (const sx of [-0.418, 0.418]) {
-    ctx.box(0.156, 0.13, t + 0.032, shade(primary, 0.12), sx, 0.067, 0, { roughness: 0.72 });
+    ctx.box(0.156, 0.110, t + 0.032, shade(primary, 0.12), sx, 0.083, 0, { roughness: 0.72 });
   }
   addWallMoldings(ctx, primary, h, { skipBaseboard: true });
 }
@@ -601,8 +619,8 @@ function buildWallHalf(ctx: ModelContext): void {
 
   // Main half-wall body
   ctx.box(1.0, bodyH, t, primary, 0, bodyH / 2, 0, { roughness: 0.84 });
-  // Baseboard inset 0.004 per side: y = [0.002 .. 0.132]
-  ctx.box(0.992, 0.13, t + 0.028, shade(primary, -0.07), 0, 0.067, 0, { roughness: 0.74 });
+  // Baseboard cleanly above floor tile top (0.024): y = [0.028 .. 0.138], inset 0.004 per side
+  ctx.box(0.992, 0.110, t + 0.028, shade(primary, -0.07), 0, 0.083, 0, { roughness: 0.74 });
   // Twin shaker decorative panels (+0.008 then +0.006 proud per face!)
   for (const sx of [-0.24, 0.24]) {
     ctx.box(0.38, 0.66, t + 0.016, shade(primary, -0.06), sx, 0.56, 0, { roughness: 0.8 });
@@ -684,23 +702,25 @@ function addStandardDoorWallFrame(
   openH: number,
   spec: DoorGeometrySpec,
 ): void {
-  const { accent, shade } = ctx;
+  const { wallTone, wallTrim } = getDoorWallSurface(ctx);
   const t = WALL_THICKNESS;
   const headH = h - openH;
-  // Full wall header above opening
-  ctx.box(1.0, headH, t, accent, 0, openH + headH / 2, 0, { roughness: 0.86 });
+  // Full wall header above opening inheriting surrounding wall finish
+  ctx.box(1.0, headH, t, wallTone, 0, openH + headH / 2, 0, { roughness: 0.86 });
 
-  const trimCol = shade(accent, -0.08);
-  // Outer wall piers & jamb casings only on unmerged edges (clear of y = 0 & openH by 0.006!)
+  const trimCol = wallTrim;
+  // Outer wall piers & jamb casings only on unmerged edges (jamb casings lifted cleanly to y = 0.028!)
+  const jambH = openH - 0.034;
+  const jambCy = 0.028 + jambH / 2;
   if (spec.hasLeftJamb) {
-    ctx.box(0.10, openH, t, accent, -0.45, openH / 2, 0, { roughness: 0.86 });
-    ctx.box(0.05, openH - 0.012, t + 0.026, trimCol, -0.415, openH / 2, 0, {
+    ctx.box(0.10, openH, t, wallTone, -0.45, openH / 2, 0, { roughness: 0.86 });
+    ctx.box(0.05, jambH, t + 0.026, trimCol, -0.415, jambCy, 0, {
       roughness: 0.72,
     });
   }
   if (spec.hasRightJamb) {
-    ctx.box(0.10, openH, t, accent, 0.45, openH / 2, 0, { roughness: 0.86 });
-    ctx.box(0.05, openH - 0.012, t + 0.026, trimCol, 0.415, openH / 2, 0, {
+    ctx.box(0.10, openH, t, wallTone, 0.45, openH / 2, 0, { roughness: 0.86 });
+    ctx.box(0.05, jambH, t + 0.026, trimCol, 0.415, jambCy, 0, {
       roughness: 0.72,
     });
   }
@@ -712,13 +732,13 @@ function addStandardDoorWallFrame(
     roughness: 0.72,
   });
 
-  // Threshold plate across opening: y = [0.002 .. 0.024]
+  // Threshold plate proudly above floor tile top (0.024): y = [0.028 .. 0.040] (zero Z-fighting!)
   const thrW = spec.openRight - spec.openLeft;
-  ctx.box(thrW, 0.022, t + 0.022, DARK_WOOD, (spec.openLeft + spec.openRight) / 2, 0.013, 0, {
+  ctx.box(thrW, 0.012, t + 0.022, DARK_WOOD, (spec.openLeft + spec.openRight) / 2, 0.034, 0, {
     roughness: 0.65,
   });
 
-  addWallMoldings(ctx, accent, h, { skipBaseboard: true });
+  addWallMoldings(ctx, wallTone, h, { skipBaseboard: true, crownTrim: ctx.shade(wallTone, 0.14) });
 }
 
 function buildDoorWood(ctx: ModelContext): void {
@@ -735,11 +755,12 @@ function buildDoorWood(ctx: ModelContext): void {
   pivot.rotation.y = ctx.isActive ? spec.swingSign * Math.PI * 0.44 : 0;
   ctx.group.add(pivot);
 
-  const leafH = openH - 0.034;
+  // Door leaf starts cleanly at y = 0.044 (+0.004 above threshold top 0.040!)
+  const leafBotY = 0.044;
+  const leafH = openH - leafBotY - 0.010;
   const leafD = 0.062;
   const cx = spec.leafDir * (spec.leafW / 2);
-  // Main solid wood door leaf
-  ctx.box(spec.leafW, leafH, leafD, primary, cx, 0.024 + leafH / 2, 0, {
+  ctx.box(spec.leafW, leafH, leafD, primary, cx, leafBotY + leafH / 2, 0, {
     parent: pivot,
     roughness: 0.72,
   });
@@ -794,10 +815,10 @@ function buildDoorCafeGlass(ctx: ModelContext): void {
   const stileW = 0.092;
   const glassW = spec.leafW - stileW * 2;
 
-  // Lower painted solid panel: y = [0.024 .. 0.884]
-  ctx.box(spec.leafW, 0.86, leafD, primary, cx, 0.454, 0, { parent: pivot, roughness: 0.72 });
-  // Brushed brass kickplate (+0.008 proud per face)
-  ctx.box(spec.leafW - 0.06, 0.13, leafD + 0.016, BRASS_DARK, cx, 0.098, 0, {
+  // Lower painted solid panel cleanly above threshold: y = [0.044 .. 0.884]
+  ctx.box(spec.leafW, 0.84, leafD, primary, cx, 0.464, 0, { parent: pivot, roughness: 0.72 });
+  // Brushed brass kickplate (+0.008 proud per face): y = [0.056 .. 0.176]
+  ctx.box(spec.leafW - 0.06, 0.12, leafD + 0.016, BRASS_DARK, cx, 0.116, 0, {
     parent: pivot,
     roughness: 0.35,
     metalness: 0.55,
@@ -854,7 +875,8 @@ function buildDoorCafeGlass(ctx: ModelContext): void {
 }
 
 function buildDoorArched(ctx: ModelContext): void {
-  const { primary, accent, shade } = ctx;
+  const { primary, shade } = ctx;
+  const { wallTone, wallTrim } = getDoorWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
   const mergeSide = ctx.mergeSide;
@@ -886,16 +908,16 @@ function buildDoorArched(ctx: ModelContext): void {
       wallShape.lineTo(-0.5, h);
       wallShape.closePath();
     }
-    extrudeCentered(ctx, wallShape, t, accent, { roughness: 0.86, curveSegments: 16 });
+    extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 16 });
 
-    // Sculpted quarter-arch surround trim rim (+0.013 per face, inset 0.002 from center seam)
+    // Sculpted quarter-arch surround trim rim starting cleanly above floor tile top (y = 0.028)
     const trimW = 0.048;
     const innerR = R - 0.004;
     const outerR = innerR + trimW;
     const trimShape = new THREE.Shape();
     if (isLeft) {
-      trimShape.moveTo(-0.39 - trimW, 0.002);
-      trimShape.lineTo(-0.39 + 0.004, 0.002);
+      trimShape.moveTo(-0.39 - trimW, 0.028);
+      trimShape.lineTo(-0.39 + 0.004, 0.028);
       trimShape.lineTo(-0.39 + 0.004, springY);
       trimShape.absarc(0.5, springY, innerR, Math.PI, Math.PI / 2 + 0.003, true);
       trimShape.lineTo(0.498, springY + outerR);
@@ -905,25 +927,25 @@ function buildDoorArched(ctx: ModelContext): void {
       trimShape.moveTo(-0.498, springY + outerR);
       trimShape.lineTo(-0.498, springY + innerR);
       trimShape.absarc(-0.5, springY, innerR, Math.PI / 2 - 0.003, 0, true);
-      trimShape.lineTo(0.39 - 0.004, 0.002);
-      trimShape.lineTo(0.39 + trimW, 0.002);
+      trimShape.lineTo(0.39 - 0.004, 0.028);
+      trimShape.lineTo(0.39 + trimW, 0.028);
       trimShape.lineTo(0.39 + trimW, springY);
       trimShape.absarc(-0.5, springY, outerR, 0, Math.PI / 2 - 0.003, false);
       trimShape.closePath();
     }
-    extrudeCentered(ctx, trimShape, t + 0.026, shade(accent, -0.09), {
+    extrudeCentered(ctx, trimShape, t + 0.026, wallTrim, {
       roughness: 0.74,
       curveSegments: 16,
     });
 
-    // Threshold & crown molding
+    // Threshold proudly above floor tile top (0.024): y = [0.028 .. 0.040]
     const thrW = spec.openRight - spec.openLeft;
-    ctx.box(thrW, 0.022, t + 0.022, DARK_WOOD, (spec.openLeft + spec.openRight) / 2, 0.013, 0, {
+    ctx.box(thrW, 0.012, t + 0.022, DARK_WOOD, (spec.openLeft + spec.openRight) / 2, 0.034, 0, {
       roughness: 0.65,
     });
-    addWallMoldings(ctx, accent, h, { skipBaseboard: true });
+    addWallMoldings(ctx, wallTone, h, { skipBaseboard: true, crownTrim: ctx.shade(wallTone, 0.14) });
 
-    // Hinged unified single-piece quarter-arch door leaf inside DoorPivot
+    // Hinged unified single-piece quarter-arch door leaf inside DoorPivot (y >= 0.044)
     const pivot = new THREE.Group();
     pivot.name = 'DoorPivot';
     pivot.userData.swingSign = spec.swingSign;
@@ -931,7 +953,7 @@ function buildDoorArched(ctx: ModelContext): void {
     pivot.rotation.y = ctx.isActive ? spec.swingSign * Math.PI * 0.44 : 0;
     ctx.group.add(pivot);
 
-    const leafBotY = 0.032;
+    const leafBotY = 0.044;
     const leafR = R - 0.014; // 0.876
     const angPad = 0.014;
     const leafEdgeX = 0.89 - leafR * Math.sin(angPad); // ~0.8777 (exact vertical edge at arc end!)
@@ -1021,12 +1043,13 @@ function buildDoorArched(ctx: ModelContext): void {
     ctx.group.add(pivot);
 
     const cx = spec.leafW / 2;
-    const leafH = midOpenH - 0.044;
-    ctx.box(spec.leafW, leafH, leafD, primary, cx, 0.032 + leafH / 2, 0, {
+    const leafBotY = 0.044;
+    const leafH = midOpenH - leafBotY - 0.010;
+    ctx.box(spec.leafW, leafH, leafD, primary, cx, leafBotY + leafH / 2, 0, {
       parent: pivot,
       roughness: 0.72,
     });
-    ctx.box(spec.leafW - 0.24, leafH - 0.36, leafD + 0.014, shade(primary, -0.09), cx, 0.032 + leafH / 2, 0, {
+    ctx.box(spec.leafW - 0.24, leafH - 0.36, leafD + 0.014, shade(primary, -0.09), cx, leafBotY + leafH / 2, 0, {
       parent: pivot,
       roughness: 0.78,
     });
@@ -1045,16 +1068,17 @@ function buildDoorArched(ctx: ModelContext): void {
   const springY = 1.68;
 
   const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY);
-  extrudeCentered(ctx, wallShape, t, accent, { roughness: 0.86, curveSegments: 16 });
+  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 16 });
 
-  const trimShape = makeArchTrimShape(openHalfW - 0.004, 0.048, 0.006, springY);
-  extrudeCentered(ctx, trimShape, t + 0.026, shade(accent, -0.09), {
+  const trimShape = makeArchTrimShape(openHalfW - 0.004, 0.048, 0.028, springY);
+  extrudeCentered(ctx, trimShape, t + 0.026, wallTrim, {
     roughness: 0.74,
     curveSegments: 16,
   });
 
-  ctx.box(0.78, 0.022, t + 0.022, DARK_WOOD, 0, 0.013, 0, { roughness: 0.65 });
-  addWallMoldings(ctx, accent, h, { skipBaseboard: true });
+  // Threshold proudly above floor tile top (0.024): y = [0.028 .. 0.040]
+  ctx.box(0.78, 0.012, t + 0.022, DARK_WOOD, 0, 0.034, 0, { roughness: 0.65 });
+  addWallMoldings(ctx, wallTone, h, { skipBaseboard: true, crownTrim: ctx.shade(wallTone, 0.14) });
 
   const pivot = new THREE.Group();
   pivot.name = 'DoorPivot';
@@ -1064,8 +1088,8 @@ function buildDoorArched(ctx: ModelContext): void {
   ctx.group.add(pivot);
 
   const leafShape = new THREE.Shape();
-  leafShape.moveTo(0.008, 0.032);
-  leafShape.lineTo(0.772, 0.032);
+  leafShape.moveTo(0.008, 0.044);
+  leafShape.lineTo(0.772, 0.044);
   leafShape.lineTo(0.772, springY);
   leafShape.absarc(0.39, springY, 0.382, 0, Math.PI, false);
   leafShape.closePath();
@@ -1110,7 +1134,8 @@ function buildDoorArched(ctx: ModelContext): void {
 }
 
 function buildDoorSliding(ctx: ModelContext): void {
-  const { primary, accent, shade } = ctx;
+  const { primary, shade } = ctx;
+  const { wallTone } = getDoorWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
   const openH = 2.16;
@@ -1118,29 +1143,29 @@ function buildDoorSliding(ctx: ModelContext): void {
   const hasLeftJamb = mergeSide !== 'right' && mergeSide !== 'middle';
   const hasRightJamb = mergeSide !== 'left' && mergeSide !== 'middle';
 
-  // Surrounding wall header & outer jambs only on unmerged sides
-  ctx.box(1.0, h - openH, t, accent, 0, openH + (h - openH) / 2, 0, { roughness: 0.86 });
+  // Surrounding wall header & outer jambs inheriting surrounding wall finish
+  ctx.box(1.0, h - openH, t, wallTone, 0, openH + (h - openH) / 2, 0, { roughness: 0.86 });
   if (hasLeftJamb) {
-    ctx.box(0.06, openH, t, accent, -0.47, openH / 2, 0, { roughness: 0.86 });
+    ctx.box(0.06, openH, t, wallTone, -0.47, openH / 2, 0, { roughness: 0.86 });
   }
   if (hasRightJamb) {
-    ctx.box(0.06, openH, t, accent, 0.47, openH / 2, 0, { roughness: 0.86 });
+    ctx.box(0.06, openH, t, wallTone, 0.47, openH / 2, 0, { roughness: 0.86 });
   }
-  addWallMoldings(ctx, accent, h, { skipBaseboard: true });
+  addWallMoldings(ctx, wallTone, h, { skipBaseboard: true, crownTrim: ctx.shade(wallTone, 0.14) });
 
-  // Top & bottom sliding tracks spanning cleanly across opening (inset 0.002 on merged edges!)
+  // Top & bottom sliding tracks proudly above floor tile top (0.024): bottom y = [0.028 .. 0.048]
   const trkL = hasLeftJamb ? -0.44 : -0.498;
   const trkR = hasRightJamb ? 0.44 : 0.498;
   const trkW = trkR - trkL;
   const trkCx = (trkL + trkR) / 2;
   const trackCol = shade(primary, -0.2);
-  ctx.box(trkW, 0.036, t + 0.012, trackCol, trkCx, 0.020, 0, { roughness: 0.5, metalness: 0.2 });
+  ctx.box(trkW, 0.020, t + 0.012, trackCol, trkCx, 0.038, 0, { roughness: 0.5, metalness: 0.2 });
   ctx.box(trkW, 0.040, t + 0.012, trackCol, trkCx, openH - 0.020, 0, {
     roughness: 0.5,
     metalness: 0.2,
   });
 
-  const panelBot = 0.038;
+  const panelBot = 0.050;
   const panelTop = openH - 0.040;
   const panelH = panelTop - panelBot;
   const panelCy = panelBot + panelH / 2;
@@ -1234,29 +1259,32 @@ function buildDoorSliding(ctx: ModelContext): void {
 // WINDOWS (5) — wall surround + strictly non-overlapping casing, mullions, glass
 // ============================================================================
 
-function resolveWindowFrameColor(ctx: ModelContext): string {
-  return ctx.accent.toLowerCase() === '#f5efe4' || ctx.accent.toLowerCase() === '#f4ede2'
+function resolveWindowFrameColor(ctx: ModelContext, wallTone: string): string {
+  return ctx.accent.toLowerCase() === wallTone.toLowerCase() ||
+    ctx.accent.toLowerCase() === '#f5efe4' ||
+    ctx.accent.toLowerCase() === '#f4ede2'
     ? '#FAF7F1'
     : ctx.accent;
 }
 
 function buildWindowWide(ctx: ModelContext): void {
   const { primary, shade } = ctx;
+  const { wallTone, wallTrim } = getWindowWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
-  const frameCol = resolveWindowFrameColor(ctx);
+  const frameCol = resolveWindowFrameColor(ctx, wallTone);
   const sillY = 0.86;
   const topY = 2.12;
   const openH = topY - sillY;
   const openCy = sillY + openH / 2;
 
-  // Wall surround (strictly non-overlapping bottom, top & side piers)
-  ctx.box(1.0, sillY, t, WALL_CREAM, 0, sillY / 2, 0, { roughness: 0.86 });
-  ctx.box(1.0, h - topY, t, WALL_CREAM, 0, topY + (h - topY) / 2, 0, { roughness: 0.86 });
+  // Wall surround inheriting host wall color & trim
+  ctx.box(1.0, sillY, t, wallTone, 0, sillY / 2, 0, { roughness: 0.86 });
+  ctx.box(1.0, h - topY, t, wallTone, 0, topY + (h - topY) / 2, 0, { roughness: 0.86 });
   for (const sx of [-0.45, 0.45]) {
-    ctx.box(0.10, openH, t, WALL_CREAM, sx, openCy, 0, { roughness: 0.86 });
+    ctx.box(0.10, openH, t, wallTone, sx, openCy, 0, { roughness: 0.86 });
   }
-  addWallMoldings(ctx, WALL_CREAM, h);
+  addWallMoldings(ctx, wallTone, h, { baseboardTrim: wallTrim });
 
   // Deep protruding sill strictly below casing jambs: y = [0.835 .. 0.895]
   ctx.box(0.92, 0.06, t + 0.088, frameCol, 0, 0.865, 0, { roughness: 0.62 });
@@ -1284,17 +1312,18 @@ function buildWindowWide(ctx: ModelContext): void {
 
 function buildWindowArched(ctx: ModelContext): void {
   const { primary, shade } = ctx;
+  const { wallTone, wallTrim } = getWindowWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
-  const frameCol = resolveWindowFrameColor(ctx);
+  const frameCol = resolveWindowFrameColor(ctx, wallTone);
   const sillY = 0.88;
   const springY = 1.74;
   const openHalfW = 0.37;
 
-  // Extruded wall with exact arched window cutout
+  // Extruded wall with exact arched window cutout inheriting host wall finish
   const wallShape = makeWallWithArchOpening(h, openHalfW, sillY, springY);
-  extrudeCentered(ctx, wallShape, t, WALL_CREAM, { roughness: 0.86, curveSegments: 14 });
-  addWallMoldings(ctx, WALL_CREAM, h);
+  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 14 });
+  addWallMoldings(ctx, wallTone, h, { baseboardTrim: wallTrim });
 
   // Deep protruding sill: y = [0.825 .. 0.885]
   ctx.box(0.88, 0.06, t + 0.088, frameCol, 0, 0.855, 0, { roughness: 0.62 });
@@ -1326,21 +1355,22 @@ function buildWindowArched(ctx: ModelContext): void {
 
 function buildWindowBay(ctx: ModelContext): void {
   const { primary, shade } = ctx;
+  const { wallTone, wallTrim } = getWindowWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
-  const frameCol = resolveWindowFrameColor(ctx);
+  const frameCol = resolveWindowFrameColor(ctx, wallTone);
   const seatY = 0.72;
   const topY = 2.14;
   const openH = topY - seatY;
   const openCy = seatY + openH / 2;
 
-  // Surrounding flat wall frame
-  ctx.box(1.0, seatY, t, WALL_CREAM, 0, seatY / 2, 0, { roughness: 0.86 });
-  ctx.box(1.0, h - topY, t, WALL_CREAM, 0, topY + (h - topY) / 2, 0, { roughness: 0.86 });
+  // Surrounding flat wall frame inheriting host wall finish
+  ctx.box(1.0, seatY, t, wallTone, 0, seatY / 2, 0, { roughness: 0.86 });
+  ctx.box(1.0, h - topY, t, wallTone, 0, topY + (h - topY) / 2, 0, { roughness: 0.86 });
   for (const sx of [-0.46, 0.46]) {
-    ctx.box(0.08, openH, t, WALL_CREAM, sx, openCy, 0, { roughness: 0.86 });
+    ctx.box(0.08, openH, t, wallTone, sx, openCy, 0, { roughness: 0.86 });
   }
-  addWallMoldings(ctx, WALL_CREAM, h);
+  addWallMoldings(ctx, wallTone, h, { baseboardTrim: wallTrim });
 
   // Exterior 3-facet protruding bay box (-Z projection): strictly clear of seatY (0.72) & topY (2.14)!
   ctx.box(0.88, 0.064, 0.30, frameCol, 0, seatY - 0.038, -0.12, { roughness: 0.68 });
@@ -1388,13 +1418,14 @@ function buildWindowBay(ctx: ModelContext): void {
 
 function buildWindowRound(ctx: ModelContext): void {
   const { primary, shade } = ctx;
+  const { wallTone, wallTrim } = getWindowWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
-  const frameCol = resolveWindowFrameColor(ctx);
+  const frameCol = resolveWindowFrameColor(ctx, wallTone);
   const centerY = 1.48;
   const radius = 0.32;
 
-  // Extruded wall with exact circular porthole hole
+  // Extruded wall with exact circular porthole hole inheriting host wall finish
   const wallShape = new THREE.Shape();
   wallShape.moveTo(-0.5, 0);
   wallShape.lineTo(0.5, 0);
@@ -1406,8 +1437,8 @@ function buildWindowRound(ctx: ModelContext): void {
   hole.absarc(0, centerY, radius, 0, Math.PI * 2, true);
   wallShape.holes.push(hole);
 
-  extrudeCentered(ctx, wallShape, t, WALL_CREAM, { roughness: 0.86, curveSegments: 16 });
-  addWallMoldings(ctx, WALL_CREAM, h);
+  extrudeCentered(ctx, wallShape, t, wallTone, { roughness: 0.86, curveSegments: 16 });
+  addWallMoldings(ctx, wallTone, h, { baseboardTrim: wallTrim });
 
   // Sculpted circular porthole rim on both faces
   const isMetallic = ctx.variant.id === 'brass';
@@ -1431,21 +1462,22 @@ function buildWindowRound(ctx: ModelContext): void {
 
 function buildWindowClerestory(ctx: ModelContext): void {
   const { primary, shade } = ctx;
+  const { wallTone, wallTrim } = getWindowWallSurface(ctx);
   const h = ctx.def.height;
   const t = WALL_THICKNESS;
-  const frameCol = resolveWindowFrameColor(ctx);
+  const frameCol = resolveWindowFrameColor(ctx, wallTone);
   const sillY = 1.88;
   const topY = 2.36;
   const openH = topY - sillY;
   const openCy = sillY + openH / 2;
 
-  // Tall solid lower wall + narrow top header + slim outer piers
-  ctx.box(1.0, sillY, t, WALL_CREAM, 0, sillY / 2, 0, { roughness: 0.86 });
-  ctx.box(1.0, h - topY, t, WALL_CREAM, 0, topY + (h - topY) / 2, 0, { roughness: 0.86 });
+  // Tall solid lower wall + narrow top header + slim outer piers inheriting host wall finish
+  ctx.box(1.0, sillY, t, wallTone, 0, sillY / 2, 0, { roughness: 0.86 });
+  ctx.box(1.0, h - topY, t, wallTone, 0, topY + (h - topY) / 2, 0, { roughness: 0.86 });
   for (const sx of [-0.47, 0.47]) {
-    ctx.box(0.06, openH, t, WALL_CREAM, sx, openCy, 0, { roughness: 0.86 });
+    ctx.box(0.06, openH, t, wallTone, sx, openCy, 0, { roughness: 0.86 });
   }
-  addWallMoldings(ctx, WALL_CREAM, h);
+  addWallMoldings(ctx, wallTone, h, { baseboardTrim: wallTrim });
 
   // Horizontal ribbon casing frame: sill below (1.855..1.903), top above (2.338..2.380), jambs strictly between!
   ctx.box(0.94, 0.048, t + 0.068, frameCol, 0, 1.879, 0, { roughness: 0.62 });

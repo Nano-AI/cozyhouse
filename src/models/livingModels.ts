@@ -1187,6 +1187,458 @@ function buildRugWoven(ctx: ModelContext): void {
 }
 
 // ============================================================================
+// BATHROOM (6) — toilet_cozy, bathroom_sink, bathtub_clawfoot, shower_glass,
+//                towel_rack, bath_mat
+// ============================================================================
+
+function buildToiletCozy(ctx: ModelContext): void {
+  const { primary, accent, shade, isActive } = ctx;
+  const baseY = FLOOR_BASE_Y;
+  const porcelainOpts = { roughness: 0.28, metalness: 0.04 };
+
+  // Flared porcelain floor plinth + contoured pedestal stem touching FLOOR_BASE_Y
+  ctx.cyl(0.14, 0.175, 0.06, 12, shade(primary, -0.05), 0, baseY + 0.03, 0.03, porcelainOpts);
+  ctx.cyl(0.165, 0.125, 0.21, 12, primary, 0, baseY + 0.165, 0.04, porcelainOpts);
+
+  // Sculpted toilet bowl rim (top at y = baseY + 0.39 = 0.414)
+  ctx.cyl(0.205, 0.15, 0.12, 12, primary, 0, baseY + 0.33, 0.055, {
+    scaleX: 0.94,
+    scaleZ: 1.12,
+    ...porcelainOpts,
+  });
+  // Clean blue water surface recessed inside bowl
+  ctx.cyl(0.15, 0.135, 0.014, 10, '#A8D8EA', 0, baseY + 0.372, 0.065, {
+    scaleX: 0.92,
+    scaleZ: 1.08,
+    roughness: 0.14,
+    castShadow: false,
+  });
+
+  // Contoured porcelain seat ring sitting cleanly on bowl rim (seat top ~0.44)
+  ctx.torus(0.165, 0.025, 7, 14, accent, 0, baseY + 0.402, 0.06, {
+    rotX: Math.PI / 2,
+    scaleX: 0.93,
+    scaleZ: 1.10,
+    roughness: 0.32,
+  });
+
+  // Rear support column + rectangular porcelain tank + beveled tank lid
+  ctx.box(0.20, 0.38, 0.14, shade(primary, -0.04), 0, baseY + 0.19, -0.20, porcelainOpts);
+  ctx.box(0.38, 0.34, 0.19, primary, 0, baseY + 0.55, -0.22, porcelainOpts);
+  ctx.box(0.42, 0.038, 0.22, shade(primary, 0.05), 0, baseY + 0.739, -0.22, porcelainOpts);
+
+  // Chrome flush lever mounted cleanly on left side of tank
+  ctx.cyl(0.022, 0.024, 0.024, 8, '#C4CBD2', -0.198, baseY + 0.65, -0.18, {
+    rotZ: Math.PI / 2,
+    roughness: 0.25,
+    metalness: 0.72,
+  });
+  ctx.box(0.016, 0.016, 0.085, '#D2D8DE', -0.214, baseY + 0.65, -0.145, {
+    rotX: -0.12,
+    roughness: 0.24,
+    metalness: 0.75,
+  });
+
+  // Hinge bar + toilet lid (closed neatly when idle, tilted cleanly open when isActive!)
+  ctx.cyl(0.014, 0.014, 0.18, 6, '#C4CBD2', 0, baseY + 0.415, -0.115, {
+    rotZ: Math.PI / 2,
+    roughness: 0.3,
+    metalness: 0.65,
+  });
+  if (isActive) {
+    ctx.cyl(0.188, 0.188, 0.022, 12, shade(primary, 0.03), 0, baseY + 0.585, -0.105, {
+      rotX: Math.PI / 2 - 0.06,
+      scaleX: 0.94,
+      scaleZ: 1.06,
+      ...porcelainOpts,
+    });
+  } else {
+    ctx.cyl(0.192, 0.192, 0.022, 12, shade(primary, 0.03), 0, baseY + 0.436, 0.06, {
+      scaleX: 0.95,
+      scaleZ: 1.12,
+      ...porcelainOpts,
+    });
+  }
+}
+
+function buildBathroomSink(ctx: ModelContext): void {
+  const { primary, accent, shade, isActive } = ctx;
+  const baseY = FLOOR_BASE_Y;
+
+  // Tapered wooden vanity legs: y = [0.024 .. 0.144]
+  ctx.legs(0.76, 0.56, 0.12, 0.028, shade(primary, -0.18), baseY, 0.07);
+
+  // Pastel wooden vanity cabinet carcass: y = [0.144 .. 0.764]
+  ctx.box(0.78, 0.62, 0.58, primary, 0, baseY + 0.43, -0.04, { roughness: 0.72 });
+  // Twin proud shaker cabinet doors (+0.022 past front +0.250) + brass knobs
+  for (const sx of [-0.18, 0.18]) {
+    ctx.box(0.33, 0.43, 0.022, shade(primary, 0.07), sx, baseY + 0.38, 0.261, { roughness: 0.74 });
+    ctx.sphere(0.021, 7, BRASS, sx > 0 ? 0.055 : -0.055, baseY + 0.42, 0.282, {
+      roughness: 0.28,
+      metalness: 0.68,
+    });
+  }
+  // Top faux apron panel + brass bar pull
+  ctx.box(0.70, 0.095, 0.022, shade(primary, 0.05), 0, baseY + 0.665, 0.261, { roughness: 0.72 });
+  ctx.box(0.11, 0.016, 0.020, BRASS, 0, baseY + 0.665, 0.282, { roughness: 0.28, metalness: 0.68 });
+
+  // Crisp porcelain vanity top (y = [0.764 .. 0.812]) & rear backsplash curb
+  const porcelainOpts = { roughness: 0.28, metalness: 0.04 };
+  ctx.box(0.84, 0.048, 0.64, accent, 0, baseY + 0.764, -0.04, porcelainOpts);
+  ctx.box(0.84, 0.072, 0.036, accent, 0, baseY + 0.824, -0.342, porcelainOpts);
+
+  // Sculpted vessel porcelain basin resting cleanly ON TOP of counter
+  ctx.cyl(0.225, 0.17, 0.092, 12, accent, 0, baseY + 0.834, 0.01, {
+    scaleX: 1.14,
+    scaleZ: 0.90,
+    ...porcelainOpts,
+  });
+  // Recessed interior basin water/glaze well & chrome drain disc
+  ctx.cyl(0.18, 0.155, 0.012, 10, '#D4EBF4', 0, baseY + 0.876, 0.01, {
+    scaleX: 1.10,
+    scaleZ: 0.86,
+    roughness: 0.16,
+    castShadow: false,
+  });
+  ctx.cyl(0.024, 0.024, 0.008, 8, '#9DA6B0', 0, baseY + 0.884, 0.01, {
+    roughness: 0.25,
+    metalness: 0.72,
+    castShadow: false,
+  });
+
+  // Curved brass gooseneck faucet + twin handles mounted behind basin
+  const brassOpts = { roughness: 0.26, metalness: 0.68 };
+  ctx.cyl(0.024, 0.028, 0.022, 8, BRASS, 0, baseY + 0.799, -0.23, brassOpts);
+  ctx.cyl(0.013, 0.015, 0.17, 7, BRASS, 0, baseY + 0.895, -0.23, brassOpts);
+  ctx.torus(0.062, 0.013, 6, 10, BRASS, 0, baseY + 0.98, -0.168, {
+    rotY: Math.PI / 2,
+    ...brassOpts,
+  });
+  ctx.cyl(0.013, 0.011, 0.036, 7, BRASS, 0, baseY + 0.962, -0.106, brassOpts);
+  for (const hx of [-0.09, 0.09]) {
+    ctx.cyl(0.014, 0.018, 0.042, 7, BRASS, hx, baseY + 0.809, -0.23, brassOpts);
+    ctx.box(0.052, 0.012, 0.014, BRASS, hx, baseY + 0.834, -0.23, brassOpts);
+  }
+
+  // Cute pastel ceramic soap pump on right corner of counter
+  ctx.cyl(0.038, 0.042, 0.095, 8, '#EAB7A4', 0.29, baseY + 0.836, -0.17, { roughness: 0.42 });
+  ctx.cyl(0.012, 0.016, 0.026, 6, BRASS, 0.29, baseY + 0.896, -0.17, brassOpts);
+  ctx.box(0.012, 0.010, 0.036, BRASS, 0.29, baseY + 0.912, -0.155, brassOpts);
+
+  // Active shimmering running water stream & basin splash ring when toggled on!
+  if (isActive) {
+    ctx.cyl(0.010, 0.015, 0.088, 7, '#7AD2F0', 0, baseY + 0.916, -0.106, {
+      opacity: 0.78,
+      emissive: '#7AD2F0',
+      emissiveIntensity: 0.35,
+      roughness: 0.12,
+      castShadow: false,
+    });
+    ctx.torus(0.058, 0.009, 6, 12, '#BCECFB', 0, baseY + 0.888, -0.10, {
+      rotX: Math.PI / 2,
+      opacity: 0.82,
+      emissive: '#9BE0F8',
+      emissiveIntensity: 0.3,
+      castShadow: false,
+    });
+  }
+}
+
+function buildBathtubClawfoot(ctx: ModelContext): void {
+  const { primary, accent, shade, isActive } = ctx;
+  const baseY = FLOOR_BASE_Y;
+  const enamelOpts = { roughness: 0.30, metalness: 0.04 };
+  const brassOpts = { roughness: 0.26, metalness: 0.68 };
+
+  // 4 golden ball-and-claw feet resting cleanly on FLOOR_BASE_Y
+  for (const fx of [-0.56, 0.56]) {
+    for (const fz of [-0.24, 0.24]) {
+      ctx.sphere(0.036, 7, accent, fx, baseY + 0.036, fz, brassOpts);
+      ctx.cyl(0.026, 0.032, 0.10, 7, shade(accent, -0.08), fx, baseY + 0.095, fz, {
+        rotZ: fx > 0 ? 0.18 : -0.18,
+        rotX: fz > 0 ? -0.18 : 0.18,
+        ...brassOpts,
+      });
+    }
+  }
+
+  // Sculpted stadium soaking tub hull (cylinders slightly inset vertically by 0.008 to avoid coplanar caps!)
+  ctx.box(1.04, 0.44, 0.64, primary, -0.04, baseY + 0.35, 0, enamelOpts);
+  ctx.cyl(0.34, 0.29, 0.428, 12, primary, -0.56, baseY + 0.348, 0, enamelOpts);
+  ctx.cyl(0.34, 0.29, 0.428, 12, primary, 0.48, baseY + 0.348, 0, enamelOpts);
+
+  // Thick rolled rim wrapping the entire top edge of the soaking tub
+  for (const rz of [-0.32, 0.32]) {
+    ctx.cyl(0.042, 0.042, 1.04, 8, shade(primary, 0.05), -0.04, baseY + 0.585, rz, {
+      rotZ: Math.PI / 2,
+      ...enamelOpts,
+    });
+  }
+  ctx.torus(0.32, 0.044, 7, 14, shade(primary, 0.05), -0.56, baseY + 0.585, 0, {
+    rotX: Math.PI / 2,
+    ...enamelOpts,
+  });
+  ctx.torus(0.32, 0.044, 7, 14, shade(primary, 0.05), 0.48, baseY + 0.585, 0, {
+    rotX: Math.PI / 2,
+    ...enamelOpts,
+  });
+
+  // Warm soaking water surface recessed inside tub rim
+  ctx.box(0.98, 0.030, 0.54, '#B5E2F0', -0.04, baseY + 0.525, 0, {
+    roughness: 0.14,
+    castShadow: false,
+  });
+  ctx.cyl(0.265, 0.265, 0.024, 12, '#B5E2F0', -0.53, baseY + 0.522, 0, {
+    roughness: 0.14,
+    castShadow: false,
+  });
+  ctx.cyl(0.265, 0.265, 0.024, 12, '#B5E2F0', 0.45, baseY + 0.522, 0, {
+    roughness: 0.14,
+    castShadow: false,
+  });
+
+  // Vintage brass floor-mounted standpipe filler faucet at right end (+X = 0.87)
+  ctx.cyl(0.048, 0.058, 0.036, 8, accent, 0.87, baseY + 0.018, 0, brassOpts);
+  ctx.cyl(0.018, 0.022, 0.74, 8, accent, 0.87, baseY + 0.40, 0, brassOpts);
+  ctx.torus(0.068, 0.016, 6, 10, accent, 0.802, baseY + 0.76, 0, brassOpts);
+  ctx.cyl(0.016, 0.013, 0.04, 7, accent, 0.734, baseY + 0.74, 0, brassOpts);
+  for (const hz of [-0.075, 0.075]) {
+    ctx.cyl(0.014, 0.014, 0.055, 6, accent, 0.87, baseY + 0.67, hz, {
+      rotX: Math.PI / 2,
+      ...brassOpts,
+    });
+  }
+
+  // Adorable tiny yellow rubber ducky perched cleanly on the front-left rolled rim!
+  const dx = -0.36;
+  const dy = baseY + 0.635;
+  const dz = 0.32;
+  ctx.sphere(0.046, 8, '#F6D45E', dx, dy, dz, { scaleX: 1.25, scaleY: 0.86, scaleZ: 0.94, roughness: 0.4 });
+  ctx.sphere(0.034, 8, '#F8DB6E', dx + 0.038, dy + 0.044, dz, { roughness: 0.38 });
+  ctx.cone(0.015, 0.032, 6, '#EE8A4B', dx + 0.072, dy + 0.042, dz, {
+    rotZ: -Math.PI / 2,
+    roughness: 0.45,
+  });
+  for (const ez of [-0.016, 0.016]) {
+    ctx.sphere(0.006, 5, '#2E2A26', dx + 0.058, dy + 0.054, dz + ez, { roughness: 0.3 });
+  }
+
+  // Fluffy pastel-white bubble foam mounds across the water when isActive!
+  if (isActive) {
+    const bubbles: Array<[number, number, number, number]> = [
+      [-0.56, 0.56, -0.05, 0.14],
+      [-0.36, 0.57, 0.08, 0.15],
+      [-0.14, 0.56, -0.08, 0.16],
+      [0.08, 0.58, 0.06, 0.15],
+      [0.32, 0.57, -0.06, 0.14],
+      [0.48, 0.56, 0.07, 0.13],
+      [-0.24, 0.62, -0.02, 0.11],
+      [0.20, 0.63, 0.02, 0.11],
+    ];
+    for (let i = 0; i < bubbles.length; i++) {
+      const [bx, by, bz, br] = bubbles[i];
+      ctx.sphere(br, 8, i % 2 === 0 ? '#FFFDF9' : '#EEF8FC', bx, baseY + by, bz, {
+        scaleX: 1.15,
+        scaleY: 0.68,
+        scaleZ: 1.10,
+        roughness: 0.24,
+        castShadow: false,
+      });
+    }
+  }
+}
+
+function buildShowerGlass(ctx: ModelContext): void {
+  const { primary, accent, shade, isActive } = ctx;
+  const baseY = FLOOR_BASE_Y;
+  const frameOpts = { roughness: 0.34, metalness: 0.58 };
+  const glassOpts = { opacity: 0.34, roughness: 0.10, metalness: 0.10, castShadow: false };
+
+  // Raised tiled shower pan grounded on FLOOR_BASE_Y: y = [0.024 .. 0.104]
+  ctx.box(0.88, 0.08, 0.88, '#F3ECE1', 0, baseY + 0.04, 0, { roughness: 0.65 });
+  // Recessed mosaic shower floor tile inlay strictly ON TOP: y = [0.104 .. 0.114]
+  ctx.box(0.76, 0.010, 0.76, '#D8E7E4', 0, baseY + 0.085, 0, { roughness: 0.42, castShadow: false });
+  // Center circular chrome drain strictly ON TOP: y = [0.114 .. 0.120]
+  ctx.cyl(0.046, 0.046, 0.006, 10, '#9DA6B0', 0, baseY + 0.093, 0, {
+    roughness: 0.28,
+    metalness: 0.65,
+    castShadow: false,
+  });
+
+  // Solid rear tiled wet-wall panel (-Z) strictly BETWEEN rear posts (x = [-0.40..+0.40], zero overlap!)
+  const wallH = 2.12;
+  const wallCy = baseY + 0.08 + wallH / 2;
+  ctx.box(0.80, wallH - 0.012, 0.040, '#FAF5EC', 0, wallCy, -0.416, { roughness: 0.55 });
+  for (const ty of [0.58, 1.12, 1.66]) {
+    ctx.box(0.78, 0.018, 0.010, '#DCE5DF', 0, baseY + ty, -0.391, { roughness: 0.5 });
+  }
+  // Built-in corner bath caddy shelf with two cute pastel shampoo bottles
+  ctx.box(0.28, 0.022, 0.11, accent, -0.22, baseY + 1.16, -0.338, frameOpts);
+  ctx.cyl(0.028, 0.030, 0.12, 8, '#E8B5A2', -0.28, baseY + 1.231, -0.335, { roughness: 0.45 });
+  ctx.cyl(0.024, 0.026, 0.10, 8, '#AED4C2', -0.18, baseY + 1.221, -0.335, { roughness: 0.45 });
+
+  // 4 sleek vertical metal enclosure corner posts: y = [0.104 .. 2.224]
+  for (const sx of [-0.42, 0.42]) {
+    for (const sz of [-0.42, 0.42]) {
+      ctx.box(0.036, wallH, 0.036, accent, sx, wallCy, sz, frameOpts);
+    }
+  }
+  // Top perimeter metal frame rails strictly between corner posts
+  const topY = baseY + 0.08 + wallH - 0.018;
+  ctx.box(0.800, 0.034, 0.034, accent, 0, topY, 0.42, frameOpts);
+  ctx.box(0.034, 0.034, 0.800, accent, -0.42, topY, 0, frameOpts);
+  ctx.box(0.034, 0.034, 0.800, accent, 0.42, topY, 0, frameOpts);
+
+  // Translucent glass enclosure walls strictly inside posts & top rails (zero coplanar seams!)
+  const glassH = wallH - 0.056;
+  const glassCy = baseY + 0.088 + glassH / 2;
+  ctx.box(0.018, glassH, 0.796, primary, -0.42, glassCy, 0, glassOpts);
+  ctx.box(0.018, glassH, 0.796, primary, 0.42, glassCy, 0, glassOpts);
+  // Front fixed/door glass panel covering left 60% for airy walk-in look + vertical handle
+  ctx.box(0.48, glassH, 0.018, primary, -0.16, glassCy, 0.42, glassOpts);
+  ctx.cyl(0.012, 0.012, 0.26, 6, accent, 0.03, baseY + 1.08, 0.448, frameOpts);
+  for (const dy of [-0.10, 0.10]) {
+    ctx.box(0.014, 0.014, 0.034, accent, 0.03, baseY + 1.08 + dy, 0.431, frameOpts);
+  }
+
+  // Brass/metal shower riser pipe, mixer control valve & overhead rainfall showerhead
+  ctx.cyl(0.042, 0.046, 0.024, 10, accent, 0, baseY + 1.06, -0.38, {
+    rotX: Math.PI / 2,
+    ...frameOpts,
+  });
+  ctx.box(0.018, 0.075, 0.022, shade(accent, -0.1), 0, baseY + 1.06, -0.358, frameOpts);
+  ctx.cyl(0.014, 0.014, 1.04, 7, accent, 0, baseY + 1.58, -0.365, frameOpts);
+  ctx.cyl(0.014, 0.014, 0.34, 7, accent, 0, baseY + 2.09, -0.20, {
+    rotX: Math.PI / 2,
+    ...frameOpts,
+  });
+  ctx.cyl(0.11, 0.125, 0.026, 12, accent, 0, baseY + 2.065, -0.04, frameOpts);
+
+  // Active shimmering water stream lines cascading down when shower is ON!
+  if (isActive) {
+    const drops: Array<[number, number]> = [
+      [-0.06, -0.08],
+      [0.06, -0.08],
+      [-0.07, 0.01],
+      [0.0, -0.03],
+      [0.07, 0.01],
+      [0.0, 0.04],
+    ];
+    for (const [wx, wz] of drops) {
+      ctx.cyl(0.008, 0.010, 1.90, 5, '#80D6F5', wx, baseY + 1.09, wz, {
+        opacity: 0.56,
+        emissive: '#80D6F5',
+        emissiveIntensity: 0.4,
+        roughness: 0.12,
+        castShadow: false,
+      });
+    }
+    ctx.torus(0.16, 0.012, 6, 12, '#B6ECFC', 0, baseY + 0.105, -0.02, {
+      rotX: Math.PI / 2,
+      opacity: 0.7,
+      emissive: '#9BE2FA',
+      emissiveIntensity: 0.3,
+      castShadow: false,
+    });
+  }
+}
+
+function buildTowelRack(ctx: ModelContext): void {
+  const { primary, accent, shade } = ctx;
+  // Wall-mounted item: back flush at z = 0, facing +Z into the room, centered around y = 0!
+  const brassOpts = { roughness: 0.28, metalness: 0.68 };
+
+  // Upper bar (y = +0.13, z = +0.115) & lower bar (y = -0.07, z = +0.075) — staggered depths!
+  const bars: Array<{ y: number; z: number }> = [
+    { y: 0.13, z: 0.115 },
+    { y: -0.07, z: 0.075 },
+  ];
+  for (const bar of bars) {
+    for (const sx of [-0.30, 0.30]) {
+      // Flush wall rosette anchored right at z = [0 .. 0.018]
+      ctx.cyl(0.026, 0.030, 0.018, 8, BRASS, sx, bar.y, 0.009, {
+        rotX: Math.PI / 2,
+        ...brassOpts,
+      });
+      // Horizontal standoff arm spanning z = [0.018 .. bar.z]
+      const armLen = bar.z - 0.018;
+      ctx.cyl(0.010, 0.011, armLen, 6, BRASS, sx, bar.y, 0.018 + armLen / 2, {
+        rotX: Math.PI / 2,
+        ...brassOpts,
+      });
+    }
+    // Horizontal brass towel rail
+    ctx.cyl(0.011, 0.011, 0.64, 8, BRASS, 0, bar.y, bar.z, {
+      rotZ: Math.PI / 2,
+      ...brassOpts,
+    });
+  }
+
+  // Draped folded bath towel hanging softly over upper bar (left-shifted)
+  const tx1 = -0.08;
+  ctx.cyl(0.022, 0.022, 0.34, 8, primary, tx1, 0.13, 0.115, {
+    rotZ: Math.PI / 2,
+    roughness: 0.94,
+  });
+  ctx.box(0.34, 0.31, 0.016, primary, tx1, -0.025, 0.131, { roughness: 0.95 });
+  ctx.box(0.33, 0.26, 0.014, shade(primary, -0.08), tx1, 0.0, 0.098, { roughness: 0.95 });
+  // Subtle woven hem stripe strictly in front of front cloth (+0.139 .. +0.145)
+  ctx.box(0.34, 0.028, 0.006, shade(primary, -0.18), tx1, -0.135, 0.142, { roughness: 0.94 });
+
+  // Smaller folded hand towel draped over lower bar (right-shifted, staggered depth)
+  const tx2 = 0.14;
+  ctx.cyl(0.020, 0.020, 0.22, 8, accent, tx2, -0.07, 0.075, {
+    rotZ: Math.PI / 2,
+    roughness: 0.94,
+  });
+  ctx.box(0.22, 0.22, 0.014, accent, tx2, -0.18, 0.090, { roughness: 0.95 });
+  ctx.box(0.21, 0.18, 0.012, shade(accent, -0.08), tx2, -0.16, 0.060, { roughness: 0.95 });
+  ctx.box(0.22, 0.022, 0.006, shade(accent, -0.16), tx2, -0.255, 0.100, { roughness: 0.94 });
+}
+
+function buildBathMat(ctx: ModelContext): void {
+  const { primary, accent, shade } = ctx;
+  // Strictly y >= 0.032 (+0.008 above floor tiles!), zero coplanar overlap!
+  const matY = 0.032;
+
+  // Plush tufted bath mat core: y = [0.032 .. 0.048]
+  ctx.box(0.70, 0.016, 0.48, primary, 0, matY + 0.008, 0, {
+    roughness: 0.96,
+    castShadow: false,
+  });
+  // Soft scalloped cloud-puff trim along long & short edges (bottom at 0.033 >= 0.032!)
+  for (const sz of [-0.235, 0.235]) {
+    for (const sx of [-0.24, -0.08, 0.08, 0.24]) {
+      ctx.sphere(0.078, 8, shade(primary, 0.04), sx, matY + 0.011, sz, {
+        scaleX: 1.0,
+        scaleY: 0.12,
+        scaleZ: 0.85,
+        roughness: 0.96,
+        castShadow: false,
+      });
+    }
+  }
+  for (const sx of [-0.345, 0.345]) {
+    for (const sz of [-0.11, 0.11]) {
+      ctx.sphere(0.078, 8, shade(primary, 0.04), sx, matY + 0.011, sz, {
+        scaleX: 0.85,
+        scaleY: 0.12,
+        scaleZ: 1.0,
+        roughness: 0.96,
+        castShadow: false,
+      });
+    }
+  }
+  // Raised plush ribbed stripe texture strictly ON TOP of mat core: y = [0.048 .. 0.054]
+  for (const rz of [-0.14, 0, 0.14]) {
+    ctx.box(0.58, 0.006, 0.064, accent, 0, matY + 0.019, rz, {
+      roughness: 0.96,
+      castShadow: false,
+    });
+  }
+}
+
+// ============================================================================
 // DISPATCHER
 // ============================================================================
 
@@ -1262,6 +1714,26 @@ export const buildLivingModel: TabModelBuilder = (ctx: ModelContext): boolean =>
       return true;
     case 'rug_woven':
       buildRugWoven(ctx);
+      return true;
+
+    // Bathroom (6)
+    case 'toilet_cozy':
+      buildToiletCozy(ctx);
+      return true;
+    case 'bathroom_sink':
+      buildBathroomSink(ctx);
+      return true;
+    case 'bathtub_clawfoot':
+      buildBathtubClawfoot(ctx);
+      return true;
+    case 'shower_glass':
+      buildShowerGlass(ctx);
+      return true;
+    case 'towel_rack':
+      buildTowelRack(ctx);
+      return true;
+    case 'bath_mat':
+      buildBathMat(ctx);
       return true;
 
     default:

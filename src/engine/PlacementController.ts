@@ -82,6 +82,7 @@ export class PlacementController {
   private marqueeEl: HTMLDivElement | null = null;
   private marqueeBaseSelection: string[] = [];
   private erasedAnyInBatch = false;
+  private dragBatchOpen = false;
 
   // Active touch points for pinch-to-zoom on touchpads/screens
   private activePointers = new Map<number, { x: number; y: number }>();
@@ -117,6 +118,7 @@ export class PlacementController {
     this.store.on(
       'modeChanged',
       ({ mode, placementItemId, placementVariantId, placementRotation }) => {
+        this.closeDragBatch();
         this.cancelPendingHover();
         this.hideMarquee();
         this.sceneManager.setHoverOutlineUid(null);
@@ -186,6 +188,7 @@ export class PlacementController {
 
     this.store.on('editModeChanged', ({ editMode }) => {
       if (!editMode) {
+        this.closeDragBatch();
         this.cancelPendingHover();
         this.clearGhost();
         this.hideMarquee();
@@ -254,13 +257,36 @@ export class PlacementController {
   private bindEvents(): void {
     this.canvas.addEventListener('pointerdown', this.handlePointerDown);
     this.canvas.addEventListener('pointerleave', this.handleCanvasLeave);
+    this.canvas.addEventListener('lostpointercapture', this.handlePointerCancel);
     window.addEventListener('pointermove', this.handlePointerMove);
     window.addEventListener('pointerup', this.handlePointerUp);
-    window.addEventListener('pointercancel', this.handlePointerUp);
+    window.addEventListener('pointercancel', this.handlePointerCancel);
     this.canvas.addEventListener('wheel', this.handleWheel, { passive: false });
     window.addEventListener('wheel', this.handleWindowWheel, { passive: false });
     this.canvas.addEventListener('contextmenu', this.handleContextMenu);
     window.addEventListener('keydown', this.handleKeyDown);
+  }
+
+  private beginDragBatch(): void {
+    if (this.dragBatchOpen) return;
+    this.dragBatchOpen = true;
+    this.store.beginBatch();
+  }
+
+  private closeDragBatch(reason?: string): void {
+    if (!this.dragBatchOpen) return;
+    this.dragBatchOpen = false;
+    this.store.endBatch(reason);
+  }
+
+  private resolveActiveDragBatchReason(): string | undefined {
+    if (this.dragKind === 'paint') {
+      return this.paintedKeys.size > 0 ? 'place' : undefined;
+    }
+    if (this.dragKind === 'erase') {
+      return this.erasedAnyInBatch ? 'delete' : undefined;
+    }
+    return undefined;
   }
 
   private cancelPendingHover(): void {
@@ -1220,9 +1246,16 @@ export class PlacementController {
     this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (this.activePointers.size === 2) {
+      if (this.dragBatchOpen) {
+        this.closeDragBatch(this.resolveActiveDragBatchReason());
+      }
+      this.paintedKeys.clear();
+      this.erasedAnyInBatch = false;
+      this.hideMarquee();
       const pts = [...this.activePointers.values()];
       this.lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
       this.dragKind = 'none';
+      this.isPointerDown = false;
       return;
     }
 
@@ -1271,7 +1304,7 @@ export class PlacementController {
       this.pointerDownItemUid = null;
       this.dragKind = 'erase';
       this.erasedAnyInBatch = false;
-      this.store.beginBatch();
+      this.beginDragBatch();
       this.sceneManager.setEraseHoverUid(null);
       const hitUid = this.raycastEraseUid(modeState.eraseFilter);
       if (hitUid) {
@@ -1287,7 +1320,7 @@ export class PlacementController {
         this.pointerDownItemUid = null;
         this.dragKind = 'paint';
         this.paintedKeys.clear();
-        this.store.beginBatch();
+        this.beginDragBatch();
         const target = this.resolvePlacementTarget(def, modeState.placementRotation);
         this.currentTarget = target;
         if (target) {
@@ -1482,17 +1515,42 @@ export class PlacementController {
     }
   }
 
+  private handlePointerCancel = (e: PointerEvent): void => {
+    this.activePointers.delete(e.pointerId);
+    if (this.activePointers.size < 2) {
+      this.lastPinchDist = 0;
+    }
+    if (this.dragBatchOpen) {
+      this.closeDragBatch(this.resolveActiveDragBatchReason());
+    }
+    this.paintedKeys.clear();
+    this.erasedAnyInBatch = false;
+    this.isPointerDown = false;
+    this.didDrag = false;
+    this.dragKind = 'none';
+    this.pointerDownItemUid = null;
+    this.hideMarquee();
+  };
+
   private handlePointerUp = (e: PointerEvent): void => {
     this.activePointers.delete(e.pointerId);
     if (this.activePointers.size < 2) {
       this.lastPinchDist = 0;
     }
 
-    if (!this.isPointerDown) return;
+    if (!this.isPointerDown) {
+      if (this.dragBatchOpen) {
+        this.closeDragBatch(this.resolveActiveDragBatchReason());
+      }
+      return;
+    }
     this.isPointerDown = false;
 
     // Live Mode: click interacts ONLY with interactive items; never selects or bounces static furniture
     if (!this.store.isEditMode()) {
+      if (this.dragBatchOpen) {
+        this.closeDragBatch();
+      }
       const wasDrag = this.didDrag;
       const clickedUid = this.pointerDownItemUid;
       this.dragKind = 'none';
@@ -1511,7 +1569,7 @@ export class PlacementController {
 
     if (this.dragKind === 'paint') {
       const hadPaints = this.paintedKeys.size > 0;
-      this.store.endBatch(hadPaints ? 'place' : undefined);
+      this.closeDragBatch(hadPaints ? 'place' : undefined);
       if (!this.didDrag && !hadPaints && this.currentTarget?.reason) {
         this.store.notify(this.currentTarget.reason, 'error');
       }
@@ -1521,7 +1579,7 @@ export class PlacementController {
     }
 
     if (this.dragKind === 'erase') {
-      this.store.endBatch(this.erasedAnyInBatch ? 'delete' : undefined);
+      this.closeDragBatch(this.erasedAnyInBatch ? 'delete' : undefined);
       this.erasedAnyInBatch = false;
       this.dragKind = 'none';
       return;
@@ -1726,14 +1784,16 @@ export class PlacementController {
   };
 
   dispose(): void {
+    this.closeDragBatch();
     this.unsubTickHook?.();
     this.unsubTickHook = null;
     this.cancelPendingHover();
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.canvas.removeEventListener('pointerleave', this.handleCanvasLeave);
+    this.canvas.removeEventListener('lostpointercapture', this.handlePointerCancel);
     window.removeEventListener('pointermove', this.handlePointerMove);
     window.removeEventListener('pointerup', this.handlePointerUp);
-    window.removeEventListener('pointercancel', this.handlePointerUp);
+    window.removeEventListener('pointercancel', this.handlePointerCancel);
     this.canvas.removeEventListener('wheel', this.handleWheel);
     window.removeEventListener('wheel', this.handleWindowWheel);
     this.canvas.removeEventListener('contextmenu', this.handleContextMenu);

@@ -1,6 +1,7 @@
 import {
   timeHourToBucket,
   type GameDataBundle,
+  type HiredStaff,
   type HouseState,
   type PlacedItem,
   type RotationQuarter,
@@ -10,7 +11,11 @@ import {
   DEFAULT_GRID_DEPTH,
   DEFAULT_GRID_WIDTH,
   createStarterHouse,
+  makePresetStaff,
+  rotateHouseState,
 } from './defaultHouse';
+
+export { makePresetStaff, rotateHouseState };
 
 export interface HousePresetDef {
   id: string;
@@ -40,7 +45,7 @@ export const HOUSE_PRESETS: HousePresetDef[] = [
   },
   {
     id: 'cat_lounge',
-    name: 'Cat Lounge',
+    name: 'Cat Café',
     icon: 'room_cats',
     sceneryViewId: 'forest',
     weatherId: 'clear',
@@ -114,7 +119,7 @@ interface PresetRoomBuilder {
     variantId?: string,
     active?: boolean,
   ): string;
-  buildState(preset: HousePresetDef): HouseState;
+  buildState(preset: HousePresetDef, staff?: HiredStaff[]): HouseState;
 }
 
 function createRoomBuilder(
@@ -290,7 +295,7 @@ function createRoomBuilder(
         active,
       });
     },
-    buildState(preset) {
+    buildState(preset, staff) {
       const sceneryViewId = data.viewsById.has(preset.sceneryViewId)
         ? preset.sceneryViewId
         : data.scenery.defaultViewId;
@@ -306,6 +311,7 @@ function createRoomBuilder(
         timeHour: preset.timeHour,
         roomTypeOverride: null,
         items,
+        ...(staff && staff.length > 0 ? { staff } : {}),
       };
     },
   };
@@ -317,6 +323,9 @@ function buildClubPreset(preset: HousePresetDef, data: GameDataBundle): HouseSta
     data,
     { minX: 4, maxX: 11, minZ: 4, maxZ: 11 },
     (x, z) => {
+      if (x <= 5 && z >= 10) {
+        return { itemId: 'floor_tile', variantId: 'sky' };
+      }
       if (x >= 6 && x <= 9 && z >= 6 && z <= 9) {
         const variantId = (x + z) % 2 === 0 ? 'lilac' : 'mint';
         return { itemId: 'dance_floor_tile', variantId, active: true };
@@ -331,7 +340,7 @@ function buildClubPreset(preset: HousePresetDef, data: GameDataBundle): HouseSta
       south: (x) =>
         x === 7 || x === 8
           ? { itemId: 'door_cafe_glass', variantId: 'latte' }
-          : x === 5 || x === 10
+          : x === 10
             ? { itemId: 'window_wide', variantId: 'charcoal' }
             : { itemId: 'wall_plain', variantId: 'slate' },
       west: (z) =>
@@ -349,7 +358,7 @@ function buildClubPreset(preset: HousePresetDef, data: GameDataBundle): HouseSta
   b.place('floor_uplight', 4, 4, 0, 'violet', true);
   b.place('subwoofer_box', 5, 4, 0, 'charcoal', true);
   b.place('speaker_tower', 6, 4, 0, 'slate', true);
-  b.place('dj_booth', 7, 4, 0, 'lilac', true);
+  const djBoothUid = b.place('dj_booth', 7, 4, 0, 'lilac', true);
   b.place('speaker_tower', 9, 4, 0, 'slate', true);
   b.place('vinyl_crate', 10, 4, 0, 'oak');
   b.place('floor_uplight', 11, 4, 0, 'cyan', true);
@@ -366,6 +375,16 @@ function buildClubPreset(preset: HousePresetDef, data: GameDataBundle): HouseSta
   b.place('sofa_plush', 11, 7, 1, 'dusty_blue');
   b.place('fog_machine', 11, 10, 1, 'lavender', true);
 
+  // Partitioned 2x2 Neon Club restroom in SW corner (tiles 4..5, 10..11)
+  b.place('wall_plain', 4, 10, 0, 'slate');
+  b.place('door_wood', 5, 10, 0, 'honey');
+  b.place('wall_plain', 5, 10, 1, 'slate');
+  const clubBathEastWall = b.place('wall_plain', 5, 11, 1, 'slate');
+  b.place('toilet_cozy', 4, 11, 3, 'mint');
+  b.place('bathroom_sink', 4, 10, 3, 'sky');
+  b.place('bath_mat', 5, 11, 0, 'blush');
+  b.mountWall(clubBathEastWall, 'towel_rack', 'sky_blush');
+
   // Wall neon & LED bars
   b.mountWall(b.northWalls.get(7), 'neon_sign', 'pink', true);
   b.mountWall(b.northWalls.get(8), 'led_strip_wall', 'lilac', true);
@@ -379,7 +398,10 @@ function buildClubPreset(preset: HousePresetDef, data: GameDataBundle): HouseSta
   b.placeCeiling('party_spotlight', 6, 8, 0, 'aqua', true);
   b.placeCeiling('party_spotlight', 9, 8, 0, 'magenta', true);
 
-  return b.buildState(preset);
+  return b.buildState(preset, [
+    makePresetStaff('staff_club_dj', 'dj', djBoothUid, 0),
+    makePresetStaff('staff_club_bartender', 'bartender', barUid, 0),
+  ]);
 }
 
 function buildCatLoungePreset(preset: HousePresetDef, data: GameDataBundle): HouseState {
@@ -387,7 +409,10 @@ function buildCatLoungePreset(preset: HousePresetDef, data: GameDataBundle): Hou
     'cats',
     data,
     { minX: 4, maxX: 11, minZ: 4, maxZ: 11 },
-    () => ({ itemId: 'floor_herringbone', variantId: 'honey' }),
+    (x, z) =>
+      x >= 10 && z >= 10
+        ? { itemId: 'floor_tile', variantId: 'sage' }
+        : { itemId: 'floor_herringbone', variantId: 'honey' },
     {
       north: (x) =>
         x === 6 || x === 9
@@ -396,7 +421,7 @@ function buildCatLoungePreset(preset: HousePresetDef, data: GameDataBundle): Hou
       south: (x) =>
         x === 7 || x === 8
           ? { itemId: 'door_arched', variantId: 'sage' }
-          : x === 5 || x === 10
+          : x === 5
             ? { itemId: 'window_wide', variantId: 'oak' }
             : { itemId: 'wall_wainscot', variantId: 'oat_sage' },
       west: (z) =>
@@ -428,8 +453,13 @@ function buildCatLoungePreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.placeSurface(sideUid, 'table_lamp', 8, 5, 0, 'amber', true);
   b.place('potted_monstera', 11, 5, 0, 'terracotta');
 
+  // Cozy Cat Café coffee bar along West wall (rotates cleanly to East wall facing the lounge)
+  const coffeeCounterUid = b.place('cafe_counter', 4, 6, 3, 'latte');
+  const espressoUid = b.placeSurface(coffeeCounterUid, 'espresso_machine', 4, 6, 3, 'mint', true);
+  b.placeSurface(coffeeCounterUid, 'cup_stack', 4, 7, 3, 'cream');
+
   // Play & nap zone
-  b.place('scratch_post', 4, 7, 0, 'cactus');
+  b.place('scratch_post', 4, 8, 0, 'cactus');
   b.place('cat_tunnel', 4, 9, 3, 'oat');
   b.place('pet_bed_round', 6, 9, 0, 'peach');
   b.place('pet_bed_round', 10, 9, 0, 'oat');
@@ -437,9 +467,19 @@ function buildCatLoungePreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.place('cat_ball_track', 9, 8, 0, 'mint');
   b.place('pet_bowls', 11, 8, 1, 'mint');
 
+  // Partitioned 2x2 Cat Café restroom in SE corner (tiles 10..11, 10..11)
+  b.place('wall_wainscot', 10, 10, 0, 'oat_sage');
+  const catBathNorthWall = b.place('wall_wainscot', 11, 10, 0, 'oat_sage');
+  b.place('door_arched', 10, 10, 3, 'sage');
+  b.place('wall_wainscot', 10, 11, 3, 'oat_sage');
+  b.place('toilet_cozy', 11, 11, 1, 'blush');
+  b.place('bathroom_sink', 11, 10, 1, 'sage');
+  b.place('bath_mat', 10, 11, 0, 'sage');
+  b.mountWall(catBathNorthWall, 'towel_rack', 'sage_oat');
+
   // Cats lounging across the room
   b.place('cat_calico', 7, 7, 0, 'calico');
-  b.place('cat_sleepy', 5, 7, 0, 'cream');
+  b.place('cat_sleepy', 6, 8, 0, 'cream');
   b.place('cat_kitten', 8, 8, 2, 'marmalade');
 
   // Wall shelves, hammock, vines & warm fairy lights
@@ -454,7 +494,9 @@ function buildCatLoungePreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.placeCeiling('hanging_fern', 9, 6, 0, 'meadow');
   b.placeCeiling('hanging_ivy', 5, 8, 0, 'sage');
 
-  return b.buildState(preset);
+  return b.buildState(preset, [
+    makePresetStaff('staff_catcafe_barista', 'barista', espressoUid, 1),
+  ]);
 }
 
 function buildFarmhousePreset(preset: HousePresetDef, data: GameDataBundle): HouseState {
@@ -462,10 +504,14 @@ function buildFarmhousePreset(preset: HousePresetDef, data: GameDataBundle): Hou
     'farm',
     data,
     { minX: 3, maxX: 12, minZ: 4, maxZ: 11 },
-    (x) =>
-      x <= 6
+    (x, z) => {
+      if (x <= 5 && z >= 10) {
+        return { itemId: 'floor_tile', variantId: 'cream' };
+      }
+      return x <= 6
         ? { itemId: 'floor_checkerboard', variantId: 'butter_cocoa' }
-        : { itemId: 'floor_wood', variantId: 'walnut' },
+        : { itemId: 'floor_wood', variantId: 'walnut' };
+    },
     {
       north: (x) =>
         x === 5 || x === 9 || x === 11
@@ -496,7 +542,7 @@ function buildFarmhousePreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.placeSurface(counterUid, 'electric_kettle', 4, 4, 0, 'copper');
   b.placeSurface(counterUid, 'toaster_pastel', 5, 4, 0, 'butter');
 
-  b.place('stove_oven', 6, 4, 0, 'cream', true);
+  const stoveUid = b.place('stove_oven', 6, 4, 0, 'cream', true);
   b.place('kitchen_sink', 3, 6, 3, 'cream');
   b.place('kitchen_counter_corner', 3, 7, 3, 'butter');
   b.place('pantry_shelf', 3, 9, 3, 'oak');
@@ -504,6 +550,18 @@ function buildFarmhousePreset(preset: HousePresetDef, data: GameDataBundle): Hou
   const islandUid = b.place('kitchen_island', 5, 7, 0, 'cream_oak');
   b.placeSurface(islandUid, 'cake_stand', 5, 7, 0, 'strawberry');
   b.placeSurface(islandUid, 'cup_stack', 6, 7, 0, 'cream');
+
+  // Partitioned 3x2 Farmhouse spa bathroom with clawfoot soaking tub in SW corner (tiles 3..5, 10..11)
+  b.place('wall_wainscot', 3, 10, 0, 'cream_oak');
+  const farmBathNorthWall = b.place('wall_wainscot', 4, 10, 0, 'cream_oak');
+  b.place('door_wood', 5, 10, 0, 'honey');
+  b.place('wall_wainscot', 5, 10, 1, 'cream_oak');
+  b.place('wall_wainscot', 5, 11, 1, 'cream_oak');
+  b.place('bathtub_clawfoot', 3, 11, 2, 'ivory');
+  b.place('toilet_cozy', 5, 11, 2, 'porcelain');
+  b.place('bathroom_sink', 3, 10, 3, 'oak');
+  b.place('bath_mat', 4, 10, 0, 'cream');
+  b.mountWall(farmBathNorthWall, 'towel_rack', 'peach_cream');
 
   // Farmhouse dining nook (NE)
   const diningUid = b.place('dining_table', 9, 5, 0, 'oak');
@@ -530,7 +588,7 @@ function buildFarmhousePreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.placeCeiling('lamp_pendant', 5, 7, 0, 'rice', true);
   b.placeCeiling('lamp_pendant', 9, 5, 0, 'rice', true);
 
-  return b.buildState(preset);
+  return b.buildState(preset, [makePresetStaff('staff_farm_chef', 'chef', stoveUid, 0)]);
 }
 
 function buildBeachLoftPreset(preset: HousePresetDef, data: GameDataBundle): HouseState {
@@ -538,10 +596,14 @@ function buildBeachLoftPreset(preset: HousePresetDef, data: GameDataBundle): Hou
     'beach',
     data,
     { minX: 4, maxX: 11, minZ: 4, maxZ: 11 },
-    (x, z) =>
-      x >= 7 && x <= 8 && z >= 10
+    (x, z) => {
+      if (x <= 5 && z >= 9) {
+        return { itemId: 'floor_tile', variantId: 'sky' };
+      }
+      return x >= 7 && x <= 8 && z >= 10
         ? { itemId: 'floor_terrazzo', variantId: 'ivory' }
-        : { itemId: 'floor_wood', variantId: 'birch' },
+        : { itemId: 'floor_wood', variantId: 'birch' };
+    },
     {
       north: (x) =>
         x === 5 || x === 6 || x === 9 || x === 10
@@ -550,7 +612,7 @@ function buildBeachLoftPreset(preset: HousePresetDef, data: GameDataBundle): Hou
       south: (x) =>
         x === 7 || x === 8
           ? { itemId: 'door_cafe_glass', variantId: 'butter' }
-          : x === 5 || x === 10
+          : x === 10
             ? { itemId: 'window_wide', variantId: 'cream' }
             : { itemId: 'wall_plain', variantId: 'cream' },
       west: (z) =>
@@ -581,14 +643,31 @@ function buildBeachLoftPreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.placeSurface(deskUid, 'potted_cactus', 11, 6, 0, 'cream');
   b.place('chair_office', 10, 5, 3, 'sky');
 
-  const shelfUid = b.place('bookshelf_low', 4, 7, 3, 'birch');
-  b.placeSurface(shelfUid, 'flower_vase', 4, 7, 0, 'tulip');
-  b.placeSurface(shelfUid, 'glass_terrarium', 4, 8, 0, 'succulent');
+  b.place('mirror_arch', 4, 5, 3, 'oak');
+  const shelfUid = b.place('bookshelf_low', 4, 6, 3, 'birch');
+  b.placeSurface(shelfUid, 'flower_vase', 4, 6, 0, 'tulip');
+  b.placeSurface(shelfUid, 'glass_terrarium', 4, 7, 0, 'succulent');
 
-  b.place('armchair_plush', 10, 8, 2, 'sage');
-  b.place('mirror_arch', 11, 9, 1, 'oak');
+  b.place('armchair_plush', 9, 7, 2, 'sage');
+  b.place('potted_snake_plant', 10, 4, 0, 'cream');
   b.place('potted_monstera', 11, 4, 0, 'cream');
-  b.place('potted_snake_plant', 4, 10, 0, 'cream');
+
+  // Coastal espresso bar along SE wall (with Barista staff!)
+  const beachCounterUid = b.place('cafe_counter', 11, 9, 1, 'latte');
+  const beachEspressoUid = b.placeSurface(beachCounterUid, 'espresso_machine', 11, 9, 1, 'coral', true);
+  b.placeSurface(beachCounterUid, 'cup_stack', 11, 10, 1, 'peach');
+
+  // Partitioned 2x3 Beach Retreat ensuite bath with glass shower in SW corner (tiles 4..5, 9..11)
+  b.place('wall_plain', 4, 9, 0, 'cream');
+  b.place('door_arched', 5, 9, 0, 'blush');
+  b.place('wall_plain', 5, 9, 1, 'cream');
+  const beachBathEastWall = b.place('wall_plain', 5, 10, 1, 'cream');
+  b.place('wall_plain', 5, 11, 1, 'cream');
+  b.place('shower_glass', 4, 11, 3, 'brass');
+  b.place('toilet_cozy', 4, 10, 3, 'porcelain');
+  b.place('bathroom_sink', 4, 9, 3, 'sky');
+  b.place('bath_mat', 5, 11, 0, 'cream');
+  b.mountWall(beachBathEastWall, 'towel_rack', 'sky_blush');
 
   // Sunlit wall & ceiling decor
   b.mountWall(b.northWalls.get(7), 'tapestry_woven', 'sunset');
@@ -597,7 +676,9 @@ function buildBeachLoftPreset(preset: HousePresetDef, data: GameDataBundle): Hou
   b.placeCeiling('hanging_ivy', 5, 7, 0, 'sage');
   b.placeCeiling('lamp_pendant', 7, 7, 0, 'rice', true);
 
-  return b.buildState(preset);
+  return b.buildState(preset, [
+    makePresetStaff('staff_beach_barista', 'barista', beachEspressoUid, 0),
+  ]);
 }
 
 function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle): HouseState {
@@ -605,7 +686,10 @@ function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle):
     'cabin',
     data,
     { minX: 4, maxX: 11, minZ: 4, maxZ: 11 },
-    () => ({ itemId: 'floor_herringbone', variantId: 'espresso' }),
+    (x, z) =>
+      x >= 10 && z >= 9
+        ? { itemId: 'floor_tile', variantId: 'cream' }
+        : { itemId: 'floor_herringbone', variantId: 'espresso' },
     {
       north: (x) =>
         x === 6 || x === 9
@@ -614,7 +698,7 @@ function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle):
       south: (x) =>
         x === 7 || x === 8
           ? { itemId: 'door_wood', variantId: 'honey' }
-          : x === 5 || x === 10
+          : x === 5
             ? { itemId: 'window_wide', variantId: 'oak' }
             : { itemId: 'wall_wainscot', variantId: 'cream_oak' },
       west: (z) =>
@@ -622,7 +706,7 @@ function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle):
           ? { itemId: 'window_wide', variantId: 'oak' }
           : { itemId: 'wall_wainscot', variantId: 'cream_oak' },
       east: (z) =>
-        z === 6 || z === 9
+        z === 6
           ? { itemId: 'window_wide', variantId: 'oak' }
           : { itemId: 'wall_wainscot', variantId: 'cream_oak' },
     },
@@ -652,12 +736,24 @@ function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle):
   b.placeSurface(coffeeUid, 'scented_candle', 5, 9, 0, 'cedar', true);
   b.placeSurface(coffeeUid, 'plushie_bear', 6, 9, 0, 'honey');
 
-  // Hot-cocoa timber kitchen nook along East wall
-  const counterUid = b.place('kitchen_counter', 11, 5, 1, 'wood');
-  b.placeSurface(counterUid, 'electric_kettle', 11, 5, 1, 'copper', true);
+  // Alpine espresso & hot-cocoa bar + stove along East wall
+  const counterUid = b.place('cafe_counter', 11, 5, 1, 'espresso');
+  const cabinEspressoUid = b.placeSurface(counterUid, 'espresso_machine', 11, 5, 1, 'cream', true);
   b.placeSurface(counterUid, 'cup_stack', 11, 6, 1, 'cream');
   b.place('stove_oven', 11, 7, 1, 'sage', true);
   b.place('pantry_shelf', 11, 8, 1, 'oak');
+
+  // Partitioned 2x3 Mountain Cabin bath with glass shower in SE corner (tiles 10..11, 9..11)
+  const cabinBathNorthWall = b.place('wall_wainscot', 10, 9, 0, 'cream_oak');
+  b.place('wall_wainscot', 11, 9, 0, 'cream_oak');
+  b.place('door_wood', 10, 9, 3, 'honey');
+  b.place('wall_wainscot', 10, 10, 3, 'cream_oak');
+  b.place('wall_wainscot', 10, 11, 3, 'cream_oak');
+  b.place('shower_glass', 11, 11, 1, 'charcoal');
+  b.place('toilet_cozy', 11, 10, 1, 'porcelain');
+  b.place('bathroom_sink', 11, 9, 1, 'oak');
+  b.place('bath_mat', 10, 11, 0, 'sage');
+  b.mountWall(cabinBathNorthWall, 'towel_rack', 'peach_cream');
 
   // Warm cabin wall & ceiling lights
   b.mountWall(b.northWalls.get(5), 'fairy_lights', 'warm', true);
@@ -668,7 +764,9 @@ function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle):
   b.placeCeiling('string_lights', 6, 6, 0, 'warm', true);
   b.placeCeiling('lamp_pendant', 9, 7, 0, 'peach', true);
 
-  return b.buildState(preset);
+  return b.buildState(preset, [
+    makePresetStaff('staff_cabin_barista', 'barista', cabinEspressoUid, 1),
+  ]);
 }
 
 export function createPresetHouse(presetId: string, data: GameDataBundle): HouseState {
@@ -676,15 +774,15 @@ export function createPresetHouse(presetId: string, data: GameDataBundle): House
 
   switch (preset.id) {
     case 'club':
-      return buildClubPreset(preset, data);
+      return rotateHouseState(buildClubPreset(preset, data), data, 2);
     case 'cat_lounge':
-      return buildCatLoungePreset(preset, data);
+      return rotateHouseState(buildCatLoungePreset(preset, data), data, 2);
     case 'farmhouse':
-      return buildFarmhousePreset(preset, data);
+      return rotateHouseState(buildFarmhousePreset(preset, data), data, 2);
     case 'beach_loft':
-      return buildBeachLoftPreset(preset, data);
+      return rotateHouseState(buildBeachLoftPreset(preset, data), data, 2);
     case 'mountain_cabin':
-      return buildMountainCabinPreset(preset, data);
+      return rotateHouseState(buildMountainCabinPreset(preset, data), data, 2);
     case 'cafe':
     default: {
       const starter = createStarterHouse(data);

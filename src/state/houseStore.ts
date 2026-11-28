@@ -4,9 +4,12 @@ import {
   timeOfDayToDefaultHour,
   type FurnitureItemDef,
   type GameDataBundle,
+  type HiredStaff,
   type HouseState,
   type PlacedItem,
   type RotationQuarter,
+  type StaffKind,
+  type StaffRole,
   type TimeOfDay,
 } from '../data/schemas';
 import {
@@ -57,6 +60,7 @@ export interface StoreEventMap {
   houseOpenChanged: { open: boolean };
   timeCycleChanged: { running: boolean };
   simSpeedChanged: { speed: SimSpeed };
+  staffChanged: { staff: HiredStaff[] };
   itemInteracted: { item: PlacedItem };
   toast: { message: string; tone?: 'info' | 'success' | 'error' };
 }
@@ -66,6 +70,55 @@ type Listener<T> = (payload: T) => void;
 const MAX_HISTORY = 80;
 const MIN_GRID_SIZE = 8;
 const MAX_GRID_SIZE = 36;
+export const MAX_STAFF = 6;
+
+export const STAFF_ROLE_ACCENTS: Record<StaffRole, string> = {
+  barista: '#D98F72',
+  dj: '#9F90E0',
+  chef: '#8FC09E',
+  bartender: '#7DC4B8',
+};
+
+const STAFF_NAMES: Record<StaffRole, Record<StaffKind, readonly string[]>> = {
+  barista: {
+    bot: ['Brew-Bot', 'Latte-02', 'Crema-Bot', 'Foam-04', 'Roast-Bot', 'Mocha-06'],
+    human: ['Bean', 'Clara', 'Ollie', 'Mina', 'Jude', 'Hazel'],
+  },
+  dj: {
+    bot: ['DJ Synth-01', 'Pulse-Bot', 'Groove-02', 'Vinyl-Bot', 'Beat-04', 'Echo-Bot'],
+    human: ['Milo', 'Zara', 'Kai', 'Nova', 'Remy', 'Sora'],
+  },
+  chef: {
+    bot: ['Sous-Bot', 'Whisk-02', 'Simmer-Bot', 'Bento-04', 'Sizzle-Bot', 'Pan-06'],
+    human: ['Nora', 'Bram', 'Tessa', 'Leo', 'Iris', 'Pip'],
+  },
+  bartender: {
+    bot: ['Mix-Bot', 'Fizz-02', 'Shaker-Bot', 'Spritz-04', 'Tonic-Bot', 'Twist-06'],
+    human: ['Theo', 'June', 'Ezra', 'Cleo', 'Rowan', 'Wren'],
+  },
+};
+
+function pickStaffName(
+  role: StaffRole,
+  kind: StaffKind,
+  existingStaff: readonly HiredStaff[],
+  excludeId?: string,
+): string {
+  const used = new Set(
+    existingStaff.filter((s) => s.id !== excludeId).map((s) => s.name.toLowerCase()),
+  );
+  const pool = STAFF_NAMES[role][kind];
+  for (const candidate of pool) {
+    if (!used.has(candidate.toLowerCase())) {
+      return candidate;
+    }
+  }
+  let suffix = 2;
+  while (used.has(`${pool[0]} ${suffix}`.toLowerCase())) {
+    suffix += 1;
+  }
+  return `${pool[0]} ${suffix}`;
+}
 
 function cloneHouseState(state: HouseState): HouseState {
   const timeHour =
@@ -84,6 +137,7 @@ function cloneHouseState(state: HouseState): HouseState {
     timeHour,
     roomTypeOverride: state.roomTypeOverride,
     items: state.items.map((item) => ({ ...item })),
+    staff: state.staff ? state.staff.map((member) => ({ ...member })) : [],
   };
 }
 
@@ -91,6 +145,12 @@ let uidCounter = 1;
 export function generateItemUid(): string {
   uidCounter += 1;
   return `it_${Date.now().toString(36)}_${uidCounter.toString(36)}`;
+}
+
+let staffCounter = 1;
+export function generateStaffId(): string {
+  staffCounter += 1;
+  return `st_${Date.now().toString(36)}_${staffCounter.toString(36)}`;
 }
 
 export class HouseStore {
@@ -127,6 +187,7 @@ export class HouseStore {
     houseOpenChanged: new Set(),
     timeCycleChanged: new Set(),
     simSpeedChanged: new Set(),
+    staffChanged: new Set(),
     itemInteracted: new Set(),
     toast: new Set(),
   };
@@ -282,6 +343,179 @@ export class HouseStore {
     if (this.simSpeed === valid) return;
     this.simSpeed = valid;
     this.emit('simSpeedChanged', { speed: this.simSpeed });
+  }
+
+  getStaff(): HiredStaff[] {
+    return (this.state.staff ?? []).map((member) => ({ ...member }));
+  }
+
+  hireStaff(role: StaffRole, kind: StaffKind, assignedItemUid?: string): HiredStaff | null {
+    const current = this.state.staff ?? [];
+    if (current.length >= MAX_STAFF) {
+      this.notify(`Up to ${MAX_STAFF} staff can be on duty at once`, 'info');
+      return null;
+    }
+
+    const member: HiredStaff = {
+      id: generateStaffId(),
+      role,
+      kind,
+      name: pickStaffName(role, kind, current),
+      accentColor: STAFF_ROLE_ACCENTS[role],
+      ...(assignedItemUid ? { assignedItemUid } : {}),
+    };
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      staff: [...current, member],
+    };
+    this.emitMutation('staff');
+    this.emit('staffChanged', { staff: this.getStaff() });
+    return { ...member };
+  }
+
+  fireStaff(staffId: string): boolean {
+    const current = this.state.staff ?? [];
+    if (!current.some((s) => s.id === staffId)) return false;
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      staff: current.filter((s) => s.id !== staffId),
+    };
+    this.emitMutation('staff');
+    this.emit('staffChanged', { staff: this.getStaff() });
+    return true;
+  }
+
+  toggleStaffKind(staffId: string): HiredStaff | null {
+    const current = this.state.staff ?? [];
+    const target = current.find((s) => s.id === staffId);
+    if (!target) return null;
+
+    const nextKind: StaffKind = target.kind === 'bot' ? 'human' : 'bot';
+    const updated: HiredStaff = {
+      ...target,
+      kind: nextKind,
+      name: pickStaffName(target.role, nextKind, current, target.id),
+    };
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      staff: current.map((s) => (s.id === staffId ? updated : s)),
+    };
+    this.emitMutation('staff');
+    this.emit('staffChanged', { staff: this.getStaff() });
+    return { ...updated };
+  }
+
+  assignStaffStation(staffId: string, itemUid: string | undefined): void {
+    const current = this.state.staff ?? [];
+    const target = current.find((s) => s.id === staffId);
+    if (!target) return;
+    const normalizedUid = itemUid && itemUid.trim() ? itemUid.trim() : undefined;
+
+    let shouldClearHome = false;
+    if (target.homeX !== undefined && target.homeZ !== undefined) {
+      if (!normalizedUid) {
+        shouldClearHome = true;
+      } else {
+        const station = this.getItem(normalizedUid);
+        const stationDef = station ? this.data.itemsById.get(station.itemId) : undefined;
+        if (!station || !stationDef) {
+          shouldClearHome = true;
+        } else {
+          const eff = getEffectiveFootprint(stationDef, station.rotation);
+          const cx = Math.max(station.x, Math.min(target.homeX, station.x + eff.w - 1));
+          const cz = Math.max(station.z, Math.min(target.homeZ, station.z + eff.d - 1));
+          const dist = Math.hypot(target.homeX - cx, target.homeZ - cz);
+          if (dist > 2.5) {
+            shouldClearHome = true;
+          }
+        }
+      }
+    }
+
+    if (target.assignedItemUid === normalizedUid && !shouldClearHome) return;
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      staff: current.map((s) => {
+        if (s.id !== staffId) return s;
+        const copy: HiredStaff = { ...s };
+        if (normalizedUid) {
+          copy.assignedItemUid = normalizedUid;
+        } else {
+          delete copy.assignedItemUid;
+        }
+        if (shouldClearHome) {
+          delete copy.homeX;
+          delete copy.homeZ;
+        }
+        return copy;
+      }),
+    };
+    this.emitMutation('staff');
+    this.emit('staffChanged', { staff: this.getStaff() });
+  }
+
+  setStaffPosition(staffId: string, x: number, z: number, assignedItemUid?: string): boolean {
+    const current = this.state.staff ?? [];
+    const target = current.find((s) => s.id === staffId);
+    if (!target) return false;
+
+    if (
+      typeof x !== 'number' ||
+      typeof z !== 'number' ||
+      !Number.isInteger(x) ||
+      !Number.isInteger(z) ||
+      x < 0 ||
+      x >= this.state.gridWidth ||
+      z < 0 ||
+      z >= this.state.gridDepth
+    ) {
+      return false;
+    }
+
+    const hasAssignedArg = assignedItemUid !== undefined;
+    const nextAssigned = hasAssignedArg
+      ? assignedItemUid.trim() || undefined
+      : target.assignedItemUid;
+
+    if (
+      target.homeX === x &&
+      target.homeZ === z &&
+      target.assignedItemUid === nextAssigned
+    ) {
+      return true;
+    }
+
+    this.pushHistory();
+    this.state = {
+      ...this.state,
+      staff: current.map((s) => {
+        if (s.id !== staffId) return s;
+        const copy: HiredStaff = {
+          ...s,
+          homeX: x,
+          homeZ: z,
+        };
+        if (hasAssignedArg) {
+          if (nextAssigned) {
+            copy.assignedItemUid = nextAssigned;
+          } else {
+            delete copy.assignedItemUid;
+          }
+        }
+        return copy;
+      }),
+    };
+    this.emitMutation('staff');
+    this.emit('staffChanged', { staff: this.getStaff() });
+    return true;
   }
 
   private isStructuralDoorDef(def: FurnitureItemDef | undefined): boolean {
@@ -567,14 +801,58 @@ export class HouseStore {
 
   placeItem(itemInput: Omit<PlacedItem, 'uid'>, options?: { selectAfter?: boolean }): PlacedItem {
     this.pushHistory();
+
+    const def = this.data.itemsById.get(itemInput.itemId);
+    const isOpening =
+      def?.layer === 'wall' &&
+      def.wallKind === 'structure' &&
+      (def.id.startsWith('window_') || def.id.startsWith('door_'));
+
+    let nextItems = this.state.items;
+    let wallStyleItemId = itemInput.wallStyleItemId;
+    let wallStyleVariantId = itemInput.wallStyleVariantId;
+    const removedWallUids = new Set<string>();
+
+    if (isOpening) {
+      const edgeKey = canonicalWallEdgeKey(itemInput.x, itemInput.z, itemInput.rotation);
+      const replacedWall = this.state.items.find((it) => {
+        const exDef = this.data.itemsById.get(it.itemId);
+        return (
+          this.isStructuralWallSurfaceDef(exDef) &&
+          canonicalWallEdgeKey(it.x, it.z, it.rotation) === edgeKey
+        );
+      });
+      if (replacedWall) {
+        removedWallUids.add(replacedWall.uid);
+        for (const it of this.state.items) {
+          if (it.parentUid === replacedWall.uid) {
+            removedWallUids.add(it.uid);
+          }
+        }
+        nextItems = this.state.items.filter((it) => !removedWallUids.has(it.uid));
+        if (!wallStyleItemId) {
+          wallStyleItemId = replacedWall.itemId;
+          wallStyleVariantId = replacedWall.variantId;
+        }
+      }
+    }
+
     const item: PlacedItem = {
       ...itemInput,
+      ...(wallStyleItemId ? { wallStyleItemId } : {}),
+      ...(wallStyleVariantId ? { wallStyleVariantId } : {}),
       uid: generateItemUid(),
     };
     this.state = {
       ...this.state,
-      items: [...this.state.items, item],
+      items: [...nextItems, item],
     };
+
+    if (removedWallUids.size > 0 && this.selectedUids.some((id) => removedWallUids.has(id))) {
+      this.selectedUids = this.selectedUids.filter((id) => !removedWallUids.has(id));
+      this.emitSelectionChanged();
+    }
+
     this.emitMutation('place');
     if (options?.selectAfter) {
       this.selectItem(item.uid);
@@ -593,35 +871,76 @@ export class HouseStore {
     const dy = target.y - existing.y;
     const dz = target.z - existing.z;
 
+    const def = this.data.itemsById.get(existing.itemId);
+    const isOpening =
+      def?.layer === 'wall' &&
+      def.wallKind === 'structure' &&
+      (def.id.startsWith('window_') || def.id.startsWith('door_'));
+
+    const removedWallUids = new Set<string>();
+    let inheritedWallItemId = existing.wallStyleItemId;
+    let inheritedWallVariantId = existing.wallStyleVariantId;
+
+    if (isOpening) {
+      const edgeKey = canonicalWallEdgeKey(target.x, target.z, target.rotation);
+      const replacedWall = this.state.items.find((it) => {
+        if (it.uid === uid) return false;
+        const exDef = this.data.itemsById.get(it.itemId);
+        return (
+          this.isStructuralWallSurfaceDef(exDef) &&
+          canonicalWallEdgeKey(it.x, it.z, it.rotation) === edgeKey
+        );
+      });
+      if (replacedWall) {
+        removedWallUids.add(replacedWall.uid);
+        for (const it of this.state.items) {
+          if (it.parentUid === replacedWall.uid) {
+            removedWallUids.add(it.uid);
+          }
+        }
+        inheritedWallItemId = replacedWall.itemId;
+        inheritedWallVariantId = replacedWall.variantId;
+      }
+    }
+
     this.pushHistory();
     this.state = {
       ...this.state,
-      items: this.state.items.map((it) => {
-        if (it.uid === uid) {
-          return {
-            ...it,
-            x: target.x,
-            y: target.y,
-            z: target.z,
-            rotation: target.rotation,
-            parentUid: target.parentUid,
-          };
-        }
-        // Keep stacked surface items / wall-mounted items riding along with their support
-        if (it.parentUid === uid) {
-          const childDef = this.data.itemsById.get(it.itemId);
-          const isWallMounted = childDef?.layer === 'wall' && childDef.wallKind === 'mounted';
-          return {
-            ...it,
-            x: it.x + dx,
-            y: it.y + dy,
-            z: it.z + dz,
-            rotation: isWallMounted ? target.rotation : it.rotation,
-          };
-        }
-        return it;
-      }),
+      items: this.state.items
+        .filter((it) => !removedWallUids.has(it.uid))
+        .map((it) => {
+          if (it.uid === uid) {
+            return {
+              ...it,
+              x: target.x,
+              y: target.y,
+              z: target.z,
+              rotation: target.rotation,
+              parentUid: target.parentUid,
+              ...(inheritedWallItemId ? { wallStyleItemId: inheritedWallItemId } : {}),
+              ...(inheritedWallVariantId ? { wallStyleVariantId: inheritedWallVariantId } : {}),
+            };
+          }
+          // Keep stacked surface items / wall-mounted items riding along with their support
+          if (it.parentUid === uid) {
+            const childDef = this.data.itemsById.get(it.itemId);
+            const isWallMounted = childDef?.layer === 'wall' && childDef.wallKind === 'mounted';
+            return {
+              ...it,
+              x: it.x + dx,
+              y: it.y + dy,
+              z: it.z + dz,
+              rotation: isWallMounted ? target.rotation : it.rotation,
+            };
+          }
+          return it;
+        }),
     };
+
+    if (removedWallUids.size > 0 && this.selectedUids.some((id) => removedWallUids.has(id))) {
+      this.selectedUids = this.selectedUids.filter((id) => !removedWallUids.has(id));
+      this.emitSelectionChanged();
+    }
 
     this.emitMutation('move');
     return true;
@@ -685,12 +1004,18 @@ export class HouseStore {
 
       changedCount += 1;
       swappedUids.add(it.uid);
+      const curDef = this.data.itemsById.get(it.itemId);
+      const inheritWallStyle =
+        isDoorOrWindow && this.isStructuralWallSurfaceDef(curDef)
+          ? { wallStyleItemId: it.itemId, wallStyleVariantId: it.variantId }
+          : {};
       const keepActive =
         nextDef.interaction?.type === 'toggle' || nextDef.interaction?.type === 'spin'
           ? it.active
           : undefined;
       nextItems.push({
         ...it,
+        ...inheritWallStyle,
         itemId: nextItemId,
         variantId: chosenVariant,
         active: keepActive,
@@ -730,7 +1055,8 @@ export class HouseStore {
       def &&
         def.layer === 'wall' &&
         def.wallKind === 'structure' &&
-        def.id.startsWith('wall_'),
+        def.id.startsWith('wall_') &&
+        !def.tags.includes('entrance'),
     );
   }
 
@@ -755,10 +1081,17 @@ export class HouseStore {
     let changedCount = 0;
     const nextItems = this.state.items.map((it) => {
       const curDef = this.data.itemsById.get(it.itemId);
-      if (!this.isStructuralWallSurfaceDef(curDef)) return it;
-      if (it.itemId === itemId && it.variantId === chosenVariant) return it;
-      changedCount += 1;
-      return { ...it, itemId, variantId: chosenVariant };
+      if (this.isStructuralWallSurfaceDef(curDef)) {
+        if (it.itemId === itemId && it.variantId === chosenVariant) return it;
+        changedCount += 1;
+        return { ...it, itemId, variantId: chosenVariant };
+      }
+      if (this.isStructuralWindowDef(curDef) || this.isStructuralDoorDef(curDef)) {
+        if (it.wallStyleItemId === itemId && it.wallStyleVariantId === chosenVariant) return it;
+        changedCount += 1;
+        return { ...it, wallStyleItemId: itemId, wallStyleVariantId: chosenVariant };
+      }
+      return it;
     });
 
     if (changedCount === 0) return 0;
@@ -878,9 +1211,21 @@ export class HouseStore {
     }
 
     this.pushHistory();
+    let staffUnassigned = false;
+    const nextStaff = (this.state.staff ?? []).map((member) => {
+      if (member.assignedItemUid && toRemove.has(member.assignedItemUid)) {
+        staffUnassigned = true;
+        const copy: HiredStaff = { ...member };
+        delete copy.assignedItemUid;
+        return copy;
+      }
+      return member;
+    });
+
     this.state = {
       ...this.state,
       items: this.state.items.filter((it) => !toRemove.has(it.uid)),
+      staff: nextStaff,
     };
 
     if (this.selectedUids.some((id) => toRemove.has(id))) {
@@ -892,6 +1237,9 @@ export class HouseStore {
     }
 
     this.emitMutation('delete');
+    if (staffUnassigned) {
+      this.emit('staffChanged', { staff: this.getStaff() });
+    }
     return toRemove.size;
   }
 
@@ -1162,6 +1510,7 @@ export class HouseStore {
     this.setSelectMode();
     this.emitSelectionChanged();
     this.emit('houseChanged', { state: this.state, reason: options?.reason ?? 'load' });
+    this.emit('staffChanged', { staff: this.getStaff() });
   }
 
   loadPreset(nextState: HouseState, presetName?: string): void {
@@ -1189,6 +1538,7 @@ export class HouseStore {
       this.setSelectMode();
     }
     this.emit('houseChanged', { state: this.state, reason: 'undo' });
+    this.emit('staffChanged', { staff: this.getStaff() });
     return true;
   }
 
@@ -1204,6 +1554,7 @@ export class HouseStore {
       this.emitSelectionChanged();
     }
     this.emit('houseChanged', { state: this.state, reason: 'redo' });
+    this.emit('staffChanged', { staff: this.getStaff() });
     return true;
   }
 }

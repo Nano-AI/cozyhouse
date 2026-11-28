@@ -690,6 +690,107 @@
       "model": "models/living/rug-woven.glb"
     },
     {
+      "id": "toilet_cozy",
+      "name": "Cozy Toilet",
+      "tab": "living",
+      "tags": ["bathroom", "seating", "home"],
+      "footprint": [1, 1],
+      "height": 0.78,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Flush / lift lid" },
+      "variants": [
+        { "id": "porcelain", "label": "Warm Porcelain", "color": "#FAF6EE", "accentColor": "#EFE7DA" },
+        { "id": "mint", "label": "Vintage Mint", "color": "#CBE4D8", "accentColor": "#FAF6EE" },
+        { "id": "blush", "label": "Pastel Blush", "color": "#F1D2D6", "accentColor": "#FAF6EE" }
+      ],
+      "model": "models/living/toilet_cozy.glb"
+    },
+    {
+      "id": "bathroom_sink",
+      "name": "Bathroom Vanity",
+      "tab": "living",
+      "tags": ["bathroom", "home", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.98,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Run water" },
+      "variants": [
+        { "id": "sage", "label": "Sage & Porcelain", "color": "#B9D1BF", "accentColor": "#FAF6EE" },
+        { "id": "oak", "label": "Warm Oak", "color": "#D7B68E", "accentColor": "#FAF6EE" },
+        { "id": "sky", "label": "Powder Blue", "color": "#B8CFE0", "accentColor": "#FAF6EE" }
+      ],
+      "model": "models/living/bathroom_sink.glb"
+    },
+    {
+      "id": "bathtub_clawfoot",
+      "name": "Clawfoot Bathtub",
+      "tab": "living",
+      "tags": ["bathroom", "cozy", "home"],
+      "footprint": [2, 1],
+      "height": 0.82,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Run bubble bath" },
+      "variants": [
+        { "id": "ivory", "label": "Ivory & Brass", "color": "#FAF6EE", "accentColor": "#DFBC6E" },
+        { "id": "sage", "label": "Vintage Sage", "color": "#BFD6C4", "accentColor": "#DFBC6E" },
+        { "id": "blush", "label": "Rose Enamel", "color": "#EDC5CB", "accentColor": "#DFBC6E" }
+      ],
+      "model": "models/living/bathtub_clawfoot.glb"
+    },
+    {
+      "id": "shower_glass",
+      "name": "Glass Shower",
+      "tab": "living",
+      "tags": ["bathroom", "home"],
+      "footprint": [1, 1],
+      "height": 2.25,
+      "layer": "floor",
+      "subLayer": "object",
+      "interaction": { "type": "toggle", "label": "Turn shower on / off" },
+      "variants": [
+        { "id": "brass", "label": "Warm Brass", "color": "#DCEEF5", "accentColor": "#DFBC6E" },
+        { "id": "charcoal", "label": "Matte Charcoal", "color": "#D4E8F2", "accentColor": "#5D656F" },
+        { "id": "chrome", "label": "Soft Chrome", "color": "#DFF0F7", "accentColor": "#C2CBD3" }
+      ],
+      "model": "models/living/shower_glass.glb"
+    },
+    {
+      "id": "towel_rack",
+      "name": "Wall Towel Rack",
+      "tab": "living",
+      "tags": ["bathroom", "decor", "cozy"],
+      "footprint": [1, 1],
+      "height": 0.56,
+      "layer": "wall",
+      "wallKind": "mounted",
+      "mountHeight": 1.32,
+      "variants": [
+        { "id": "peach_cream", "label": "Peach & Cream", "color": "#EBB5A0", "accentColor": "#FAF3E8" },
+        { "id": "sage_oat", "label": "Sage & Oat", "color": "#B8D2BE", "accentColor": "#F2EADF" },
+        { "id": "sky_blush", "label": "Sky & Blush", "color": "#B2CDE0", "accentColor": "#EBC1C8" }
+      ],
+      "model": "models/living/towel_rack.glb"
+    },
+    {
+      "id": "bath_mat",
+      "name": "Plush Bath Mat",
+      "tab": "living",
+      "tags": ["bathroom", "cozy", "rug"],
+      "footprint": [1, 1],
+      "height": 0.05,
+      "layer": "floor",
+      "subLayer": "rug",
+      "variants": [
+        { "id": "cream", "label": "Cloud Cream", "color": "#F5EEE3", "accentColor": "#E3D4C0" },
+        { "id": "sage", "label": "Soft Sage", "color": "#BDD4C2", "accentColor": "#F4EFE6" },
+        { "id": "blush", "label": "Rose Puff", "color": "#EBC3C9", "accentColor": "#FAF3F0" }
+      ],
+      "model": "models/living/bath_mat.glb"
+    },
+    {
       "id": "kitchen_counter",
       "name": "Kitchen Counter",
       "tab": "kitchen",

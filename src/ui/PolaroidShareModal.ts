@@ -1,15 +1,16 @@
 import type { AudioModule } from '../audio/AudioModule';
 import type { SceneManager } from '../engine/SceneManager';
 import { evaluateRoomType } from '../rooms/RoomEvaluator';
-import { drawQrToCanvas } from '../save/qrCode';
+import { drawQrToCanvas, encodeQrMatrix } from '../save/qrCode';
 import { encodeHouseToShareUrl } from '../save/shareLink';
 import type { HouseStore } from '../state/houseStore';
 import { createIconEl, createStorybookIconEl } from './icons';
 
-const CARD_W = 960;
-const CARD_H = 1160;
-const PHOTO_PAD = 54;
-const PHOTO_SIZE = CARD_W - PHOTO_PAD * 2; // 852×852 authentic square aperture
+const CARD_W = 1200;
+const CARD_H = 1480;
+const PHOTO_PAD = 64;
+const PHOTO_SIZE = CARD_W - PHOTO_PAD * 2; // 1072×1072 crisp square aperture
+const QR_SIZE = 288; // >= 2.6–3.2 px/module on V20–V26 share links
 
 function formatTimeBucketLabel(hour: number): string {
   const h = ((hour % 24) + 24) % 24;
@@ -435,8 +436,8 @@ export class PolaroidShareModal {
 
     // Outer storybook dark-ink border
     ctx.strokeStyle = '#2D2620';
-    ctx.lineWidth = 8;
-    ctx.strokeRect(4, 4, CARD_W - 8, CARD_H - 8);
+    ctx.lineWidth = 10;
+    ctx.strokeRect(5, 5, CARD_W - 10, CARD_H - 10);
 
     // 2. Square instant photo window (center-cropped cover fit)
     ctx.save();
@@ -466,29 +467,60 @@ export class PolaroidShareModal {
       );
     }
 
-    // Soft inner Polaroid aperture shadow along top/left edges
-    const innerTop = ctx.createLinearGradient(0, PHOTO_PAD, 0, PHOTO_PAD + 28);
+    // Soft inner Polaroid aperture shadow along top/bottom edges
+    const innerTop = ctx.createLinearGradient(0, PHOTO_PAD, 0, PHOTO_PAD + 34);
     innerTop.addColorStop(0, 'rgba(45, 38, 32, 0.16)');
     innerTop.addColorStop(1, 'rgba(45, 38, 32, 0)');
     ctx.fillStyle = innerTop;
-    ctx.fillRect(PHOTO_PAD, PHOTO_PAD, PHOTO_SIZE, 28);
+    ctx.fillRect(PHOTO_PAD, PHOTO_PAD, PHOTO_SIZE, 34);
 
-    const innerBottom = ctx.createLinearGradient(0, PHOTO_PAD + PHOTO_SIZE - 20, 0, PHOTO_PAD + PHOTO_SIZE);
+    const innerBottom = ctx.createLinearGradient(
+      0,
+      PHOTO_PAD + PHOTO_SIZE - 24,
+      0,
+      PHOTO_PAD + PHOTO_SIZE,
+    );
     innerBottom.addColorStop(0, 'rgba(45, 38, 32, 0)');
     innerBottom.addColorStop(1, 'rgba(45, 38, 32, 0.1)');
     ctx.fillStyle = innerBottom;
-    ctx.fillRect(PHOTO_PAD, PHOTO_PAD + PHOTO_SIZE - 20, PHOTO_SIZE, 20);
+    ctx.fillRect(PHOTO_PAD, PHOTO_PAD + PHOTO_SIZE - 24, PHOTO_SIZE, 24);
     ctx.restore();
 
     // Crisp ink photo aperture border
     ctx.strokeStyle = '#2D2620';
-    ctx.lineWidth = 4;
+    ctx.lineWidth = 5;
     ctx.strokeRect(PHOTO_PAD, PHOTO_PAD, PHOTO_SIZE, PHOTO_SIZE);
 
-    // 3. Polaroid bottom chin: Caption + Location/Time subtitle + optional QR
-    const showQr = this.includeQr && Boolean(this.shareUrl);
+    // 3. Polaroid bottom chin: Caption + Location/Time subtitle + optional 288×288 QR
+    const qrMatrix =
+      this.includeQr && this.shareUrl ? encodeQrMatrix(this.shareUrl) : null;
+    const qrUnavailable = Boolean(this.includeQr && this.shareUrl && !qrMatrix);
+
+    const qrBoxX = CARD_W - PHOTO_PAD - QR_SIZE;
+    const qrBoxY = 1152;
+    let qrDrawn = false;
+    if (qrMatrix && this.shareUrl) {
+      qrDrawn = drawQrToCanvas(ctx, this.shareUrl, qrBoxX, qrBoxY, QR_SIZE, {
+        fg: '#2D2620',
+        bg: '#FFFDF8',
+        quietZone: 2,
+      });
+      if (qrDrawn) {
+        ctx.strokeStyle = 'rgba(45, 38, 32, 0.34)';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(qrBoxX, qrBoxY, QR_SIZE, QR_SIZE);
+
+        ctx.font =
+          '700 17px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
+        ctx.fillStyle = '#574D44';
+        ctx.textAlign = 'center';
+        ctx.fillText('scan to visit', qrBoxX + QR_SIZE / 2, qrBoxY + QR_SIZE + 24);
+        ctx.textAlign = 'start';
+      }
+    }
+
     const chinLeft = PHOTO_PAD + 4;
-    const textMaxWidth = showQr ? 610 : PHOTO_SIZE - 8;
+    const textMaxWidth = qrDrawn ? qrBoxX - chinLeft - 28 : PHOTO_SIZE - 8;
 
     const state = this.store.getState();
     const viewName = this.store.data.viewsById.get(state.sceneryViewId)?.name ?? 'Suburbs';
@@ -502,48 +534,32 @@ export class PolaroidShareModal {
     const displayCaption = this.captionText.trim() || 'Cozyhouse';
 
     // Fit caption font size cleanly
-    let fontSize = 46;
+    let fontSize = 58;
     ctx.fillStyle = '#2D2620';
     ctx.textBaseline = 'alphabetic';
-    while (fontSize > 28) {
+    while (fontSize > 32) {
       ctx.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", sans-serif`;
       if (ctx.measureText(displayCaption).width <= textMaxWidth) break;
       fontSize -= 2;
     }
-    ctx.fillText(displayCaption, chinLeft, 992, textMaxWidth);
+    ctx.fillText(displayCaption, chinLeft, 1252, textMaxWidth);
 
     // Subtitle
-    ctx.font = '600 24px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
+    ctx.font = '600 30px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
     ctx.fillStyle = '#574D44';
-    ctx.fillText(subtitle, chinLeft, 1034, textMaxWidth);
+    ctx.fillText(subtitle, chinLeft, 1304, textMaxWidth);
 
     // Subtle cozyhouse watermark
-    ctx.font = '700 17px -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", sans-serif';
+    ctx.font = '700 22px -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "Segoe UI", sans-serif';
     ctx.fillStyle = '#756A5F';
-    ctx.fillText('cozyhouse', chinLeft, 1112);
+    ctx.fillText('cozyhouse', chinLeft, 1418);
 
-    // Optional scannable QR code on bottom-right of chin
-    if (showQr && this.shareUrl) {
-      const qrBoxSize = 186;
-      const qrBoxX = CARD_W - PHOTO_PAD - qrBoxSize;
-      const qrBoxY = 928;
-
-      ctx.fillStyle = '#FFFDF8';
-      ctx.fillRect(qrBoxX, qrBoxY, qrBoxSize, qrBoxSize);
-      ctx.strokeStyle = 'rgba(45, 38, 32, 0.32)';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(qrBoxX, qrBoxY, qrBoxSize, qrBoxSize);
-
-      drawQrToCanvas(ctx, this.shareUrl, qrBoxX + 6, qrBoxY + 6, qrBoxSize - 12, {
-        fg: '#2D2620',
-        bg: '#FFFDF8',
-        quietZone: 2,
-      });
-
-      ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
-      ctx.fillStyle = '#574D44';
-      ctx.textAlign = 'center';
-      ctx.fillText('scan to visit', qrBoxX + qrBoxSize / 2, qrBoxY + qrBoxSize + 19);
+    // Subtle note when a mega-house exceeds QR byte capacity (no empty box drawn!)
+    if (qrUnavailable || (this.includeQr && this.shareUrl && !qrDrawn)) {
+      ctx.font = '600 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif';
+      ctx.fillStyle = '#6B6056';
+      ctx.textAlign = 'right';
+      ctx.fillText('Full link ready via Copy Link', CARD_W - PHOTO_PAD - 4, 1418);
       ctx.textAlign = 'start';
     }
   }
@@ -603,17 +619,9 @@ export class PolaroidShareModal {
         copied = document.execCommand('copy');
         ta.remove();
       }
-      try {
-        const parsed = new URL(url);
-        if (parsed.hash) {
-          window.history.replaceState(null, '', parsed.hash);
-        }
-      } catch {
-        // Ignore history errors in sandboxed/file origins
-      }
       this.store.notify(
-        copied ? 'Share link copied!' : 'Share link updated in address bar',
-        'success',
+        copied ? 'Share link copied!' : 'Could not copy link — check clipboard permission',
+        copied ? 'success' : 'error',
       );
     } catch (err) {
       this.store.notify(

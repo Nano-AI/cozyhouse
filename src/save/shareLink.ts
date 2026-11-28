@@ -6,6 +6,7 @@ import {
 } from './serializer';
 
 const HASH_PARAM_KEY = 'house';
+export const MAX_DECOMPRESSED_BYTES = 1_048_576; // 1 MB decompression safety cap
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = '';
@@ -29,17 +30,28 @@ function base64UrlToBytes(input: string): Uint8Array {
   return out;
 }
 
-async function readStreamToBytes(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+async function readStreamToBytes(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes?: number,
+): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      chunks.push(value);
-      total += value.byteLength;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value) {
+        total += value.byteLength;
+        if (maxBytes !== undefined && total > maxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new Error('Share link payload exceeds maximum allowed size (1 MB).');
+        }
+        chunks.push(value);
+      }
     }
+  } finally {
+    reader.releaseLock();
   }
   const merged = new Uint8Array(total);
   let offset = 0;
@@ -57,7 +69,10 @@ async function compressDeflateRaw(bytes: Uint8Array): Promise<Uint8Array | null>
     const writer = cs.writable.getWriter();
     const copy = new Uint8Array(bytes.byteLength);
     copy.set(bytes);
-    void writer.write(copy).then(() => writer.close());
+    void writer
+      .write(copy)
+      .then(() => writer.close())
+      .catch(() => {});
     return await readStreamToBytes(cs.readable);
   } catch {
     return null;
@@ -68,12 +83,18 @@ async function decompressDeflateRaw(bytes: Uint8Array): Promise<Uint8Array> {
   if (typeof DecompressionStream !== 'function') {
     throw new Error('This browser cannot decompress z1 share links.');
   }
+  if (bytes.byteLength > MAX_DECOMPRESSED_BYTES) {
+    throw new Error('Share link payload exceeds maximum allowed size (1 MB).');
+  }
   const ds = new DecompressionStream('deflate-raw');
   const writer = ds.writable.getWriter();
   const copy = new Uint8Array(bytes.byteLength);
   copy.set(bytes);
-  void writer.write(copy).then(() => writer.close());
-  return readStreamToBytes(ds.readable);
+  void writer
+    .write(copy)
+    .then(() => writer.close())
+    .catch(() => {});
+  return readStreamToBytes(ds.readable, MAX_DECOMPRESSED_BYTES);
 }
 
 /**
@@ -175,7 +196,13 @@ export async function decodeHouseFromShareLink(
   } else if (code.startsWith('u1_')) {
     const payload = code.slice(3);
     if (!payload) throw new Error('Invalid share code: empty payload.');
+    if (payload.length > Math.ceil((MAX_DECOMPRESSED_BYTES * 4) / 3) + 4) {
+      throw new Error('Share link payload exceeds maximum allowed size (1 MB).');
+    }
     const raw = base64UrlToBytes(payload);
+    if (raw.byteLength > MAX_DECOMPRESSED_BYTES) {
+      throw new Error('Share link payload exceeds maximum allowed size (1 MB).');
+    }
     jsonText = new TextDecoder().decode(raw);
   } else {
     throw new Error('Unrecognized share link format. Expected a Cozyhouse share link or code.');

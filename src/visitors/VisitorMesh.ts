@@ -9,7 +9,10 @@ export type VisitorPose =
   | 'dance'
   | 'pet'
   | 'admire'
-  | 'stumble';
+  | 'stumble'
+  | 'work';
+
+export type VisitorStaffUniformRole = 'barista' | 'dj' | 'chef' | 'bartender';
 
 export type VisitorVariantIndex = 0 | 1 | 2;
 
@@ -1565,6 +1568,25 @@ export class VisitorMesh {
         this.leftArmPivot.rotation.set(-0.08, 0, 0.08);
         this.rightArmPivot.rotation.set(-0.32 + Math.sin(this.animPhase) * 0.07, 0, -0.08);
         this.headPivot.rotation.set(-0.03 + headChatterTilt, sway * 0.12, sway * 0.03);
+        break;
+      }
+
+      case 'work': {
+        this.animPhase += dt * 6.4;
+        const beat = Math.sin(this.animPhase);
+        const halfBeat = Math.sin(this.animPhase * 0.5);
+        const hop = Math.abs(beat) * 0.018;
+
+        this.bodyPivot.position.y = FLOOR_BASE_Y + hop;
+        this.leftLegPivot.rotation.set(0, 0, 0.03);
+        this.rightLegPivot.rotation.set(0, 0, -0.03);
+        this.leftKneePivot.rotation.set(0.05, 0, 0);
+        this.rightKneePivot.rotation.set(0.05, 0, 0);
+
+        this.torsoPivot.rotation.set(0.11 + Math.abs(beat) * 0.025, halfBeat * 0.09, halfBeat * 0.04);
+        this.leftArmPivot.rotation.set(-0.82 + beat * 0.28, 0.14, 0.1);
+        this.rightArmPivot.rotation.set(-0.92 - beat * 0.34, -0.14, -0.1);
+        this.headPivot.rotation.set(0.06 + headChatterTilt, halfBeat * 0.1, halfBeat * 0.04);
         break;
       }
 

@@ -303,6 +303,276 @@
         { "id": "hb_lea_2", "text": "Sali-pafu, meya.", "emote": "sofa", "pitchOffset": 0.87, "speedMultiplier": 0.85 },
         { "id": "hb_lea_3", "text": "Moya-va, noko.", "emote": "wave", "pitchOffset": 0.88, "speedMultiplier": 0.87 }
       ]
+    },
+    "viking": {
+      "delighted": [
+        { "id": "vk_del_1", "text": "SKAL! A feast hall worthy of Valhalla!", "emote": "sparkles", "pitchOffset": 1.12, "speedMultiplier": 1.10 },
+        { "id": "vk_del_2", "text": "Raise the horns! Warm light and stout drinks!", "emote": "cocktail", "pitchOffset": 1.15, "speedMultiplier": 1.12 },
+        { "id": "vk_del_3", "text": "By Odin's beard, this hearth roars!", "emote": "star", "pitchOffset": 1.10, "speedMultiplier": 1.08 }
+      ],
+      "happy": [
+        { "id": "vk_hap_1", "text": "Ha! Sturdy timber and a welcome table!", "emote": "food", "pitchOffset": 1.04, "speedMultiplier": 1.02 },
+        { "id": "vk_hap_2", "text": "Good cheer fills these walls, friend!", "emote": "laugh", "pitchOffset": 1.06, "speedMultiplier": 1.04 },
+        { "id": "vk_hap_3", "text": "Pour another mug—Bjorn approves!", "emote": "smile", "pitchOffset": 1.02, "speedMultiplier": 1.00 }
+      ],
+      "neutral": [
+        { "id": "vk_neu_1", "text": "Hmm... where is the mead barrel?", "emote": "look", "pitchOffset": 0.96, "speedMultiplier": 0.95 },
+        { "id": "vk_neu_2", "text": "Stout roof, though I seek a feast.", "emote": "dots", "pitchOffset": 0.94, "speedMultiplier": 0.94 },
+        { "id": "vk_neu_3", "text": "A quiet outpost... for now.", "emote": "look", "pitchOffset": 0.95, "speedMultiplier": 0.93 }
+      ],
+      "bored": [
+        { "id": "vk_bor_1", "text": "Too quiet! Not a single war song!", "emote": "unimpressed", "pitchOffset": 0.84, "speedMultiplier": 0.86 },
+        { "id": "vk_bor_2", "text": "No tankards, no roaring feast...", "emote": "cloud", "pitchOffset": 0.82, "speedMultiplier": 0.82 },
+        { "id": "vk_bor_3", "text": "Even a fjord fog has more spirit!", "emote": "yawn", "pitchOffset": 0.80, "speedMultiplier": 0.80 }
+      ],
+      "leaving": [
+        { "id": "vk_lea_1", "text": "To the longship! Skal, friend!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.92 },
+        { "id": "vk_lea_2", "text": "Fair winds until we feast again!", "emote": "star", "pitchOffset": 0.90, "speedMultiplier": 0.90 },
+        { "id": "vk_lea_3", "text": "Bjorn marches onward!", "emote": "wave", "pitchOffset": 0.88, "speedMultiplier": 0.91 }
+      ]
+    },
+    "squeaky_chicken": {
+      "delighted": [
+        { "id": "sc_del_1", "text": "BWWAAAK!! *SQUEEEAK!!*", "emote": "sparkles", "pitchOffset": 1.32, "speedMultiplier": 1.28 },
+        { "id": "sc_del_2", "text": "*HONK-SQUEAK!* Maximum party crispy!", "emote": "music", "pitchOffset": 1.28, "speedMultiplier": 1.25 },
+        { "id": "sc_del_3", "text": "BWAAAK-BAWK! *ECSTATIC SQUEAK!*", "emote": "star", "pitchOffset": 1.35, "speedMultiplier": 1.30 }
+      ],
+      "happy": [
+        { "id": "sc_hap_1", "text": "*bawk-squeak!* Tasty vibes!", "emote": "food", "pitchOffset": 1.18, "speedMultiplier": 1.15 },
+        { "id": "sc_hap_2", "text": "*happy rubber honk!*", "emote": "laugh", "pitchOffset": 1.15, "speedMultiplier": 1.12 },
+        { "id": "sc_hap_3", "text": "Bawk-bawk! *squeak!*", "emote": "note", "pitchOffset": 1.20, "speedMultiplier": 1.14 }
+      ],
+      "neutral": [
+        { "id": "sc_neu_1", "text": "*tiny curious squeak?*", "emote": "look", "pitchOffset": 1.04, "speedMultiplier": 1.00 },
+        { "id": "sc_neu_2", "text": "Bawk... *soft honk*", "emote": "dots", "pitchOffset": 1.00, "speedMultiplier": 0.98 },
+        { "id": "sc_neu_3", "text": "*googly-eyed stare*", "emote": "surprised", "pitchOffset": 1.02, "speedMultiplier": 0.96 }
+      ],
+      "bored": [
+        { "id": "sc_bor_1", "text": "*slow deflated wheeze-squeak...*", "emote": "sweat", "pitchOffset": 0.78, "speedMultiplier": 0.76 },
+        { "id": "sc_bor_2", "text": "Bawk... too sleepy here...", "emote": "yawn", "pitchOffset": 0.80, "speedMultiplier": 0.78 },
+        { "id": "sc_bor_3", "text": "*sad rubber sigh*", "emote": "cloud", "pitchOffset": 0.76, "speedMultiplier": 0.74 }
+      ],
+      "leaving": [
+        { "id": "sc_lea_1", "text": "BWAAAK-BYE!! *squeak!*", "emote": "wave", "pitchOffset": 1.14, "speedMultiplier": 1.12 },
+        { "id": "sc_lea_2", "text": "*waddle-squeak-waddle!*", "emote": "note", "pitchOffset": 1.10, "speedMultiplier": 1.08 },
+        { "id": "sc_lea_3", "text": "*dramatic exit honk!*", "emote": "wave", "pitchOffset": 1.16, "speedMultiplier": 1.10 }
+      ]
+    },
+    "gojo": {
+      "delighted": [
+        { "id": "gj_del_1", "text": "Throughout Heaven and Earth, this room alone is the cozy one.", "emote": "sparkles", "pitchOffset": 1.14, "speedMultiplier": 1.10 },
+        { "id": "gj_del_2", "text": "Limitless vibes! Ten out of ten aesthetic!", "emote": "star", "pitchOffset": 1.18, "speedMultiplier": 1.14 },
+        { "id": "gj_del_3", "text": "Ooh, warm light AND sweets? Don't mind if I float!", "emote": "heart", "pitchOffset": 1.16, "speedMultiplier": 1.12 }
+      ],
+      "happy": [
+        { "id": "gj_hap_1", "text": "Relax—I'm the strongest interior designer here.", "emote": "smile", "pitchOffset": 1.06, "speedMultiplier": 1.05 },
+        { "id": "gj_hap_2", "text": "Nice lighting! Really pops behind the blindfold.", "emote": "art", "pitchOffset": 1.08, "speedMultiplier": 1.04 },
+        { "id": "gj_hap_3", "text": "Got a sweet latte back there?", "emote": "coffee", "pitchOffset": 1.05, "speedMultiplier": 1.06 }
+      ],
+      "neutral": [
+        { "id": "gj_neu_1", "text": "Hm, let's see what Six Eyes picks up here.", "emote": "look", "pitchOffset": 1.00, "speedMultiplier": 0.98 },
+        { "id": "gj_neu_2", "text": "Not bad... could use a few more treats.", "emote": "dots", "pitchOffset": 0.98, "speedMultiplier": 0.97 },
+        { "id": "gj_neu_3", "text": "Checking the feng shui. Carry on!", "emote": "glasses", "pitchOffset": 1.01, "speedMultiplier": 0.99 }
+      ],
+      "bored": [
+        { "id": "gj_bor_1", "text": "Yawn... even Infinity feels a bit empty.", "emote": "yawn", "pitchOffset": 0.88, "speedMultiplier": 0.86 },
+        { "id": "gj_bor_2", "text": "No sweets, no lamps? Harsh!", "emote": "cloud", "pitchOffset": 0.86, "speedMultiplier": 0.84 },
+        { "id": "gj_bor_3", "text": "Need a bit more sparkle in here.", "emote": "sweat", "pitchOffset": 0.87, "speedMultiplier": 0.85 }
+      ],
+      "leaving": [
+        { "id": "gj_lea_1", "text": "Catch ya later! Don't miss me too much.", "emote": "wave", "pitchOffset": 0.96, "speedMultiplier": 0.98 },
+        { "id": "gj_lea_2", "text": "Gotta warp—save me a pastry!", "emote": "sparkles", "pitchOffset": 0.98, "speedMultiplier": 1.00 },
+        { "id": "gj_lea_3", "text": "Peace out! Keep it dazzling!", "emote": "wave", "pitchOffset": 0.95, "speedMultiplier": 0.96 }
+      ]
+    },
+    "baki": {
+      "delighted": [
+        { "id": "bk_del_1", "text": "Pure fighting spirit in these walls! OSS!", "emote": "star", "pitchOffset": 1.16, "speedMultiplier": 1.18 },
+        { "id": "bk_del_2", "text": "Great beat, huge feast—peak conditioning!", "emote": "music", "pitchOffset": 1.18, "speedMultiplier": 1.20 },
+        { "id": "bk_del_3", "text": "My muscles are practically singing!", "emote": "sparkles", "pitchOffset": 1.14, "speedMultiplier": 1.16 }
+      ],
+      "happy": [
+        { "id": "bk_hap_1", "text": "Solid floor grip for a roundhouse!", "emote": "smile", "pitchOffset": 1.06, "speedMultiplier": 1.08 },
+        { "id": "bk_hap_2", "text": "Time to refuel with a massive meal!", "emote": "food", "pitchOffset": 1.08, "speedMultiplier": 1.06 },
+        { "id": "bk_hap_3", "text": "Good energy in here. I like it!", "emote": "note", "pitchOffset": 1.05, "speedMultiplier": 1.07 }
+      ],
+      "neutral": [
+        { "id": "bk_neu_1", "text": "Sizing up the room's footwork space...", "emote": "look", "pitchOffset": 0.99, "speedMultiplier": 1.00 },
+        { "id": "bk_neu_2", "text": "Hm. Wonder if anyone wants to spar?", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.98 },
+        { "id": "bk_neu_3", "text": "Staying loose. Breathing steady.", "emote": "look", "pitchOffset": 0.98, "speedMultiplier": 0.96 }
+      ],
+      "bored": [
+        { "id": "bk_bor_1", "text": "Too sleepy! My adrenaline's dropping!", "emote": "sweat", "pitchOffset": 0.86, "speedMultiplier": 0.88 },
+        { "id": "bk_bor_2", "text": "No music, no feast, no fight...", "emote": "unimpressed", "pitchOffset": 0.84, "speedMultiplier": 0.84 },
+        { "id": "bk_bor_3", "text": "Need more tempo in here!", "emote": "yawn", "pitchOffset": 0.85, "speedMultiplier": 0.85 }
+      ],
+      "leaving": [
+        { "id": "bk_lea_1", "text": "Good session! Off to roadwork!", "emote": "wave", "pitchOffset": 0.94, "speedMultiplier": 0.96 },
+        { "id": "bk_lea_2", "text": "Train hard—see you next round!", "emote": "star", "pitchOffset": 0.95, "speedMultiplier": 0.98 },
+        { "id": "bk_lea_3", "text": "Later! Stay sharp!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 0.95 }
+      ]
+    },
+    "shakespeare": {
+      "delighted": [
+        { "id": "sh_del_1", "text": "Hark! What cozy light through yonder window breaks!", "emote": "sparkles", "pitchOffset": 1.15, "speedMultiplier": 1.06 },
+        { "id": "sh_del_2", "text": "All the world's a stage—and thine is a masterpiece!", "emote": "art", "pitchOffset": 1.18, "speedMultiplier": 1.08 },
+        { "id": "sh_del_3", "text": "O noble shelves! My quill doth tremble with joy!", "emote": "book", "pitchOffset": 1.14, "speedMultiplier": 1.05 }
+      ],
+      "happy": [
+        { "id": "sh_hap_1", "text": "Methinks a fine sonnet brews in this corner.", "emote": "book", "pitchOffset": 1.06, "speedMultiplier": 1.00 },
+        { "id": "sh_hap_2", "text": "Most tasteful decor, good host!", "emote": "smile", "pitchOffset": 1.08, "speedMultiplier": 1.02 },
+        { "id": "sh_hap_3", "text": "Sweet quietude and graceful lines!", "emote": "heart", "pitchOffset": 1.05, "speedMultiplier": 0.99 }
+      ],
+      "neutral": [
+        { "id": "sh_neu_1", "text": "To sit, or not to sit—that is the question.", "emote": "dots", "pitchOffset": 0.99, "speedMultiplier": 0.94 },
+        { "id": "sh_neu_2", "text": "Hmm... *squints intensely with quill poised*", "emote": "look", "pitchOffset": 0.97, "speedMultiplier": 0.92 },
+        { "id": "sh_neu_3", "text": "What manner of furnishing lies yonder?", "emote": "glasses", "pitchOffset": 1.00, "speedMultiplier": 0.95 }
+      ],
+      "bored": [
+        { "id": "sh_bor_1", "text": "Full of sound and fury, signifying naught!", "emote": "unimpressed", "pitchOffset": 0.85, "speedMultiplier": 0.86 },
+        { "id": "sh_bor_2", "text": "Alas, where are the books and quietude?", "emote": "cloud", "pitchOffset": 0.83, "speedMultiplier": 0.82 },
+        { "id": "sh_bor_3", "text": "Too loud a din for proper iambic verse!", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.84 }
+      ],
+      "leaving": [
+        { "id": "sh_lea_1", "text": "Parting is such sweet sorrow! Exeunt!", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.89 },
+        { "id": "sh_lea_2", "text": "Fare thee well, gentle architect!", "emote": "book", "pitchOffset": 0.89, "speedMultiplier": 0.87 },
+        { "id": "sh_lea_3", "text": "Anon, fair house—curtain falls!", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.88 }
+      ]
+    },
+    "philosopher": {
+      "delighted": [
+        { "id": "ph_del_1", "text": "Aha! The examined sofa IS worth sitting on!", "emote": "sparkles", "pitchOffset": 1.12, "speedMultiplier": 1.02 },
+        { "id": "ph_del_2", "text": "Behold—the ideal Platonic form of coziness!", "emote": "star", "pitchOffset": 1.14, "speedMultiplier": 1.04 },
+        { "id": "ph_del_3", "text": "Wisdom blooms in quiet seats and good books!", "emote": "book", "pitchOffset": 1.10, "speedMultiplier": 1.00 }
+      ],
+      "happy": [
+        { "id": "ph_hap_1", "text": "Tell me—what makes a cushion truly soft?", "emote": "sofa", "pitchOffset": 1.04, "speedMultiplier": 0.98 },
+        { "id": "ph_hap_2", "text": "A fine place for Socratic contemplation.", "emote": "smile", "pitchOffset": 1.05, "speedMultiplier": 0.97 },
+        { "id": "ph_hap_3", "text": "Calm minds thrive in thoughtful rooms.", "emote": "chat", "pitchOffset": 1.03, "speedMultiplier": 0.96 }
+      ],
+      "neutral": [
+        { "id": "ph_neu_1", "text": "I know only that I know nothing... of this rug.", "emote": "dots", "pitchOffset": 0.98, "speedMultiplier": 0.92 },
+        { "id": "ph_neu_2", "text": "Hmm... is a chair still a chair when empty?", "emote": "look", "pitchOffset": 0.96, "speedMultiplier": 0.90 },
+        { "id": "ph_neu_3", "text": "Let us question these walls together.", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.91 }
+      ],
+      "bored": [
+        { "id": "ph_bor_1", "text": "Too loud for dialectics... alas.", "emote": "cloud", "pitchOffset": 0.83, "speedMultiplier": 0.80 },
+        { "id": "ph_bor_2", "text": "Where may a weary thinker rest his chin?", "emote": "yawn", "pitchOffset": 0.81, "speedMultiplier": 0.78 },
+        { "id": "ph_bor_3", "text": "Noise clouds the pursuit of truth.", "emote": "unimpressed", "pitchOffset": 0.82, "speedMultiplier": 0.79 }
+      ],
+      "leaving": [
+        { "id": "ph_lea_1", "text": "I depart now, wiser than I arrived.", "emote": "wave", "pitchOffset": 0.88, "speedMultiplier": 0.86 },
+        { "id": "ph_lea_2", "text": "Keep questioning thy floorplan, friend!", "emote": "dots", "pitchOffset": 0.87, "speedMultiplier": 0.85 },
+        { "id": "ph_lea_3", "text": "Farewell! Until our next symposium!", "emote": "wave", "pitchOffset": 0.89, "speedMultiplier": 0.87 }
+      ]
+    },
+    "john_wick": {
+      "delighted": [
+        { "id": "jw_del_1", "text": "Yeah... I'm thinking this place is cozy.", "emote": "paw", "pitchOffset": 1.08, "speedMultiplier": 1.02 },
+        { "id": "jw_del_2", "text": "Good kitty. Very good kitty.", "emote": "heart", "pitchOffset": 1.10, "speedMultiplier": 1.00 },
+        { "id": "jw_del_3", "text": "Peaceful. Warm. Worth protecting.", "emote": "sparkles", "pitchOffset": 1.06, "speedMultiplier": 1.01 }
+      ],
+      "happy": [
+        { "id": "jw_hap_1", "text": "Quiet room. Clean lines. I respect it.", "emote": "smile", "pitchOffset": 1.03, "speedMultiplier": 0.98 },
+        { "id": "jw_hap_2", "text": "Hey there, little friend.", "emote": "paw", "pitchOffset": 1.05, "speedMultiplier": 0.97 },
+        { "id": "jw_hap_3", "text": "Nice sanctuary. Good craft.", "emote": "sofa", "pitchOffset": 1.02, "speedMultiplier": 0.96 }
+      ],
+      "neutral": [
+        { "id": "jw_neu_1", "text": "Checking the exits. Habit.", "emote": "look", "pitchOffset": 0.97, "speedMultiplier": 0.94 },
+        { "id": "jw_neu_2", "text": "Any pets around here?", "emote": "dots", "pitchOffset": 0.96, "speedMultiplier": 0.93 },
+        { "id": "jw_neu_3", "text": "Hmm.", "emote": "look", "pitchOffset": 0.95, "speedMultiplier": 0.92 }
+      ],
+      "bored": [
+        { "id": "jw_bor_1", "text": "Too loud. I prefer a quieter room.", "emote": "unimpressed", "pitchOffset": 0.86, "speedMultiplier": 0.86 },
+        { "id": "jw_bor_2", "text": "Too much club noise.", "emote": "cloud", "pitchOffset": 0.85, "speedMultiplier": 0.84 },
+        { "id": "jw_bor_3", "text": "Need some peace and quiet.", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.83 }
+      ],
+      "leaving": [
+        { "id": "jw_lea_1", "text": "Be seeing you.", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.90 },
+        { "id": "jw_lea_2", "text": "Take good care of the pets.", "emote": "paw", "pitchOffset": 0.92, "speedMultiplier": 0.91 },
+        { "id": "jw_lea_3", "text": "Goodnight.", "emote": "wave", "pitchOffset": 0.90, "speedMultiplier": 0.88 }
+      ]
+    },
+    "rocky": {
+      "delighted": [
+        { "id": "rk_del_1", "text": "Amaze! Amaze! Jazz hands!", "emote": "sparkles", "pitchOffset": 1.24, "speedMultiplier": 1.18 },
+        { "id": "rk_del_2", "text": "Good music! Good lights! Happy, happy, happy!", "emote": "music", "pitchOffset": 1.26, "speedMultiplier": 1.20 },
+        { "id": "rk_del_3", "text": "Earth plants very nice! Amaze!", "emote": "leaf", "pitchOffset": 1.22, "speedMultiplier": 1.15 }
+      ],
+      "happy": [
+        { "id": "rk_hap_1", "text": "Good room, friend! Good craft!", "emote": "note", "pitchOffset": 1.12, "speedMultiplier": 1.08 },
+        { "id": "rk_hap_2", "text": "Humans make very soft things!", "emote": "smile", "pitchOffset": 1.10, "speedMultiplier": 1.06 },
+        { "id": "rk_hap_3", "text": "Nice lamp! Bright, question?", "emote": "star", "pitchOffset": 1.14, "speedMultiplier": 1.09 }
+      ],
+      "neutral": [
+        { "id": "rk_neu_1", "text": "Inspecting human furniture, question.", "emote": "look", "pitchOffset": 1.02, "speedMultiplier": 1.00 },
+        { "id": "rk_neu_2", "text": "Why only four legs on table, question?", "emote": "dots", "pitchOffset": 1.00, "speedMultiplier": 0.98 },
+        { "id": "rk_neu_3", "text": "Interesting room geometry!", "emote": "note", "pitchOffset": 1.03, "speedMultiplier": 1.01 }
+      ],
+      "bored": [
+        { "id": "rk_bor_1", "text": "Very empty room. You sleep, I watch.", "emote": "cloud", "pitchOffset": 0.86, "speedMultiplier": 0.85 },
+        { "id": "rk_bor_2", "text": "Need more music and shiny things!", "emote": "yawn", "pitchOffset": 0.85, "speedMultiplier": 0.84 },
+        { "id": "rk_bor_3", "text": "Sad Eridian chord...", "emote": "dots", "pitchOffset": 0.82, "speedMultiplier": 0.80 }
+      ],
+      "leaving": [
+        { "id": "rk_lea_1", "text": "Fist my bump! See you soon, friend!", "emote": "wave", "pitchOffset": 1.04, "speedMultiplier": 1.02 },
+        { "id": "rk_lea_2", "text": "Good visit! Back to Hail Mary!", "emote": "star", "pitchOffset": 1.06, "speedMultiplier": 1.04 },
+        { "id": "rk_lea_3", "text": "Bye, friend! Jazz hands!", "emote": "wave", "pitchOffset": 1.05, "speedMultiplier": 1.03 }
+      ]
+    },
+    "homer": {
+      "delighted": [
+        { "id": "hm_del_1", "text": "Woo-hoo!! Mmm... donuts and a soft couch!", "emote": "sparkles", "pitchOffset": 1.18, "speedMultiplier": 1.12 },
+        { "id": "hm_del_2", "text": "Mmm... fresh coffee and pastries... *drool*", "emote": "coffee", "pitchOffset": 1.14, "speedMultiplier": 1.06 },
+        { "id": "hm_del_3", "text": "Best nap spot in Springfield!", "emote": "sofa", "pitchOffset": 1.16, "speedMultiplier": 1.08 }
+      ],
+      "happy": [
+        { "id": "hm_hap_1", "text": "Mmm... cozy snacks!", "emote": "food", "pitchOffset": 1.06, "speedMultiplier": 1.02 },
+        { "id": "hm_hap_2", "text": "Now THAT is a quality cushion!", "emote": "smile", "pitchOffset": 1.08, "speedMultiplier": 1.04 },
+        { "id": "hm_hap_3", "text": "Hehe, smells like breakfast in here!", "emote": "laugh", "pitchOffset": 1.07, "speedMultiplier": 1.03 }
+      ],
+      "neutral": [
+        { "id": "hm_neu_1", "text": "Hmm... where's the fridge?", "emote": "look", "pitchOffset": 0.98, "speedMultiplier": 0.96 },
+        { "id": "hm_neu_2", "text": "Wait, is there a TV around here?", "emote": "dots", "pitchOffset": 0.97, "speedMultiplier": 0.95 },
+        { "id": "hm_neu_3", "text": "Could really go for a donut right now...", "emote": "food", "pitchOffset": 0.99, "speedMultiplier": 0.97 }
+      ],
+      "bored": [
+        { "id": "hm_bor_1", "text": "D'oh! Looks like work in here!", "emote": "grimace", "pitchOffset": 0.85, "speedMultiplier": 0.86 },
+        { "id": "hm_bor_2", "text": "Boring... wake me when dinner's ready. Zzz...", "emote": "zzz", "pitchOffset": 0.80, "speedMultiplier": 0.78 },
+        { "id": "hm_bor_3", "text": "No snacks AND a desk? D'oh!", "emote": "sweat", "pitchOffset": 0.84, "speedMultiplier": 0.82 }
+      ],
+      "leaving": [
+        { "id": "hm_lea_1", "text": "Smell ya later! Off to Moe's!", "emote": "wave", "pitchOffset": 0.93, "speedMultiplier": 0.92 },
+        { "id": "hm_lea_2", "text": "Woo-hoo, snack time at home!", "emote": "food", "pitchOffset": 0.95, "speedMultiplier": 0.94 },
+        { "id": "hm_lea_3", "text": "See ya! Save me a seat!", "emote": "wave", "pitchOffset": 0.91, "speedMultiplier": 0.90 }
+      ]
+    },
+    "rick": {
+      "delighted": [
+        { "id": "rc_del_1", "text": "Wubba lubba dub-dub! Best pad in C-137!", "emote": "sparkles", "pitchOffset": 1.16, "speedMultiplier": 1.22 },
+        { "id": "rc_del_2", "text": "Alright, alright—this bar actually slaps!", "emote": "cocktail", "pitchOffset": 1.14, "speedMultiplier": 1.18 },
+        { "id": "rc_del_3", "text": "Solid sound rig across twelve dimensions!", "emote": "music", "pitchOffset": 1.18, "speedMultiplier": 1.20 }
+      ],
+      "happy": [
+        { "id": "rc_hap_1", "text": "Huh. Decent neon, decent drinks. Not bad.", "emote": "smile", "pitchOffset": 1.06, "speedMultiplier": 1.12 },
+        { "id": "rc_hap_2", "text": "Interdimensional cable would look great on that.", "emote": "star", "pitchOffset": 1.08, "speedMultiplier": 1.14 },
+        { "id": "rc_hap_3", "text": "Okay, you actually know how to host a party.", "emote": "cocktail", "pitchOffset": 1.05, "speedMultiplier": 1.10 }
+      ],
+      "neutral": [
+        { "id": "rc_neu_1", "text": "Scanning your floorplan... yeah, it's fine, whatever.", "emote": "look", "pitchOffset": 0.99, "speedMultiplier": 1.06 },
+        { "id": "rc_neu_2", "text": "Portal gun brought me here for a reason... probably.", "emote": "dots", "pitchOffset": 0.98, "speedMultiplier": 1.04 },
+        { "id": "rc_neu_3", "text": "Needs more lasers. Everything needs more lasers.", "emote": "dizzy", "pitchOffset": 1.00, "speedMultiplier": 1.08 }
+      ],
+      "bored": [
+        { "id": "rc_bor_1", "text": "Ugh, way too quiet. Total snoozefest.", "emote": "unimpressed", "pitchOffset": 0.86, "speedMultiplier": 0.92 },
+        { "id": "rc_bor_2", "text": "No drinks, no music—I'm portaling out.", "emote": "sweat", "pitchOffset": 0.85, "speedMultiplier": 0.90 },
+        { "id": "rc_bor_3", "text": "Infinite realities and I land in a library?", "emote": "cloud", "pitchOffset": 0.84, "speedMultiplier": 0.88 }
+      ],
+      "leaving": [
+        { "id": "rc_lea_1", "text": "Peace among worlds! *portal whoosh*", "emote": "wave", "pitchOffset": 0.94, "speedMultiplier": 1.05 },
+        { "id": "rc_lea_2", "text": "Later! Try not to collapse the timeline!", "emote": "sparkles", "pitchOffset": 0.96, "speedMultiplier": 1.08 },
+        { "id": "rc_lea_3", "text": "Rick out—see ya in dimension B-9!", "emote": "wave", "pitchOffset": 0.92, "speedMultiplier": 1.04 }
+      ]
     }
   }
 }

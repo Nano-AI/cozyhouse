@@ -206,12 +206,17 @@ export function validatePlacement(
   if (def.layer === 'wall' && def.wallKind === 'structure') {
     const edgeKey = canonicalWallEdgeKey(candidate.x, candidate.z, candidate.rotation);
     const parsed = parseCanonicalWallEdgeKey(edgeKey);
+    const isWindowOrDoor = def.id.startsWith('window_') || def.id.startsWith('door_');
     for (const existing of state.items) {
       if (ignoreUids?.has(existing.uid)) continue;
       const exDef = data.itemsById.get(existing.itemId);
       if (!exDef) continue;
       if (exDef.layer === 'wall' && exDef.wallKind === 'structure') {
         if (canonicalWallEdgeKey(existing.x, existing.z, existing.rotation) === edgeKey) {
+          // Sims-style wall punching: allow placing a structural window or door directly onto an existing solid wall
+          if (isWindowOrDoor && existing.itemId.startsWith('wall_')) {
+            continue;
+          }
           return { valid: false, reason: 'Wall edge already occupied' };
         }
       } else if (exDef.layer === 'floor' && (exDef.subLayer ?? 'object') === 'object') {

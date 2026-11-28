@@ -1,5 +1,14 @@
+import * as THREE from 'three';
 import { MUSIC_THEME_LABELS, type AudioModule } from '../audio/AudioModule';
-import type { CatalogTabId, FurnitureItemDef, VisitorDef } from '../data/schemas';
+import type {
+  CatalogTabId,
+  FurnitureItemDef,
+  PlacedItem,
+  StaffKind,
+  StaffRole,
+  VisitorDef,
+} from '../data/schemas';
+import { getEffectiveFootprint } from '../engine/GridSystem';
 import type { HoverItemInfo, PlacementController } from '../engine/PlacementController';
 import type { SceneManager, VisualShaderId } from '../engine/SceneManager';
 import { evaluateRoomType } from '../rooms/RoomEvaluator';
@@ -35,6 +44,18 @@ export interface HudModules {
   audioModule?: AudioModule;
   sceneryModule?: SceneryModule;
 }
+
+type SpecialVisitorDef = VisitorDef & { special?: boolean };
+type CaptionPayload = { speaker: string; text: string; accent?: string };
+type SpecialVisitorModule = VisitorModule & {
+  inviteRandomSpecialCharacter?: () => unknown;
+  getRandomSpecialCooldownRemaining?: () => number;
+  skipActiveMonologue?: () => void;
+  onCaption?: (listener: (payload: CaptionPayload | null) => void) => () => void;
+};
+type StaffPositionStore = HouseStore & {
+  setStaffPosition?: (staffId: string, x: number, z: number, assignedItemUid?: string) => boolean;
+};
 
 type PopoverKind = 'room' | 'atmosphere' | 'walls' | 'visitors' | 'menu' | 'lot' | null;
 type BasicsGroupId = 'floors' | 'walls' | 'doors' | 'windows';
@@ -112,6 +133,38 @@ const SIM_SPEED_OPTIONS: Array<{ speed: SimSpeed; label: string; title: string }
   { speed: 5, label: '5×', title: 'Turbo speed (5×)' },
 ];
 
+const STAFF_ROLES: Array<{
+  role: StaffRole;
+  label: string;
+  emoji: string;
+  stations: string[];
+}> = [
+  {
+    role: 'barista',
+    label: 'Barista',
+    emoji: '☕',
+    stations: ['espresso_machine', 'cafe_counter', 'pourover_stand', 'coffee_grinder', 'blender_smoothie'],
+  },
+  {
+    role: 'dj',
+    label: 'DJ',
+    emoji: '🎧',
+    stations: ['dj_booth', 'record_player', 'diner_jukebox', 'karaoke_mic'],
+  },
+  {
+    role: 'chef',
+    label: 'Chef',
+    emoji: '🍳',
+    stations: ['stove_oven', 'kitchen_counter', 'kitchen_island', 'pastry_case'],
+  },
+  {
+    role: 'bartender',
+    label: 'Bartender',
+    emoji: '🍹',
+    stations: ['bar_counter', 'shaker_set', 'cafe_counter'],
+  },
+];
+
 const VISITOR_ARCHETYPE_ICONS: Record<string, string> = {
   bookworm: '📖',
   coffee_snob: '☕',
@@ -123,6 +176,16 @@ const VISITOR_ARCHETYPE_ICONS: Record<string, string> = {
   artist: '🎨',
   musician: '🎵',
   homebody: '🛋️',
+  viking: '⚔️',
+  squeaky_chicken: '🐔',
+  gojo: '🤞',
+  baki: '🥊',
+  shakespeare: '🪶',
+  philosopher: '🤔',
+  john_wick: '🐾',
+  rocky: '🕷️',
+  homer: '🍩',
+  rick: '🌀',
 };
 
 const EMOTE_ID_TO_EMOJI: Record<string, string> = {
@@ -148,6 +211,30 @@ const EMOTE_ID_TO_EMOJI: Record<string, string> = {
   thumbsDown: '👎',
   unimpressed: '😒',
   grimace: '😖',
+  toilet: '🧻',
+  robot: '🤖',
+  battery: '🔋',
+  bubble: '🫧',
+  cocktail: '🍹',
+  chat: '💬',
+  laugh: '😄',
+  sword: '⚔️',
+  chicken: '🐔',
+  megaphone: '📢',
+  fingers: '🤞',
+  boxing: '🥊',
+  boom: '💥',
+  quill: '🪶',
+  thinking: '🤔',
+  donut: '🍩',
+  portal: '🌀',
+  skull: '💀',
+  fire: '🔥',
+  wind: '💨',
+  sweatPanic: '😰',
+  spider: '🕷️',
+  raisedBrow: '🤨',
+  beer: '🍺',
 };
 
 const MOOD_FALLBACK_EMOJI: Record<string, string> = {
@@ -196,6 +283,7 @@ const TAB_SUBCATEGORIES: Record<Exclude<CatalogTabId, 'basics'>, SubcategoryDef[
       label: 'Tables & Rugs',
       match: (i) => i.id.includes('table') || i.id.includes('rug') || i.subLayer === 'rug',
     },
+    { id: 'bath', label: 'Bath', match: (i) => i.tags.includes('bathroom') },
   ],
   kitchen: [
     { id: 'all', label: 'All', match: () => true },
@@ -416,8 +504,14 @@ export class HudController {
   private searchQuery = '';
   private saveStatusText = 'Saved';
   private activePopover: PopoverKind = null;
-  private visitorsTab: 'here' | 'invite' = 'here';
+  private visitorsTab: 'here' | 'staff' | 'invite' = 'here';
+  private staffHireKind: StaffKind = 'bot';
   private selectedVisitorId: string | null = null;
+  private movingStaffId: string | null = null;
+  private readonly staffRaycaster = new THREE.Raycaster();
+  private readonly staffNdc = new THREE.Vector2();
+  private readonly staffGroundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly staffHitPt = new THREE.Vector3();
 
   private lastRoomId: string;
   private lastRoomLabel: string;
@@ -425,10 +519,14 @@ export class HudController {
   private previewObserver: IntersectionObserver | null = null;
   private unsubscribes: Array<() => void> = [];
 
-  // Location transition timers
+  // Location, caption & cooldown timers
   private locSwapTimer: number | null = null;
   private locFadeTimer: number | null = null;
   private locHideTimer: number | null = null;
+  private captionHideTimer: number | null = null;
+  private randomCooldownTimer: number | null = null;
+  private randomInviteBtnEl: HTMLButtonElement | null = null;
+  private randomCooldownBadgeEl: HTMLSpanElement | null = null;
 
   // DOM references
   private topBarEl!: HTMLDivElement;
@@ -461,6 +559,10 @@ export class HudController {
   private simSpeedPillEl!: HTMLDivElement;
   private simSpeedBtns: Array<{ btn: HTMLButtonElement; speed: SimSpeed }> = [];
   private visitorProfileCardEl!: HTMLElement;
+  private captionOverlayEl!: HTMLDivElement;
+  private captionCardEl!: HTMLDivElement;
+  private captionSpeakerEl!: HTMLDivElement;
+  private captionTextEl!: HTMLDivElement;
 
   private liveCtaWrapEl!: HTMLDivElement;
   private buildSidebarEl!: HTMLElement;
@@ -617,6 +719,14 @@ export class HudController {
         }
       }),
       this.store.on('simSpeedChanged', () => this.syncSimSpeedControlsLive()),
+      this.store.on('staffChanged', () => {
+        if (this.movingStaffId && !this.store.getStaff().some((s) => s.id === this.movingStaffId)) {
+          this.cancelMovingStaff();
+        }
+        if (this.activePopover === 'visitors') {
+          this.renderVisitorsPopover();
+        }
+      }),
       this.store.on('selectionChanged', () => this.renderContextBar()),
       this.store.on('modeChanged', (modeState) => {
         if (modeState.mode === 'place' && modeState.placementItemId) {
@@ -667,6 +777,21 @@ export class HudController {
 
     if (this.visitorModule) {
       this.unsubscribes.push(this.visitorModule.onChange(() => this.syncVisitorsUi()));
+      if (this.visitorModule.onStaffChange) {
+        this.unsubscribes.push(
+          this.visitorModule.onStaffChange(() => {
+            if (this.activePopover === 'visitors') {
+              this.renderVisitorsPopover();
+            }
+          }),
+        );
+      }
+      const specialVm = this.visitorModule as SpecialVisitorModule;
+      if (specialVm.onCaption) {
+        this.unsubscribes.push(
+          specialVm.onCaption((payload) => this.renderDramaticCaption(payload)),
+        );
+      }
     }
     if (this.audioModule) {
       this.unsubscribes.push(
@@ -711,6 +836,11 @@ export class HudController {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (this.movingStaffId) {
+          this.cancelMovingStaff();
+          this.store.notify('Cancelled moving staff', 'info');
+          return;
+        }
         if (this.polaroidModal.isOpen()) {
           return;
         }
@@ -730,22 +860,43 @@ export class HudController {
     window.addEventListener('keydown', onKeyDown);
     this.unsubscribes.push(() => window.removeEventListener('keydown', onKeyDown));
 
-    // Direct 3D visitor click-to-focus in Live Mode
+    // Direct 3D visitor click-to-focus in Live Mode + Interactive Staff Move tile pick
     const canvas = this.sceneManager.renderer?.domElement;
     if (canvas) {
       let downX = 0;
       let downY = 0;
       let trackingTap = false;
+      let trackingStaffMove = false;
       const onCanvasPointerDown = (ev: PointerEvent) => {
-        if (ev.button !== 0 || this.store.isEditMode() || this.polaroidModal.isOpen()) {
+        if (ev.button !== 0 || this.polaroidModal.isOpen()) {
+          trackingTap = false;
+          trackingStaffMove = false;
+          return;
+        }
+        downX = ev.clientX;
+        downY = ev.clientY;
+        if (this.movingStaffId) {
+          trackingStaffMove = true;
+          trackingTap = false;
+          return;
+        }
+        trackingStaffMove = false;
+        if (this.store.isEditMode()) {
           trackingTap = false;
           return;
         }
         trackingTap = true;
-        downX = ev.clientX;
-        downY = ev.clientY;
       };
       const onCanvasPointerUp = (ev: PointerEvent) => {
+        if (trackingStaffMove && this.movingStaffId) {
+          trackingStaffMove = false;
+          if (Math.hypot(ev.clientX - downX, ev.clientY - downY) <= 6) {
+            ev.stopPropagation();
+            ev.preventDefault();
+            this.handleStaffMoveCanvasClick(ev.clientX, ev.clientY);
+          }
+          return;
+        }
         if (!trackingTap) return;
         trackingTap = false;
         if (
@@ -762,11 +913,11 @@ export class HudController {
           this.selectVisitor(hitId, true);
         }
       };
-      canvas.addEventListener('pointerdown', onCanvasPointerDown);
-      canvas.addEventListener('pointerup', onCanvasPointerUp);
+      canvas.addEventListener('pointerdown', onCanvasPointerDown, true);
+      canvas.addEventListener('pointerup', onCanvasPointerUp, true);
       this.unsubscribes.push(() => {
-        canvas.removeEventListener('pointerdown', onCanvasPointerDown);
-        canvas.removeEventListener('pointerup', onCanvasPointerUp);
+        canvas.removeEventListener('pointerdown', onCanvasPointerDown, true);
+        canvas.removeEventListener('pointerup', onCanvasPointerUp, true);
       });
     }
   }
@@ -804,8 +955,14 @@ export class HudController {
   }
 
   dispose(): void {
+    this.cancelMovingStaff();
     this.clearSelectedVisitor();
     this.clearLocationTimers();
+    if (this.captionHideTimer !== null) {
+      window.clearTimeout(this.captionHideTimer);
+      this.captionHideTimer = null;
+    }
+    this.stopRandomCooldownTimer();
     this.previewObserver?.disconnect();
     this.previewObserver = null;
     for (const unsub of this.unsubscribes) {
@@ -1530,6 +1687,40 @@ export class HudController {
     this.visitorProfileCardEl.setAttribute('aria-label', 'Visitor profile');
     this.root.appendChild(this.visitorProfileCardEl);
 
+    // ── Dramatic Monologue Caption Overlay (Legendary Moments + Skip Button) ──
+    this.captionOverlayEl = document.createElement('div');
+    this.captionOverlayEl.className = 'dramatic-caption-overlay hidden';
+    this.captionOverlayEl.setAttribute('aria-live', 'polite');
+    this.captionCardEl = document.createElement('div');
+    this.captionCardEl.className = 'dramatic-caption-card';
+    const captionBody = document.createElement('div');
+    captionBody.className = 'dramatic-caption-body';
+    this.captionSpeakerEl = document.createElement('div');
+    this.captionSpeakerEl.className = 'dramatic-caption-speaker';
+    this.captionTextEl = document.createElement('div');
+    this.captionTextEl.className = 'dramatic-caption-text';
+    captionBody.append(this.captionSpeakerEl, this.captionTextEl);
+
+    const skipCaptionBtn = document.createElement('button');
+    skipCaptionBtn.type = 'button';
+    skipCaptionBtn.className = 'dramatic-caption-skip';
+    skipCaptionBtn.textContent = 'Skip ⏭';
+    skipCaptionBtn.title = 'Skip monologue';
+    skipCaptionBtn.setAttribute('aria-label', 'Skip monologue');
+    skipCaptionBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      const specialVm = this.visitorModule as SpecialVisitorModule | undefined;
+      if (specialVm?.skipActiveMonologue) {
+        specialVm.skipActiveMonologue();
+      } else {
+        this.renderDramaticCaption(null);
+      }
+    });
+
+    this.captionCardEl.append(captionBody, skipCaptionBtn);
+    this.captionOverlayEl.appendChild(this.captionCardEl);
+    this.root.appendChild(this.captionOverlayEl);
+
     // ── Floating Bottom Selection / Place / Bulk / Erase Action Bar ──
     this.contextBarEl = document.createElement('div');
     this.contextBarEl.className = 'context-bar hidden';
@@ -1579,6 +1770,7 @@ export class HudController {
 
   private setCinematicMode(enabled: boolean): void {
     if (enabled) {
+      this.cancelMovingStaff();
       this.store.setEditMode(false);
       this.setActivePopover(null);
       this.setHoverItem(null);
@@ -1596,6 +1788,9 @@ export class HudController {
   }
 
   private setActivePopover(kind: PopoverKind): void {
+    if (kind !== null && this.movingStaffId) {
+      this.cancelMovingStaff();
+    }
     this.updateTopOffset();
     this.activePopover = kind;
     this.timeThumbEl = null;
@@ -1603,6 +1798,9 @@ export class HudController {
     this.timeStopBtns = [];
     this.volumeThumbEls = [];
     this.volumeValueEls = [];
+    this.stopRandomCooldownTimer();
+    this.randomInviteBtnEl = null;
+    this.randomCooldownBadgeEl = null;
 
     this.roomPopoverEl.classList.toggle('hidden', kind !== 'room');
     this.atmospherePopoverEl.classList.toggle('hidden', kind !== 'atmosphere');
@@ -1788,6 +1986,10 @@ export class HudController {
         !def.tags.includes('door') &&
         !def.tags.includes('window'),
     );
+  }
+
+  private isArchwayWallDef(def: FurnitureItemDef | undefined): boolean {
+    return Boolean(def && (def.id === 'wall_arch' || def.tags.includes('entrance')));
   }
 
   private isFloorTileDef(def: FurnitureItemDef | undefined): boolean {
@@ -2057,7 +2259,10 @@ export class HudController {
     );
     panel.appendChild(swatchRow);
 
-    if (groupId === 'floors' || groupId === 'walls') {
+    if (
+      groupId === 'floors' ||
+      (groupId === 'walls' && !this.isArchwayWallDef(activeDef))
+    ) {
       const applyAllLabel =
         groupId === 'walls' ? 'Apply to All Walls' : 'Apply to All Floors';
       const applyBtn = this.makeBtn(applyAllLabel, () => {
@@ -2345,13 +2550,15 @@ export class HudController {
             }),
           );
         }
-        const applyAllWallsBtn = this.makeBtn('Apply All', () => {
-          this.audioModule?.playUiClick();
-          this.applySurfaceStyleToAll('walls', selected.itemId, selected.variantId);
-        });
-        applyAllWallsBtn.className = 'btn btn-xs';
-        applyAllWallsBtn.title = 'Apply this wall type & color to all walls';
-        this.contextBarEl.appendChild(applyAllWallsBtn);
+        if (!this.isArchwayWallDef(def)) {
+          const applyAllWallsBtn = this.makeBtn('Apply All', () => {
+            this.audioModule?.playUiClick();
+            this.applySurfaceStyleToAll('walls', selected.itemId, selected.variantId);
+          });
+          applyAllWallsBtn.className = 'btn btn-xs';
+          applyAllWallsBtn.title = 'Apply this wall type & color to all walls';
+          this.contextBarEl.appendChild(applyAllWallsBtn);
+        }
       } else if (this.isFloorTileDef(def)) {
         const floorDefs = this.getBasicsGroupItems('floors');
         if (floorDefs.length > 1) {
@@ -2541,13 +2748,15 @@ export class HudController {
               this.store.applyStyleToSelection(repDef.id, variantId);
             }),
           );
-          const applyAllBtn = this.makeBtn('Apply All', () => {
-            this.audioModule?.playUiClick();
-            this.applySurfaceStyleToAll('walls', repDef.id, repItem.variantId);
-          });
-          applyAllBtn.className = 'btn btn-xs';
-          applyAllBtn.title = 'Apply this style to every wall in the house';
-          this.contextBarEl.appendChild(applyAllBtn);
+          if (!this.isArchwayWallDef(repDef)) {
+            const applyAllBtn = this.makeBtn('Apply All', () => {
+              this.audioModule?.playUiClick();
+              this.applySurfaceStyleToAll('walls', repDef.id, repItem.variantId);
+            });
+            applyAllBtn.className = 'btn btn-xs';
+            applyAllBtn.title = 'Apply this style to every wall in the house';
+            this.contextBarEl.appendChild(applyAllBtn);
+          }
         }
       } else if (allFloors) {
         const commonId = itemIds.size === 1 ? selectedItems[0].itemId : null;
@@ -3647,10 +3856,10 @@ export class HudController {
   private renderLotPopover(): void {
     const state = this.store.getState();
     this.ensureValidGroupDefaults();
-    const wallDefs = this.getBasicsGroupItems('walls');
+    const wallDefs = this.getBasicsGroupItems('walls').filter((d) => !this.isArchwayWallDef(d));
     const floorDefs = this.getBasicsGroupItems('floors');
     const activeWallDef =
-      this.store.data.itemsById.get(this.groupActiveItem.walls) ?? wallDefs[0];
+      wallDefs.find((d) => d.id === this.groupActiveItem.walls) ?? wallDefs[0];
     const activeFloorDef =
       this.store.data.itemsById.get(this.groupActiveItem.floors) ?? floorDefs[0];
 
@@ -3980,17 +4189,9 @@ export class HudController {
           try {
             const url = await encodeHouseToShareUrl(this.store.getState());
             const copied = await this.copyTextToClipboard(url);
-            try {
-              const parsed = new URL(url);
-              if (parsed.hash) {
-                window.history.replaceState(null, '', parsed.hash);
-              }
-            } catch {
-              // Ignore history errors in sandboxed/file origins
-            }
             this.store.notify(
-              copied ? 'Share link copied!' : 'Share link updated in address bar',
-              'success',
+              copied ? 'Share link copied!' : 'Could not copy link — check clipboard permission',
+              copied ? 'success' : 'error',
             );
           } catch (err) {
             this.store.notify(
@@ -4121,6 +4322,33 @@ export class HudController {
     return wrap;
   }
 
+  private renderDramaticCaption(payload: CaptionPayload | null): void {
+    if (!this.captionOverlayEl) return;
+    if (this.captionHideTimer !== null) {
+      window.clearTimeout(this.captionHideTimer);
+      this.captionHideTimer = null;
+    }
+    if (!payload) {
+      this.captionOverlayEl.classList.remove('visible');
+      this.captionHideTimer = window.setTimeout(() => {
+        this.captionOverlayEl.classList.add('hidden');
+        this.captionHideTimer = null;
+      }, 220);
+      return;
+    }
+
+    const accent = payload.accent || '#FFD966';
+    this.captionCardEl.style.setProperty('--caption-accent', accent);
+    this.captionSpeakerEl.textContent = payload.speaker;
+    this.captionTextEl.textContent = payload.text.startsWith('「')
+      ? payload.text
+      : `“${payload.text}”`;
+
+    this.captionOverlayEl.classList.remove('hidden');
+    void this.captionOverlayEl.offsetWidth;
+    this.captionOverlayEl.classList.add('visible');
+  }
+
   private createVisitorPortrait(
     def: VisitorDef | undefined,
     variantIndex: number,
@@ -4129,12 +4357,23 @@ export class HudController {
   ): HTMLDivElement {
     const wrap = document.createElement('div');
     wrap.className = 'visitor-portrait';
+    const isSpecial = Boolean((def as SpecialVisitorDef | undefined)?.special);
+    if (isSpecial) {
+      wrap.classList.add('special-portrait');
+    }
     const tint = def?.color ?? fallbackColor ?? '#E8BFA8';
     wrap.style.background = `color-mix(in srgb, ${tint} 36%, #FCF9F2)`;
 
+    const iconGlyph = def?.archetypeIcon ?? VISITOR_ARCHETYPE_ICONS[visitorId] ?? '✨';
     const fallback = document.createElement('span');
-    fallback.className = 'visitor-portrait-fallback';
-    fallback.style.background = tint;
+    if (isSpecial) {
+      fallback.className = 'visitor-portrait-glyph';
+      fallback.textContent = iconGlyph;
+      fallback.setAttribute('aria-hidden', 'true');
+    } else {
+      fallback.className = 'visitor-portrait-fallback';
+      fallback.style.background = tint;
+    }
 
     const img = document.createElement('img');
     img.className = 'visitor-portrait-img hidden';
@@ -4142,8 +4381,8 @@ export class HudController {
     img.draggable = false;
 
     const badge = document.createElement('span');
-    badge.className = 'visitor-archetype-badge';
-    badge.textContent = def?.archetypeIcon ?? VISITOR_ARCHETYPE_ICONS[visitorId] ?? '✨';
+    badge.className = isSpecial ? 'visitor-archetype-badge special' : 'visitor-archetype-badge';
+    badge.textContent = isSpecial ? '✦' : iconGlyph;
     badge.setAttribute('aria-hidden', 'true');
 
     wrap.append(fallback, img, badge);
@@ -4272,6 +4511,16 @@ export class HudController {
     const nameEl = document.createElement('div');
     nameEl.className = 'vp-name';
     nameEl.textContent = personalName;
+    const isSpecialVisitor = Boolean(
+      (snap as { isSpecial?: boolean }).isSpecial || (def as SpecialVisitorDef | undefined)?.special,
+    );
+    if (isSpecialVisitor) {
+      const star = document.createElement('span');
+      star.className = 'special-sparkle-badge';
+      star.textContent = '✦';
+      star.title = 'Legendary Special Guest';
+      nameEl.appendChild(star);
+    }
 
     const subEl = document.createElement('div');
     subEl.className = 'vp-sub';
@@ -4413,53 +4662,56 @@ export class HudController {
     this.visitorsPopoverEl.innerHTML = '';
 
     const active = this.visitorModule?.getActiveVisitors() ?? [];
+    const hiredStaff = this.store.getStaff();
 
     const header = document.createElement('div');
     header.className = 'popover-header';
     const h4 = document.createElement('h4');
-    h4.textContent = 'Visitors';
+    h4.textContent = 'Visitors & Staff';
     const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
     closeBtn.className = 'btn icon-close';
     header.append(h4, closeBtn);
     this.visitorsPopoverEl.appendChild(header);
 
-    // Crisp 2-Tab Switcher separating Here Now vs Invite
+    // Crisp 3-Tab Switcher separating Guests, Staff, and Invite
     const tabBar = document.createElement('div');
     tabBar.className = 'visitors-tab-bar';
     tabBar.setAttribute('role', 'tablist');
 
-    const hereTabBtn = document.createElement('button');
-    hereTabBtn.type = 'button';
-    hereTabBtn.className =
-      this.visitorsTab === 'here' ? 'visitors-tab-btn active tabular-num' : 'visitors-tab-btn tabular-num';
-    hereTabBtn.setAttribute('role', 'tab');
-    hereTabBtn.setAttribute('aria-selected', String(this.visitorsTab === 'here'));
-    hereTabBtn.textContent = `Here Now (${active.length})`;
-    hereTabBtn.addEventListener('click', () => {
-      if (this.visitorsTab === 'here') return;
-      this.audioModule?.playUiClick();
-      this.visitorsTab = 'here';
-      this.renderVisitorsPopover();
-    });
+    const makeTab = (id: 'here' | 'staff' | 'invite', label: string) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className =
+        this.visitorsTab === id
+          ? 'visitors-tab-btn active tabular-num'
+          : 'visitors-tab-btn tabular-num';
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-selected', String(this.visitorsTab === id));
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        if (this.visitorsTab === id) return;
+        this.audioModule?.playUiClick();
+        this.visitorsTab = id;
+        this.renderVisitorsPopover();
+      });
+      return btn;
+    };
 
-    const inviteTabBtn = document.createElement('button');
-    inviteTabBtn.type = 'button';
-    inviteTabBtn.className =
-      this.visitorsTab === 'invite' ? 'visitors-tab-btn active' : 'visitors-tab-btn';
-    inviteTabBtn.setAttribute('role', 'tab');
-    inviteTabBtn.setAttribute('aria-selected', String(this.visitorsTab === 'invite'));
-    inviteTabBtn.textContent = 'Invite';
-    inviteTabBtn.addEventListener('click', () => {
-      if (this.visitorsTab === 'invite') return;
-      this.audioModule?.playUiClick();
-      this.visitorsTab = 'invite';
-      this.renderVisitorsPopover();
-    });
-
-    tabBar.append(hereTabBtn, inviteTabBtn);
+    tabBar.append(
+      makeTab('here', `Guests (${active.length})`),
+      makeTab('staff', `Staff (${hiredStaff.length})`),
+      makeTab('invite', 'Invite'),
+    );
     this.visitorsPopoverEl.appendChild(tabBar);
 
+    if (this.visitorsTab === 'staff') {
+      this.renderStaffTab();
+      return;
+    }
+
     if (this.visitorsTab === 'here') {
+      this.stopRandomCooldownTimer();
+      this.randomInviteBtnEl = null;
       if (active.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'visitors-empty';
@@ -4535,6 +4787,20 @@ export class HudController {
           nameEl.className = 'active-visitor-name';
           nameEl.textContent = personalName;
 
+          const isSpecialRow = Boolean(
+            (snap as { isSpecial?: boolean }).isSpecial ||
+              (def as SpecialVisitorDef | undefined)?.special,
+          );
+          if (isSpecialRow) {
+            const star = document.createElement('span');
+            star.className = 'special-sparkle-badge';
+            star.textContent = '✦';
+            star.title = 'Legendary Special Guest';
+            compactRow.append(nameEl, star);
+          } else {
+            compactRow.append(nameEl);
+          }
+
           const emojiEl = document.createElement('span');
           emojiEl.className = 'visitor-mood-emoji';
           emojiEl.textContent = this.resolveVisitorEmoji(snap.lastEmote, snap.mood);
@@ -4565,7 +4831,7 @@ export class HudController {
           barFill.style.width = `${Math.round(score)}%`;
           barTrack.appendChild(barFill);
 
-          compactRow.append(nameEl, emojiEl, barTrack);
+          compactRow.append(emojiEl, barTrack);
           identity.appendChild(compactRow);
 
           const sendHomeBtn = document.createElement('button');
@@ -4592,10 +4858,70 @@ export class HudController {
       return;
     }
 
-    // Tab 2: Invite Archetypes
+    // Tab 3: Mystery Random Character Card + Regular Cozy Archetypes (Special guests kept secret!)
+    this.stopRandomCooldownTimer();
+    this.randomInviteBtnEl = null;
+    this.randomCooldownBadgeEl = null;
+
     const inviteList = document.createElement('div');
     inviteList.className = 'invite-visitors-list';
-    for (const visitor of this.store.data.visitors.visitors) {
+
+    const randomCard = document.createElement('div');
+    randomCard.className = 'invite-visitor-card invite-random-card';
+    randomCard.title = 'Invite a surprise legendary special guest!';
+
+    const mysteryBox = document.createElement('div');
+    mysteryBox.className = 'invite-random-avatar';
+    mysteryBox.textContent = '🎲';
+    mysteryBox.setAttribute('aria-hidden', 'true');
+
+    const randomBody = document.createElement('div');
+    randomBody.className = 'invite-visitor-body';
+    const randomName = document.createElement('div');
+    randomName.className = 'invite-visitor-name';
+    randomName.textContent = 'Random Character';
+    const randomSub = document.createElement('div');
+    randomSub.className = 'invite-visitor-sub';
+    randomSub.textContent = 'Invite a surprise legendary guest!';
+    randomBody.append(randomName, randomSub);
+
+    const randomInviteBtn = this.makeBtn(
+      'Invite',
+      () => {
+        this.audioModule?.playUiClick();
+        const specialVm = this.visitorModule as SpecialVisitorModule | undefined;
+        if (specialVm?.inviteRandomSpecialCharacter) {
+          specialVm.inviteRandomSpecialCharacter();
+        } else {
+          const specials = this.store.data.visitors.visitors.filter(
+            (v) => (v as SpecialVisitorDef).special,
+          );
+          const pool = specials.length > 0 ? specials : this.store.data.visitors.visitors;
+          const pick = pool[Math.floor(Math.random() * pool.length)];
+          if (pick) this.visitorModule?.invite(pick.id);
+        }
+        this.syncRandomInviteCooldown();
+      },
+      'primary',
+    );
+    randomInviteBtn.className = 'btn primary btn-xs random-invite-btn';
+
+    const cooldownBadge = document.createElement('span');
+    cooldownBadge.className = 'random-cooldown-badge tabular-num hidden';
+    cooldownBadge.hidden = true;
+    cooldownBadge.setAttribute('aria-live', 'off');
+
+    this.randomInviteBtnEl = randomInviteBtn;
+    this.randomCooldownBadgeEl = cooldownBadge;
+    this.syncRandomInviteCooldown();
+
+    randomCard.append(mysteryBox, randomBody, randomInviteBtn, cooldownBadge);
+    inviteList.appendChild(randomCard);
+
+    const regularVisitors = this.store.data.visitors.visitors.filter(
+      (v) => !(v as SpecialVisitorDef).special,
+    );
+    for (const visitor of regularVisitors) {
       const card = document.createElement('div');
       card.className = 'invite-visitor-card';
       const dislikeNote =
@@ -4631,6 +4957,460 @@ export class HudController {
       inviteList.appendChild(card);
     }
     this.visitorsPopoverEl.appendChild(inviteList);
+  }
+
+  private stopRandomCooldownTimer(): void {
+    if (this.randomCooldownTimer !== null) {
+      window.clearInterval(this.randomCooldownTimer);
+      this.randomCooldownTimer = null;
+    }
+  }
+
+  private syncRandomInviteCooldown(): void {
+    const btn = this.randomInviteBtnEl;
+    const badge = this.randomCooldownBadgeEl;
+    if (!btn || !badge) {
+      this.stopRandomCooldownTimer();
+      return;
+    }
+    const specialVm = this.visitorModule as SpecialVisitorModule | undefined;
+    const raw = specialVm?.getRandomSpecialCooldownRemaining?.() ?? 0;
+    const cd = Math.max(0, Math.ceil(raw));
+    if (cd > 0) {
+      btn.hidden = true;
+      btn.disabled = true;
+      btn.classList.add('hidden');
+      badge.hidden = false;
+      badge.classList.remove('hidden');
+      badge.textContent = `⏱ ${cd}s`;
+      badge.title = `Ready in ${cd}s`;
+      if (this.randomCooldownTimer === null) {
+        this.randomCooldownTimer = window.setInterval(() => {
+          if (!this.randomInviteBtnEl?.isConnected) {
+            this.stopRandomCooldownTimer();
+            return;
+          }
+          this.syncRandomInviteCooldown();
+        }, 250);
+      }
+    } else {
+      btn.hidden = false;
+      btn.disabled = false;
+      btn.classList.remove('hidden');
+      btn.textContent = 'Invite';
+      badge.hidden = true;
+      badge.classList.add('hidden');
+      this.stopRandomCooldownTimer();
+    }
+  }
+
+  private getMatchingStationsForRole(role: StaffRole): PlacedItem[] {
+    const roleMeta = STAFF_ROLES.find((r) => r.role === role);
+    if (!roleMeta) return [];
+    const allowed = new Set(roleMeta.stations);
+    return this.store.getState().items.filter((it) => allowed.has(it.itemId));
+  }
+
+  private startMovingStaff(staffId: string): void {
+    const member = this.store.getStaff().find((s) => s.id === staffId);
+    if (!member) return;
+    this.setActivePopover(null);
+    this.movingStaffId = staffId;
+    const canvas = this.sceneManager.renderer?.domElement;
+    if (canvas) {
+      canvas.style.cursor = 'crosshair';
+    }
+    this.setHoverHint(
+      `Click a floor tile near a matching station to place ${member.name} (Esc to cancel)`,
+    );
+  }
+
+  private cancelMovingStaff(): void {
+    if (!this.movingStaffId) return;
+    this.movingStaffId = null;
+    const canvas = this.sceneManager.renderer?.domElement;
+    if (canvas) {
+      canvas.style.cursor = '';
+    }
+    this.setHoverHint(null);
+  }
+
+  private raycastFloorTile(clientX: number, clientY: number): { gx: number; gz: number } | null {
+    const canvas = this.sceneManager.renderer?.domElement;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+    this.staffNdc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    this.staffRaycaster.setFromCamera(this.staffNdc, this.sceneManager.isoCamera.camera);
+    const hit = this.staffRaycaster.ray.intersectPlane(this.staffGroundPlane, this.staffHitPt);
+    if (!hit) return null;
+    const state = this.store.getState();
+    const gx = Math.floor(hit.x + state.gridWidth / 2);
+    const gz = Math.floor(hit.z + state.gridDepth / 2);
+    if (gx < 0 || gz < 0 || gx >= state.gridWidth || gz >= state.gridDepth) {
+      return null;
+    }
+    return { gx, gz };
+  }
+
+  private distanceToItemFootprint(gx: number, gz: number, item: PlacedItem): number {
+    const def = this.store.data.itemsById.get(item.itemId);
+    const eff = def ? getEffectiveFootprint(def, item.rotation) : { w: 1, d: 1 };
+    const cx = Math.max(item.x, Math.min(item.x + eff.w - 1, gx));
+    const cz = Math.max(item.z, Math.min(item.z + eff.d - 1, gz));
+    return Math.hypot(gx - cx, gz - cz);
+  }
+
+  private handleStaffMoveCanvasClick(clientX: number, clientY: number): void {
+    const staffId = this.movingStaffId;
+    if (!staffId) return;
+    const member = this.store.getStaff().find((s) => s.id === staffId);
+    if (!member) {
+      this.cancelMovingStaff();
+      return;
+    }
+
+    const tile = this.raycastFloorTile(clientX, clientY);
+    if (!tile) {
+      this.store.notify(
+        `Move ${member.name} closer to a matching station (within 2 tiles)`,
+        'info',
+      );
+      return;
+    }
+
+    const matchingStations = this.getMatchingStationsForRole(member.role);
+    let chosenStation: PlacedItem | null = null;
+    let bestDist = Infinity;
+
+    // Prefer assigned station if within <= 2.6 tiles, else pick nearest matching station
+    if (member.assignedItemUid) {
+      const assigned = matchingStations.find((s) => s.uid === member.assignedItemUid);
+      if (assigned) {
+        const d = this.distanceToItemFootprint(tile.gx, tile.gz, assigned);
+        if (d <= 2.6) {
+          chosenStation = assigned;
+          bestDist = d;
+        }
+      }
+    }
+    if (!chosenStation) {
+      for (const st of matchingStations) {
+        const d = this.distanceToItemFootprint(tile.gx, tile.gz, st);
+        if (d <= 2.6 && d < bestDist) {
+          bestDist = d;
+          chosenStation = st;
+        }
+      }
+    }
+
+    if (!chosenStation) {
+      this.store.notify(
+        `Move ${member.name} closer to a matching station (within 2 tiles)`,
+        'info',
+      );
+      return;
+    }
+
+    const staffStore = this.store as StaffPositionStore;
+    const moved = staffStore.setStaffPosition
+      ? staffStore.setStaffPosition(member.id, tile.gx, tile.gz, chosenStation.uid)
+      : false;
+    if (moved) {
+      this.audioModule?.playUiClick();
+      this.cancelMovingStaff();
+      this.store.notify(`Moved ${member.name}!`, 'success');
+    } else {
+      this.store.notify(
+        `Move ${member.name} closer to a matching station (within 2 tiles)`,
+        'info',
+      );
+    }
+  }
+
+  private renderStaffTab(): void {
+    this.stopRandomCooldownTimer();
+    this.randomInviteBtnEl = null;
+    this.randomCooldownBadgeEl = null;
+    const hired = this.store.getStaff();
+    const activeSnapshots = this.visitorModule?.getActiveStaff?.() ?? [];
+    const snapById = new Map(activeSnapshots.map((s) => [s.id, s]));
+    const placedIds = new Set(this.store.getState().items.map((it) => it.itemId));
+
+    // Compact Bot / Human kind toggle pill
+    const kindWrap = document.createElement('div');
+    kindWrap.className = 'staff-kind-section';
+
+    const kindToggle = document.createElement('div');
+    kindToggle.className = 'staff-kind-toggle';
+    kindToggle.setAttribute('role', 'group');
+    kindToggle.setAttribute('aria-label', 'Staff style');
+
+    const botBtn = document.createElement('button');
+    botBtn.type = 'button';
+    botBtn.className = this.staffHireKind === 'bot' ? 'staff-kind-btn active' : 'staff-kind-btn';
+    botBtn.appendChild(createStorybookIconEl('staff_bot', 18));
+    const botSpan = document.createElement('span');
+    botSpan.textContent = 'Cozy Bot';
+    botBtn.appendChild(botSpan);
+    botBtn.addEventListener('click', () => {
+      if (this.staffHireKind === 'bot') return;
+      this.audioModule?.playUiClick();
+      this.staffHireKind = 'bot';
+      this.renderVisitorsPopover();
+    });
+
+    const humanBtn = document.createElement('button');
+    humanBtn.type = 'button';
+    humanBtn.className =
+      this.staffHireKind === 'human' ? 'staff-kind-btn active' : 'staff-kind-btn';
+    humanBtn.textContent = '🧑 Human';
+    humanBtn.addEventListener('click', () => {
+      if (this.staffHireKind === 'human') return;
+      this.audioModule?.playUiClick();
+      this.staffHireKind = 'human';
+      this.renderVisitorsPopover();
+    });
+
+    kindToggle.append(botBtn, humanBtn);
+
+    const kindHint = document.createElement('div');
+    kindHint.className = 'staff-kind-hint';
+    kindHint.textContent =
+      this.staffHireKind === 'bot'
+        ? 'Works nonstop with quick joyful recharges'
+        : 'Works shifts and takes cozy couch or bath breaks';
+
+    kindWrap.append(kindToggle, kindHint);
+    this.visitorsPopoverEl.appendChild(kindWrap);
+
+    // 2×2 Role Hire Grid
+    const hireGrid = document.createElement('div');
+    hireGrid.className = 'staff-hire-grid';
+    const atMax = hired.length >= 6;
+
+    for (const meta of STAFF_ROLES) {
+      const hasStation = meta.stations.some((id) => placedIds.has(id));
+
+      const card = document.createElement('div');
+      card.className = 'staff-hire-card';
+
+      const top = document.createElement('div');
+      top.className = 'staff-hire-top';
+      const title = document.createElement('span');
+      title.className = 'staff-hire-title';
+      title.textContent = `${meta.emoji} ${meta.label}`;
+      top.appendChild(title);
+
+      const status = document.createElement('div');
+      status.className = hasStation ? 'staff-station-status ready' : 'staff-station-status';
+      const dot = document.createElement('span');
+      dot.className = hasStation ? 'staff-status-dot ready' : 'staff-status-dot';
+      const stTxt = document.createElement('span');
+      stTxt.textContent = hasStation ? 'Ready' : 'No station yet';
+      status.append(dot, stTxt);
+
+      const hireBtn = this.makeBtn(
+        'Hire',
+        () => {
+          this.audioModule?.playUiClick();
+          const created = this.store.hireStaff(meta.role, this.staffHireKind);
+          if (created) {
+            this.store.notify(`Hired ${created.name} (${meta.label})`, 'success');
+          }
+        },
+        'primary',
+      );
+      hireBtn.className = 'btn primary btn-xs full-width';
+      hireBtn.disabled = atMax;
+      if (atMax) {
+        hireBtn.title = 'Maximum 6 staff on duty';
+      }
+
+      card.append(top, status, hireBtn);
+      hireGrid.appendChild(card);
+    }
+    this.visitorsPopoverEl.appendChild(hireGrid);
+
+    // On Duty (M) list
+    const dutyHeader = document.createElement('div');
+    dutyHeader.className = 'visitors-section-header';
+    const dutyLabel = document.createElement('span');
+    dutyLabel.className = 'popover-section-label tabular-num';
+    dutyLabel.textContent = `On Duty (${hired.length})`;
+    dutyHeader.appendChild(dutyLabel);
+    this.visitorsPopoverEl.appendChild(dutyHeader);
+
+    if (hired.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'visitors-empty';
+      empty.textContent = 'Hire a Cozy Bot or Human staff member above to run your machines!';
+      this.visitorsPopoverEl.appendChild(empty);
+      return;
+    }
+
+    const dutyList = document.createElement('div');
+    dutyList.className = 'staff-duty-list';
+
+    for (const member of hired) {
+      const roleMeta = STAFF_ROLES.find((r) => r.role === member.role);
+      const live = snapById.get(member.id);
+      const matchingStations = this.getMatchingStationsForRole(member.role);
+
+      const card = document.createElement('div');
+      card.className = 'staff-duty-card-wrap';
+
+      const row = document.createElement('div');
+      row.className = 'staff-duty-card';
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.title = `Focus camera on ${member.name}`;
+
+      const focusStaff = () => {
+        const pos = this.visitorModule?.getStaffWorldPosition?.(member.id);
+        if (pos) {
+          this.audioModule?.playUiClick();
+          this.setActivePopover(null);
+          this.sceneManager.focusOnWorldPoint(pos.x, pos.z, 1.55);
+        }
+      };
+      row.addEventListener('click', focusStaff);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          focusStaff();
+        }
+      });
+
+      const avatar = document.createElement('div');
+      avatar.className = 'staff-duty-avatar';
+      if (member.kind === 'bot') {
+        avatar.appendChild(createStorybookIconEl('staff_bot', 22));
+      } else {
+        avatar.textContent = '🧑';
+      }
+
+      const info = document.createElement('div');
+      info.className = 'staff-duty-info';
+
+      const nameLine = document.createElement('div');
+      nameLine.className = 'staff-duty-name';
+      nameLine.textContent = `${member.name} · ${roleMeta?.label ?? member.role}`;
+
+      const statusLine = document.createElement('div');
+      statusLine.className = 'staff-duty-status';
+      if (live) {
+        statusLine.textContent =
+          live.status === 'break'
+            ? `On Break · ${live.activity}`
+            : live.status === 'recharging'
+              ? 'Recharging…'
+              : live.activity || (live.stationName ? `Working ${live.stationName}` : 'On duty');
+      } else {
+        statusLine.textContent = 'Reporting for duty';
+      }
+      info.append(nameLine, statusLine);
+
+      const swapBtn = document.createElement('button');
+      swapBtn.type = 'button';
+      swapBtn.className = 'btn btn-xs staff-swap-btn';
+      swapBtn.textContent = member.kind === 'bot' ? '🤖→🧑' : '🧑→🤖';
+      swapBtn.title = member.kind === 'bot' ? 'Swap to Human staff' : 'Swap to Cozy Bot';
+      swapBtn.setAttribute(
+        'aria-label',
+        member.kind === 'bot' ? `Swap ${member.name} to Human` : `Swap ${member.name} to Cozy Bot`,
+      );
+      swapBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.audioModule?.playUiClick();
+        this.store.toggleStaffKind(member.id);
+      });
+
+      const fireBtn = document.createElement('button');
+      fireBtn.type = 'button';
+      fireBtn.className = 'btn icon-close';
+      fireBtn.textContent = '×';
+      fireBtn.title = 'Dismiss staff member';
+      fireBtn.setAttribute('aria-label', `Dismiss ${member.name}`);
+      fireBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.audioModule?.playUiClick();
+        this.store.fireStaff(member.id);
+        this.store.notify(`Dismissed ${member.name}`, 'info');
+      });
+
+      row.append(avatar, info, swapBtn, fireBtn);
+
+      // Compact Station Assignment Dropdown + Interactive Move button row
+      const controlsRow = document.createElement('div');
+      controlsRow.className = 'staff-duty-controls';
+
+      const stationSelect = document.createElement('select');
+      stationSelect.className = 'style-select staff-station-select';
+      stationSelect.setAttribute('aria-label', `Assign station for ${member.name}`);
+      stationSelect.addEventListener('click', (e) => e.stopPropagation());
+
+      if (matchingStations.length === 0) {
+        const noneOpt = document.createElement('option');
+        noneOpt.value = '';
+        noneOpt.textContent = 'No matching station';
+        stationSelect.appendChild(noneOpt);
+        stationSelect.disabled = true;
+      } else {
+        const countById = new Map<string, number>();
+        for (const st of matchingStations) {
+          countById.set(st.itemId, (countById.get(st.itemId) ?? 0) + 1);
+        }
+
+        const autoOpt = document.createElement('option');
+        autoOpt.value = '';
+        autoOpt.textContent = 'Auto station';
+        autoOpt.selected = !member.assignedItemUid;
+        stationSelect.appendChild(autoOpt);
+
+        for (const st of matchingStations) {
+          const def = this.store.data.itemsById.get(st.itemId);
+          const baseName = def?.name ?? st.itemId;
+          const dup = (countById.get(st.itemId) ?? 0) > 1;
+          const opt = document.createElement('option');
+          opt.value = st.uid;
+          opt.textContent = dup ? `${baseName} (${st.x}, ${st.z})` : baseName;
+          opt.selected = member.assignedItemUid === st.uid;
+          stationSelect.appendChild(opt);
+        }
+      }
+
+      stationSelect.addEventListener('change', (e) => {
+        e.stopPropagation();
+        this.audioModule?.playUiClick();
+        const nextUid = stationSelect.value || undefined;
+        this.store.assignStaffStation(member.id, nextUid);
+      });
+
+      const moveBtn = document.createElement('button');
+      moveBtn.type = 'button';
+      moveBtn.className = 'btn btn-xs staff-move-btn';
+      moveBtn.textContent = 'Move';
+      moveBtn.disabled = matchingStations.length === 0;
+      moveBtn.title =
+        matchingStations.length === 0
+          ? 'Place a matching station first'
+          : `Click a floor tile near a station to move ${member.name}`;
+      moveBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.audioModule?.playUiClick();
+        this.startMovingStaff(member.id);
+      });
+
+      controlsRow.append(stationSelect, moveBtn);
+      card.append(row, controlsRow);
+      dutyList.appendChild(card);
+    }
+
+    this.visitorsPopoverEl.appendChild(dutyList);
   }
 
   private syncVisitorsUi(): void {

@@ -41,12 +41,24 @@ interface ActiveCloudTransition {
   onComplete?: () => void;
 }
 
+interface ResolvedWallSurfaceStyle {
+  wallSurfaceColor: string;
+  wallSurfaceAccent?: string;
+  key: string;
+}
+
+type PlacedItemWithWallStyle = PlacedItem & {
+  wallStyleItemId?: string;
+  wallStyleVariantId?: string;
+};
+
 interface RenderedItemEntry {
   uid: string;
   item: PlacedItem;
   def: FurnitureItemDef;
   group: THREE.Group;
   mergeSide?: MergeSide;
+  wallStyleKey: string;
   baseX: number;
   baseY: number;
   baseZ: number;
@@ -429,6 +441,7 @@ export class SceneManager {
 
   // Enclosed-room & cutaway cache + reusable scratch objects
   private enclosedCells: boolean[][] = [];
+  private interiorCells = new Set<string>();
   private enclosedCellCount = 0;
   private readonly camForwardScratch = new THREE.Vector3();
   private readonly wallTargetsMap = new Map<string, number>();
@@ -2035,6 +2048,7 @@ export class SceneManager {
 
     const { mergeSides, doorPartnerGroups } = this.computeMergeMetadata(state);
     this.doorPartnerGroups = doorPartnerGroups;
+    const resolveOpeningWallStyle = this.computeWallSurfaceStyleLookup(state);
 
     const nextIds = new Set<string>();
     const regularIds = new Set<string>();
@@ -2084,7 +2098,13 @@ export class SceneManager {
       const { item, def } = regularItems[i];
       const existing = this.renderedItems.get(item.uid);
       const isDoor = isDoorDef(def);
+      const isOpening =
+        def.layer === 'wall' &&
+        def.wallKind === 'structure' &&
+        (def.id.startsWith('window_') || def.id.startsWith('door_'));
       const nextMergeSide = mergeSides.get(item.uid);
+      const resolvedWallStyle = isOpening ? resolveOpeningWallStyle(item) : null;
+      const nextWallStyleKey = resolvedWallStyle?.key ?? '';
 
       // Structural doors animate their DoorPivot smoothly instead of rebuilding when toggled!
       const activeChangedNeedsRebuild = !isDoor && existing?.item.active !== item.active;
@@ -2093,6 +2113,7 @@ export class SceneManager {
         existing.item.itemId !== item.itemId ||
         existing.item.variantId !== item.variantId ||
         existing.mergeSide !== nextMergeSide ||
+        existing.wallStyleKey !== nextWallStyleKey ||
         activeChangedNeedsRebuild;
 
       const movedOrRotated =
@@ -2136,6 +2157,8 @@ export class SceneManager {
         group = this.assetLoader.createPlaceholderMesh(def, item.variantId, {
           active: isDoor ? false : item.active,
           mergeSide: nextMergeSide,
+          wallSurfaceColor: resolvedWallStyle?.wallSurfaceColor,
+          wallSurfaceAccent: resolvedWallStyle?.wallSurfaceAccent,
         });
         spinTargets = [];
         doorPivot = null;
@@ -2261,6 +2284,7 @@ export class SceneManager {
         def,
         group,
         mergeSide: nextMergeSide,
+        wallStyleKey: nextWallStyleKey,
         baseX,
         baseY,
         baseZ,
@@ -2363,17 +2387,126 @@ export class SceneManager {
     return this.enclosedCellCount;
   }
 
+  /**
+   * Resolves inherited wall surface colors (`wallSurfaceColor` / `wallSurfaceAccent`) for
+   * structural windows & doors from explicit `wallStyleItemId`/`wallStyleVariantId`, falling back
+   * cleanly to the highest-weighted adjacent `wall_*` segment (or the house's dominant wall style).
+   */
+  private computeWallSurfaceStyleLookup(
+    state: HouseState,
+  ): (item: PlacedItem) => ResolvedWallSurfaceStyle | null {
+    const wallStyleByEdge = new Map<string, ResolvedWallSurfaceStyle>();
+    const globalStyleCounts = new Map<string, { style: ResolvedWallSurfaceStyle; count: number }>();
+
+    const styleFromItemAndVariant = (
+      wallItemId: string,
+      wallVariantId?: string,
+    ): ResolvedWallSurfaceStyle | null => {
+      const wDef = this.data.itemsById.get(wallItemId);
+      if (!wDef || wDef.variants.length === 0) return null;
+      const variant = wDef.variants.find((v) => v.id === wallVariantId) ?? wDef.variants[0];
+      if (!variant) return null;
+      return {
+        wallSurfaceColor: variant.color,
+        wallSurfaceAccent: variant.accentColor,
+        key: `${variant.color}|${variant.accentColor ?? ''}`,
+      };
+    };
+
+    for (let i = 0; i < state.items.length; i++) {
+      const it = state.items[i];
+      const def = this.data.itemsById.get(it.itemId);
+      if (!def || def.layer !== 'wall' || def.wallKind !== 'structure') continue;
+      if (!def.id.startsWith('wall_')) continue;
+      const resolved = styleFromItemAndVariant(it.itemId, it.variantId);
+      if (!resolved) continue;
+      wallStyleByEdge.set(canonicalWallEdgeKey(it.x, it.z, it.rotation), resolved);
+      const prev = globalStyleCounts.get(resolved.key);
+      if (prev) prev.count += 1;
+      else globalStyleCounts.set(resolved.key, { style: resolved, count: 1 });
+    }
+
+    let dominantWallStyle: ResolvedWallSurfaceStyle | null = null;
+    let bestGlobalCount = 0;
+    for (const rec of globalStyleCounts.values()) {
+      if (rec.count > bestGlobalCount) {
+        bestGlobalCount = rec.count;
+        dominantWallStyle = rec.style;
+      }
+    }
+
+    return (item: PlacedItem): ResolvedWallSurfaceStyle | null => {
+      const styled = item as PlacedItemWithWallStyle;
+      if (styled.wallStyleItemId) {
+        const explicit = styleFromItemAndVariant(styled.wallStyleItemId, styled.wallStyleVariantId);
+        if (explicit) return explicit;
+      }
+
+      if (wallStyleByEdge.size === 0) return null;
+
+      const edge = parseCanonicalWallEdgeKey(canonicalWallEdgeKey(item.x, item.z, item.rotation));
+      const candidates: Array<{ key: string; weight: number }> =
+        edge.axis === 'H'
+          ? [
+              { key: `H:${edge.ex - 1}:${edge.ez}`, weight: 2 },
+              { key: `H:${edge.ex + 1}:${edge.ez}`, weight: 2 },
+              { key: `V:${edge.ex}:${edge.ez - 1}`, weight: 1 },
+              { key: `V:${edge.ex}:${edge.ez}`, weight: 1 },
+              { key: `V:${edge.ex + 1}:${edge.ez - 1}`, weight: 1 },
+              { key: `V:${edge.ex + 1}:${edge.ez}`, weight: 1 },
+            ]
+          : [
+              { key: `V:${edge.ex}:${edge.ez - 1}`, weight: 2 },
+              { key: `V:${edge.ex}:${edge.ez + 1}`, weight: 2 },
+              { key: `H:${edge.ex - 1}:${edge.ez}`, weight: 1 },
+              { key: `H:${edge.ex}:${edge.ez}`, weight: 1 },
+              { key: `H:${edge.ex - 1}:${edge.ez + 1}`, weight: 1 },
+              { key: `H:${edge.ex}:${edge.ez + 1}`, weight: 1 },
+            ];
+
+      let bestStyle: ResolvedWallSurfaceStyle | null = null;
+      let bestWeight = 0;
+      const localScores = new Map<string, { style: ResolvedWallSurfaceStyle; score: number }>();
+
+      for (let i = 0; i < candidates.length; i++) {
+        const st = wallStyleByEdge.get(candidates[i].key);
+        if (!st) continue;
+        const existingScore = localScores.get(st.key);
+        const nextScore = (existingScore?.score ?? 0) + candidates[i].weight;
+        localScores.set(st.key, { style: st, score: nextScore });
+        if (nextScore > bestWeight) {
+          bestWeight = nextScore;
+          bestStyle = st;
+        }
+      }
+
+      return bestStyle ?? dominantWallStyle;
+    };
+  }
+
   private computeEnclosedRooms(state: HouseState): void {
     const W = state.gridWidth;
     const D = state.gridDepth;
 
     const wallEdges = new Set<string>();
+    const interior = new Set<string>();
 
     for (const item of state.items) {
       const def = this.data.itemsById.get(item.itemId);
       if (!def) continue;
       if (def.layer === 'wall' && def.wallKind === 'structure') {
         wallEdges.add(canonicalWallEdgeKey(item.x, item.z, item.rotation));
+      } else if (def.layer === 'floor') {
+        const eff = getEffectiveFootprint(def, item.rotation);
+        for (let dx = 0; dx < eff.w; dx++) {
+          for (let dz = 0; dz < eff.d; dz++) {
+            const cx = item.x + dx;
+            const cz = item.z + dz;
+            if (cx >= 0 && cx < W && cz >= 0 && cz < D) {
+              interior.add(`${cx},${cz}`);
+            }
+          }
+        }
       }
     }
 
@@ -2440,12 +2573,14 @@ export class SceneManager {
       for (let z = 0; z < D; z++) {
         if (!visited[(x + 1) * pd + (z + 1)]) {
           enclosed[x][z] = true;
+          interior.add(`${x},${z}`);
           count += 1;
         }
       }
     }
 
     this.enclosedCells = enclosed;
+    this.interiorCells = interior;
     this.enclosedCellCount = count;
   }
 
@@ -2595,19 +2730,70 @@ export class SceneManager {
         const baseOp = m.userData.baseOpacity as number;
         const baseTrans = m.userData.baseTransparent as boolean;
         const baseDW = m.userData.baseDepthWrite as boolean;
+        let nextTransparent: boolean;
         if (factor >= 0.995) {
           m.opacity = baseOp;
-          m.transparent = baseTrans;
+          nextTransparent = baseTrans;
           m.depthWrite = baseDW;
         } else {
           const eff = baseOp * factor;
           m.opacity = eff;
-          m.transparent = eff < 0.99;
+          nextTransparent = eff < 0.99;
           m.depthWrite = eff >= 0.95;
+        }
+        if (m.transparent !== nextTransparent) {
+          m.transparent = nextTransparent;
+          m.needsUpdate = true;
         }
       }
     });
     return shadowChanged;
+  }
+
+  /**
+   * Sims-style away-from-camera interior visibility check for a wall edge:
+   * - If the cell directly BEHIND the wall (away from camera) is an interior cell (floor/furniture/enclosed),
+   *   this wall blocks visibility of that room -> fade to translucent!
+   * - Else if the cell IN FRONT of the wall (toward camera) is an interior cell, this is a clean back wall
+   *   framing the room -> stay 100% solid!
+   * - Else (bare wall with no floor/furniture on either side), fall back to centroid-side orientation.
+   */
+  private isWallEdgeBlockingInterior(
+    gx: number,
+    gz: number,
+    rotation: PlacedItem['rotation'],
+    baseX: number,
+    baseZ: number,
+    cx: number,
+    cz: number,
+    toCamX: number,
+    toCamZ: number,
+  ): boolean {
+    const edge = parseCanonicalWallEdgeKey(canonicalWallEdgeKey(gx, gz, rotation));
+    let behindKey: string;
+    let frontKey: string;
+    if (edge.axis === 'H') {
+      const smallZKey = `${edge.ex},${edge.ez - 1}`;
+      const largeZKey = `${edge.ex},${edge.ez}`;
+      behindKey = toCamZ >= 0 ? smallZKey : largeZKey;
+      frontKey = toCamZ >= 0 ? largeZKey : smallZKey;
+    } else {
+      const smallXKey = `${edge.ex - 1},${edge.ez}`;
+      const largeXKey = `${edge.ex},${edge.ez}`;
+      behindKey = toCamX >= 0 ? smallXKey : largeXKey;
+      frontKey = toCamX >= 0 ? largeXKey : smallXKey;
+    }
+
+    if (this.interiorCells.has(behindKey)) {
+      return true;
+    }
+    if (this.interiorCells.has(frontKey)) {
+      return false;
+    }
+
+    return rotation % 2 === 0
+      ? (baseZ - cz) * toCamZ > 0.25
+      : (baseX - cx) * toCamX > 0.25;
   }
 
   private updateWallTranslucency(dt: number, snapUninit = false): void {
@@ -2642,7 +2828,7 @@ export class SceneManager {
     this.lastWallCamX = toCamX;
     this.lastWallCamZ = toCamZ;
 
-    // Compute centroid (cx, cz) across all placed structural walls (fallback 0, 0)
+    // Centroid fallback for bare walls with no floor/furniture on either side
     let cx = 0;
     let cz = 0;
     if (this.wallEntries.length > 0) {
@@ -2661,7 +2847,7 @@ export class SceneManager {
     let anyMoving = false;
     let anyShadowChanged = false;
 
-    // Pass 1: pre-filtered structural walls (centroid-side camera-facing invariant)
+    // Pass 1: pre-filtered structural walls (Sims-style away-from-camera interior visibility check)
     for (let i = 0; i < this.wallEntries.length; i++) {
       const entry = this.wallEntries[i];
       let target = 1.0;
@@ -2670,11 +2856,18 @@ export class SceneManager {
       } else if (mode === 'translucent') {
         target = 0.2;
       } else {
-        const isFrontFacing =
-          entry.item.rotation % 2 === 0
-            ? (entry.baseZ - cz) * toCamZ > 0.25
-            : (entry.baseX - cx) * toCamX > 0.25;
-        target = isFrontFacing ? 0.18 : 1.0;
+        const isBlocking = this.isWallEdgeBlockingInterior(
+          entry.item.x,
+          entry.item.z,
+          entry.item.rotation,
+          entry.baseX,
+          entry.baseZ,
+          cx,
+          cz,
+          toCamX,
+          toCamZ,
+        );
+        target = isBlocking ? 0.16 : 1.0;
       }
 
       this.wallTargetsMap.set(entry.uid, target);
@@ -2703,7 +2896,7 @@ export class SceneManager {
       }
     }
 
-    // Pass 2: pre-filtered wall-mounted items (matched to parent wall or centroid-side invariant)
+    // Pass 2: pre-filtered wall-mounted items (matched to parent wall or exact attached edge cell test)
     for (let i = 0; i < this.mountedEntries.length; i++) {
       const entry = this.mountedEntries[i];
       let target = 1.0;
@@ -2712,13 +2905,21 @@ export class SceneManager {
       } else if (mode === 'translucent') {
         target = 0.22;
       } else {
-        const isFrontFacing =
+        const isBlocking =
           entry.item.parentUid && this.wallTargetsMap.has(entry.item.parentUid)
             ? (this.wallTargetsMap.get(entry.item.parentUid) ?? 1.0) < 0.9
-            : entry.item.rotation % 2 === 0
-              ? (entry.baseZ - cz) * toCamZ > 0.25
-              : (entry.baseX - cx) * toCamX > 0.25;
-        target = isFrontFacing ? 0.2 : 1.0;
+            : this.isWallEdgeBlockingInterior(
+                entry.item.x,
+                entry.item.z,
+                entry.item.rotation,
+                entry.baseX,
+                entry.baseZ,
+                cx,
+                cz,
+                toCamX,
+                toCamZ,
+              );
+        target = isBlocking ? 0.16 : 1.0;
       }
 
       const shouldSnap = snapUninit && !entry.wallOpacityInitialized;
