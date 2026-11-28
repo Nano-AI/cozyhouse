@@ -3,12 +3,14 @@ import * as THREE from 'three';
 const ISO_ELEVATION_RAD = Math.atan(Math.SQRT1_2); // True isometric ~35.264°
 const CAMERA_DISTANCE = 32;
 const BASE_FRUSTUM_HALF_HEIGHT = 8.4;
+// Ensures portrait phones keep the entire house cleanly framed instead of cropping left/right
+const MIN_FRUSTUM_HALF_WIDTH = 9.0;
 // Tight near/far span maximizes 24-bit depth buffer precision while cleanly containing
 // SkyDome (radius <= 125) and LinearCloudField (depth <= 132) without far-plane clipping.
 const CAMERA_NEAR = 1.5;
 const CAMERA_FAR = 160;
 
-const MIN_ZOOM = 0.55;
+const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.45;
 const DEFAULT_ZOOM = 1.05;
 
@@ -29,6 +31,7 @@ export class IsometricCamera {
   private transitionZoomScale = 1;
 
   private aspect = 1;
+  private frustumHalfHeight = BASE_FRUSTUM_HALF_HEIGHT;
   private panLimit = 9;
   private cinematicMode = false;
   private cinematicTime = 0;
@@ -41,19 +44,24 @@ export class IsometricCamera {
 
   constructor(width: number, height: number, onStepChange?: (quarter: number) => void) {
     this.aspect = Math.max(0.1, width / Math.max(1, height));
+    this.frustumHalfHeight = this.computeFrustumHalfHeight(this.aspect);
     this.onStepChange = onStepChange;
 
     this.camera = new THREE.OrthographicCamera(
-      -BASE_FRUSTUM_HALF_HEIGHT * this.aspect,
-      BASE_FRUSTUM_HALF_HEIGHT * this.aspect,
-      BASE_FRUSTUM_HALF_HEIGHT,
-      -BASE_FRUSTUM_HALF_HEIGHT,
+      -this.frustumHalfHeight * this.aspect,
+      this.frustumHalfHeight * this.aspect,
+      this.frustumHalfHeight,
+      -this.frustumHalfHeight,
       CAMERA_NEAR,
       CAMERA_FAR,
     );
     this.camera.zoom = this.currentZoom;
     this.camera.updateProjectionMatrix();
     this.applyCameraTransform();
+  }
+
+  private computeFrustumHalfHeight(aspect: number): number {
+    return Math.max(BASE_FRUSTUM_HALF_HEIGHT, MIN_FRUSTUM_HALF_WIDTH / Math.max(0.35, aspect));
   }
 
   setPanLimit(gridWidth: number, gridDepth: number): void {
@@ -89,10 +97,11 @@ export class IsometricCamera {
 
   resize(width: number, height: number): void {
     this.aspect = Math.max(0.1, width / Math.max(1, height));
-    this.camera.left = -BASE_FRUSTUM_HALF_HEIGHT * this.aspect;
-    this.camera.right = BASE_FRUSTUM_HALF_HEIGHT * this.aspect;
-    this.camera.top = BASE_FRUSTUM_HALF_HEIGHT;
-    this.camera.bottom = -BASE_FRUSTUM_HALF_HEIGHT;
+    this.frustumHalfHeight = this.computeFrustumHalfHeight(this.aspect);
+    this.camera.left = -this.frustumHalfHeight * this.aspect;
+    this.camera.right = this.frustumHalfHeight * this.aspect;
+    this.camera.top = this.frustumHalfHeight;
+    this.camera.bottom = -this.frustumHalfHeight;
     this.camera.updateProjectionMatrix();
   }
 
@@ -214,7 +223,7 @@ export class IsometricCamera {
     if (dxPixels !== 0 || dyPixels !== 0) {
       this.emitManualPan();
     }
-    const worldPerPixel = (BASE_FRUSTUM_HALF_HEIGHT * 2) / (Math.max(1, viewportHeight) * this.currentZoom);
+    const worldPerPixel = (this.frustumHalfHeight * 2) / (Math.max(1, viewportHeight) * this.currentZoom);
 
     // Screen right vector projected onto the XZ ground plane
     const cosA = Math.cos(this.currentAzimuth);

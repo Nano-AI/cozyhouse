@@ -567,6 +567,7 @@ export class SceneManager {
   private povLastDragX = 0;
   private povLastDragY = 0;
   private povHeldKeys = new Set<string>();
+  private angelVirtualInput = { forward: 0, right: 0, up: 0 };
   private cameraFollowProvider: (() => { x: number; z: number } | null) | null = null;
   private cameraFollowCancelCb: (() => void) | null = null;
   private cameraLockProvider: (() => { x: number; z: number } | null) | null = null;
@@ -600,6 +601,20 @@ export class SceneManager {
     return this.povTargetId;
   }
 
+  isPovDragging(): boolean {
+    return this.povDragging;
+  }
+
+  private syncPovCanvasCursor(): void {
+    const el = this.renderer?.domElement;
+    if (!el || !el.dataset) return;
+    if (this.cameraViewMode !== 'isometric') {
+      el.dataset.cursor = this.povDragging ? 'panning' : 'pan';
+    } else if (!el.dataset.cursor) {
+      el.dataset.cursor = 'pan';
+    }
+  }
+
   onCameraViewModeChange(
     listener: (mode: CameraViewMode, targetId: string | null) => void,
   ): () => void {
@@ -608,6 +623,7 @@ export class SceneManager {
   }
 
   private emitCameraViewModeChange(): void {
+    this.syncPovCanvasCursor();
     for (const listener of this.cameraViewModeListeners) {
       listener(this.cameraViewMode, this.povTargetId);
     }
@@ -666,10 +682,11 @@ export class SceneManager {
     const pr = typeof this.renderer.getPixelRatio === 'function' ? this.renderer.getPixelRatio() : 1;
     this.shaderPipeline.resize(width, height, pr);
 
+    const initialAspect = Math.max(0.1, width / Math.max(1, height));
     this.isoCamera = new IsometricCamera(width, height, onCameraQuarterChange);
     this.povCamera = new THREE.PerspectiveCamera(
-      68,
-      Math.max(0.1, width / Math.max(1, height)),
+      initialAspect < 0.85 ? 78 : 68,
+      initialAspect,
       0.08,
       160,
     );
@@ -1390,6 +1407,7 @@ export class SceneManager {
     this.povDragging = false;
     this.povDragPointerId = null;
     this.povHeldKeys.clear();
+    this.angelVirtualInput = { forward: 0, right: 0, up: 0 };
     this.angelVelocity.set(0, 0, 0);
     this.isoCamera.setInputSuspended(false);
 
@@ -1399,6 +1417,20 @@ export class SceneManager {
     this.updateWallTranslucency(0, false);
     this.syncCeilingVisibility();
     this.emitCameraViewModeChange();
+  }
+
+  /** Smoothly recenters Guest/Staff POV freelook (useful on touch devices without an R key). */
+  recenterVisitorPov(): void {
+    if (this.cameraViewMode === 'visitor_pov') {
+      this.povRecentering = true;
+    }
+  }
+
+  /** Sets virtual flight axes (`-1..1`) for touch-screen Angel's POV controls. */
+  setAngelVirtualInput(forward: number, right: number, up: number): void {
+    this.angelVirtualInput.forward = THREE.MathUtils.clamp(forward, -1, 1);
+    this.angelVirtualInput.right = THREE.MathUtils.clamp(right, -1, 1);
+    this.angelVirtualInput.up = THREE.MathUtils.clamp(up, -1, 1);
   }
 
   private isEditableTarget(target: EventTarget | null): boolean {
@@ -1442,6 +1474,7 @@ export class SceneManager {
     this.povLastDragX = e.clientX;
     this.povLastDragY = e.clientY;
     this.povRecentering = false;
+    this.syncPovCanvasCursor();
   };
 
   private handlePovPointerMove = (e: PointerEvent): void => {
@@ -1482,6 +1515,7 @@ export class SceneManager {
     if (this.povDragPointerId !== null && e.pointerId !== this.povDragPointerId) return;
     this.povDragging = false;
     this.povDragPointerId = null;
+    this.syncPovCanvasCursor();
   };
 
   private handlePovDblClick = (): void => {
@@ -1548,6 +1582,7 @@ export class SceneManager {
     this.povHeldKeys.clear();
     this.povDragging = false;
     this.povDragPointerId = null;
+    this.syncPovCanvasCursor();
   };
 
   private bindPovInputEvents(): void {
@@ -1640,20 +1675,32 @@ export class SceneManager {
       this.povCamera.rotation.set(this.angelPitch, this.angelYaw, 0, 'YXZ');
       this.povCamera.updateMatrixWorld();
 
-      const forwardInput =
+      const forwardInput = THREE.MathUtils.clamp(
         (this.povHeldKeys.has('KeyW') || this.povHeldKeys.has('ArrowUp') ? 1 : 0) -
-        (this.povHeldKeys.has('KeyS') || this.povHeldKeys.has('ArrowDown') ? 1 : 0);
-      const rightInput =
+          (this.povHeldKeys.has('KeyS') || this.povHeldKeys.has('ArrowDown') ? 1 : 0) +
+          this.angelVirtualInput.forward,
+        -1,
+        1,
+      );
+      const rightInput = THREE.MathUtils.clamp(
         (this.povHeldKeys.has('KeyD') || this.povHeldKeys.has('ArrowRight') ? 1 : 0) -
-        (this.povHeldKeys.has('KeyA') || this.povHeldKeys.has('ArrowLeft') ? 1 : 0);
-      const upInput =
+          (this.povHeldKeys.has('KeyA') || this.povHeldKeys.has('ArrowLeft') ? 1 : 0) +
+          this.angelVirtualInput.right,
+        -1,
+        1,
+      );
+      const upInput = THREE.MathUtils.clamp(
         (this.povHeldKeys.has('Space') || this.povHeldKeys.has('KeyE') ? 1 : 0) -
-        (this.povHeldKeys.has('ShiftLeft') ||
-        this.povHeldKeys.has('ShiftRight') ||
-        this.povHeldKeys.has('KeyQ') ||
-        this.povHeldKeys.has('KeyC')
-          ? 1
-          : 0);
+          (this.povHeldKeys.has('ShiftLeft') ||
+          this.povHeldKeys.has('ShiftRight') ||
+          this.povHeldKeys.has('KeyQ') ||
+          this.povHeldKeys.has('KeyC')
+            ? 1
+            : 0) +
+          this.angelVirtualInput.up,
+        -1,
+        1,
+      );
 
       this.povCamera.getWorldDirection(this.povForwardScratch);
       this.povRightScratch.crossVectors(this.povForwardScratch, this.povUpAxis);
@@ -3795,8 +3842,10 @@ export class SceneManager {
   private handleResize(): void {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
+    const aspect = Math.max(0.1, width / Math.max(1, height));
     this.isoCamera.resize(width, height);
-    this.povCamera.aspect = Math.max(0.1, width / Math.max(1, height));
+    this.povCamera.aspect = aspect;
+    this.povCamera.fov = aspect < 0.85 ? 78 : 68;
     this.povCamera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     const pr = typeof this.renderer.getPixelRatio === 'function' ? this.renderer.getPixelRatio() : 1;

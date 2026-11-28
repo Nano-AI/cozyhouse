@@ -14,10 +14,32 @@ import {
 } from './GridSystem';
 import type { SceneManager } from './SceneManager';
 
+export type CursorState =
+  | 'default'
+  | 'pointer'
+  | 'pan'
+  | 'panning'
+  | 'person'
+  | 'interact'
+  | 'select'
+  | 'move'
+  | 'place'
+  | 'place-invalid'
+  | 'erase'
+  | 'marquee';
+
 export interface HoverItemInfo {
   uid: string;
   itemId: string;
   name: string;
+  clientX: number;
+  clientY: number;
+  kind?: 'item' | 'interact' | 'person';
+  subtitle?: string;
+}
+
+export interface HoverPersonInfo {
+  instanceId: string;
   clientX: number;
   clientY: number;
 }
@@ -84,9 +106,11 @@ export class PlacementController {
   private erasedAnyInBatch = false;
   private dragBatchOpen = false;
 
-  // Active touch points for pinch-to-zoom on touchpads/screens
+  // Active touch points for pinch-to-zoom & simultaneous two-finger pan on touchscreens
   private activePointers = new Map<number, { x: number; y: number }>();
   private lastPinchDist = 0;
+  private lastPinchCenter: { x: number; y: number } | null = null;
+  private pinchCancelled = false;
 
   // rAF hover raycasting throttle
   private pendingHover: { clientX: number; clientY: number; overCanvas: boolean } | null = null;
@@ -94,6 +118,10 @@ export class PlacementController {
 
   private onHoverHint?: (hint: string | null) => void;
   private onHoverItem?: (info: HoverItemInfo | null) => void;
+  private onHoverPerson?: (info: HoverPersonInfo | null) => void;
+  private cursorOverride: CursorState | null = null;
+  private currentCursorState: CursorState = 'pan';
+  private unsubViewMode: (() => void) | null = null;
 
   constructor(
     sceneManager: SceneManager,
@@ -125,6 +153,7 @@ export class PlacementController {
         this.sceneManager.setEraseHoverUid(null);
         this.sceneManager.setMovingHiddenUid(mode === 'move' ? this.store.getSelectedUid() : null);
         this.onHoverItem?.(null);
+        this.onHoverPerson?.(null);
 
         if ((mode === 'place' || mode === 'move') && placementItemId) {
           const def = this.store.data.itemsById.get(placementItemId);
@@ -177,12 +206,14 @@ export class PlacementController {
             } else {
               this.onHoverHint?.(null);
             }
+            this.refreshBaselineCursor();
             return;
           }
         }
 
         this.clearGhost();
         this.onHoverHint?.(null);
+        this.refreshBaselineCursor();
       },
     );
 
@@ -197,11 +228,84 @@ export class PlacementController {
         this.sceneManager.setMovingHiddenUid(null);
         this.onHoverHint?.(null);
         this.onHoverItem?.(null);
+        this.onHoverPerson?.(null);
       }
+      this.refreshBaselineCursor();
     });
 
+    this.unsubViewMode = this.sceneManager.onCameraViewModeChange(() => {
+      if (this.sceneManager.getCameraViewMode() !== 'isometric') {
+        this.cancelPendingHover();
+        this.onHoverItem?.(null);
+        this.onHoverPerson?.(null);
+      }
+      this.refreshBaselineCursor();
+    });
+
+    this.setCanvasCursor(this.resolveBaselineCursor());
     this.unsubTickHook = this.sceneManager.addTickHook((dt) => this.update(dt));
     this.bindEvents();
+  }
+
+  setOnHoverPerson(cb: ((info: HoverPersonInfo | null) => void) | undefined): void {
+    this.onHoverPerson = cb;
+  }
+
+  setCursorOverride(state: CursorState | null): void {
+    this.cursorOverride = state;
+    if (state) {
+      this.onHoverItem?.(null);
+      this.onHoverPerson?.(null);
+    }
+    this.refreshBaselineCursor();
+  }
+
+  private setCanvasCursor(next: CursorState): void {
+    if (next === this.currentCursorState && this.canvas.dataset?.cursor === next) {
+      return;
+    }
+    this.currentCursorState = next;
+    if (this.canvas.dataset) {
+      this.canvas.dataset.cursor = next;
+    }
+  }
+
+  private resolveBaselineCursor(): CursorState {
+    if (this.cursorOverride) {
+      return this.cursorOverride;
+    }
+    if (this.sceneManager.getCameraViewMode?.() !== 'isometric') {
+      return this.sceneManager.isPovDragging?.() ? 'panning' : 'pan';
+    }
+    if (this.isPointerDown && this.dragKind !== 'none') {
+      switch (this.dragKind) {
+        case 'pan':
+          return 'panning';
+        case 'drag-item':
+          return 'move';
+        case 'marquee':
+          return 'marquee';
+        case 'erase':
+          return 'erase';
+        case 'paint':
+          return this.currentTarget && !this.currentTarget.valid ? 'place-invalid' : 'place';
+      }
+    }
+    if (this.store.isEditMode()) {
+      const mode = this.store.getModeState().mode;
+      if (mode === 'place') {
+        return this.currentTarget && !this.currentTarget.valid ? 'place-invalid' : 'place';
+      }
+      if (mode === 'erase') return 'erase';
+      if (mode === 'move') return 'move';
+      if (mode === 'bulk-select') return 'marquee';
+      return 'pan';
+    }
+    return 'pan';
+  }
+
+  private refreshBaselineCursor(): void {
+    this.setCanvasCursor(this.resolveBaselineCursor());
   }
 
   private update(dt: number): void {
@@ -349,6 +453,8 @@ export class PlacementController {
       this.sceneManager.setHoverOutlineUid(null);
       this.sceneManager.setEraseHoverUid(null);
       this.onHoverItem?.(null);
+      this.onHoverPerson?.(null);
+      this.refreshBaselineCursor();
     }
   };
 
@@ -1254,12 +1360,25 @@ export class PlacementController {
       this.hideMarquee();
       const pts = [...this.activePointers.values()];
       this.lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      this.lastPinchCenter = {
+        x: (pts[0].x + pts[1].x) * 0.5,
+        y: (pts[0].y + pts[1].y) * 0.5,
+      };
+      this.pinchCancelled = true;
       this.dragKind = 'none';
       this.isPointerDown = false;
+      this.refreshBaselineCursor();
       return;
     }
 
+    if (this.activePointers.size === 1) {
+      this.pinchCancelled = false;
+      this.lastPinchCenter = null;
+    }
+
     this.cancelPendingHover();
+    this.onHoverItem?.(null);
+    this.onHoverPerson?.(null);
     this.isPointerDown = true;
     this.didDrag = false;
     this.pointerDownPos = { x: e.clientX, y: e.clientY };
@@ -1275,6 +1394,7 @@ export class PlacementController {
       const hit = this.raycastItemUid();
       this.pointerDownItemUid = hit?.uid ?? null;
       this.dragKind = 'pan';
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1289,6 +1409,7 @@ export class PlacementController {
       } else {
         this.dragKind = 'pan';
       }
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1297,6 +1418,7 @@ export class PlacementController {
       this.pointerDownItemUid = hit?.uid ?? null;
       this.marqueeBaseSelection = e.shiftKey ? this.store.getSelectedUids() : [];
       this.dragKind = 'marquee';
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1311,6 +1433,7 @@ export class PlacementController {
         this.store.deleteItems([hitUid]);
         this.erasedAnyInBatch = true;
       }
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1331,12 +1454,19 @@ export class PlacementController {
             this.placeFromTarget(def, modeState.placementVariantId ?? def.variants[0].id, target);
           }
         }
+        this.refreshBaselineCursor();
         return;
       }
     }
 
     this.dragKind = 'none';
     this.pointerDownItemUid = null;
+    // On touch screens (no hover), show live ghost preview immediately on touch-down in place/move mode
+    if (e.pointerType === 'touch' && (modeState.mode === 'place' || modeState.mode === 'move')) {
+      this.processEditHoverOrGhost(e.clientX, e.clientY, true);
+    } else {
+      this.refreshBaselineCursor();
+    }
   };
 
   private handlePointerMove = (e: PointerEvent): void => {
@@ -1344,14 +1474,26 @@ export class PlacementController {
       this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
 
-    // Two-finger touch pinch-to-zoom
+    // Two-finger touch pinch-to-zoom + simultaneous midpoint pan
     if (this.activePointers.size === 2) {
       const pts = [...this.activePointers.values()];
       const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const center = {
+        x: (pts[0].x + pts[1].x) * 0.5,
+        y: (pts[0].y + pts[1].y) * 0.5,
+      };
       if (this.lastPinchDist > 0 && dist > 0) {
         this.sceneManager.isoCamera.zoomByFactor(dist / this.lastPinchDist);
       }
+      if (this.lastPinchCenter) {
+        const dx = center.x - this.lastPinchCenter.x;
+        const dy = center.y - this.lastPinchCenter.y;
+        if (Math.abs(dx) > 0.25 || Math.abs(dy) > 0.25) {
+          this.sceneManager.isoCamera.panByPixels(dx, dy, this.canvas.clientHeight);
+        }
+      }
       this.lastPinchDist = dist;
+      this.lastPinchCenter = center;
       return;
     }
 
@@ -1368,7 +1510,8 @@ export class PlacementController {
         e.clientX - this.pointerDownPos.x,
         e.clientY - this.pointerDownPos.y,
       );
-      if (totalDist > DRAG_THRESHOLD_PX) {
+      const dragThreshold = e.pointerType === 'touch' ? 14 : DRAG_THRESHOLD_PX;
+      if (totalDist > dragThreshold) {
         this.didDrag = true;
       }
 
@@ -1379,14 +1522,18 @@ export class PlacementController {
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
         this.sceneManager.setHoverOutlineUid(null);
         this.onHoverItem?.(null);
+        this.onHoverPerson?.(null);
+        this.refreshBaselineCursor();
         return;
       }
 
       if (this.didDrag && this.dragKind === 'marquee') {
         this.sceneManager.setHoverOutlineUid(null);
         this.onHoverItem?.(null);
+        this.onHoverPerson?.(null);
         this.updateMarqueeBox(e.clientX, e.clientY);
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
+        this.refreshBaselineCursor();
         return;
       }
 
@@ -1398,6 +1545,7 @@ export class PlacementController {
           this.erasedAnyInBatch = true;
         }
         this.lastPointerPos = { x: e.clientX, y: e.clientY };
+        this.refreshBaselineCursor();
         return;
       }
 
@@ -1412,23 +1560,34 @@ export class PlacementController {
 
     this.lastPointerPos = { x: e.clientX, y: e.clientY };
 
-    // Live Mode: no hover outlines, no tooltips
-    if (!this.store.isEditMode()) {
+    const overCanvas = e.target === this.canvas;
+
+    // Priority 1 & 2: cursor overrides (e.g. moving staff) or POV mode skip hover picking cleanly
+    if (this.cursorOverride || this.sceneManager.getCameraViewMode?.() !== 'isometric') {
       this.cancelPendingHover();
       this.sceneManager.setHoverOutlineUid(null);
       this.sceneManager.setEraseHoverUid(null);
       this.onHoverItem?.(null);
+      this.onHoverPerson?.(null);
+      this.refreshBaselineCursor();
       return;
     }
 
-    const overCanvas = e.target === this.canvas;
-
-    // Throttle non-dragging Edit Mode hover raycasting to at most once per animation frame
+    // Throttle non-dragging hover raycasting (desktop mouse/pen only; touch never hovers)
     if (!this.isPointerDown) {
+      if (e.pointerType === 'touch') {
+        return;
+      }
       this.pendingHover = { clientX: e.clientX, clientY: e.clientY, overCanvas };
       if (this.hoverRafId === 0) {
         this.hoverRafId = requestAnimationFrame(this.flushHoverUpdate);
       }
+      return;
+    }
+
+    // Active drag in Live Mode (before threshold) keeps active drag cursor cleanly
+    if (!this.store.isEditMode()) {
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1440,13 +1599,73 @@ export class PlacementController {
     this.hoverRafId = 0;
     const pending = this.pendingHover;
     this.pendingHover = null;
-    if (!pending || this.isPointerDown || !this.store.isEditMode()) return;
+    if (!pending || this.isPointerDown) return;
+
+    if (this.cursorOverride || this.sceneManager.getCameraViewMode?.() !== 'isometric') {
+      this.onHoverItem?.(null);
+      this.onHoverPerson?.(null);
+      this.refreshBaselineCursor();
+      return;
+    }
+
     this.updatePointerNdc(pending.clientX, pending.clientY);
+    if (!this.store.isEditMode()) {
+      this.processLiveHover(pending.clientX, pending.clientY, pending.overCanvas);
+      return;
+    }
     this.processEditHoverOrGhost(pending.clientX, pending.clientY, pending.overCanvas);
   };
 
+  private processLiveHover(clientX: number, clientY: number, overCanvas: boolean): void {
+    this.sceneManager.setHoverOutlineUid(null);
+    this.sceneManager.setEraseHoverUid(null);
+
+    if (!overCanvas) {
+      this.onHoverPerson?.(null);
+      this.onHoverItem?.(null);
+      this.setCanvasCursor(this.resolveBaselineCursor());
+      return;
+    }
+
+    // Priority 5a: Live visitor hover -> person info cursor + person hover callback
+    const hitVisitorId = this.sceneManager.pickVisitorAtClientPos(clientX, clientY);
+    if (hitVisitorId) {
+      this.onHoverItem?.(null);
+      this.onHoverPerson?.({ instanceId: hitVisitorId, clientX, clientY });
+      this.setCanvasCursor('person');
+      return;
+    }
+
+    // Priority 5b: Interactive item hover -> interact sparkle cursor + compact item hover
+    const hit = this.raycastItemUid();
+    if (hit) {
+      const item = this.store.getItem(hit.uid);
+      const def = item ? this.store.data.itemsById.get(item.itemId) : undefined;
+      if (item && def?.interaction) {
+        this.onHoverPerson?.(null);
+        this.onHoverItem?.({
+          uid: hit.uid,
+          itemId: item.itemId,
+          name: def.name,
+          clientX,
+          clientY,
+          kind: 'interact',
+          subtitle: 'Click to interact',
+        });
+        this.setCanvasCursor('interact');
+        return;
+      }
+    }
+
+    // Priority 5c: Empty space or passive item -> open-hand pan cursor
+    this.onHoverPerson?.(null);
+    this.onHoverItem?.(null);
+    this.setCanvasCursor('pan');
+  }
+
   private processEditHoverOrGhost(clientX: number, clientY: number, overCanvas: boolean): void {
     const modeState = this.store.getModeState();
+    this.onHoverPerson?.(null);
 
     // Hover outline + tooltip in Edit Mode ('select' or 'bulk-select')
     if ((modeState.mode === 'select' || modeState.mode === 'bulk-select') && !this.isPointerDown) {
@@ -1454,6 +1673,7 @@ export class PlacementController {
       if (!overCanvas) {
         this.sceneManager.setHoverOutlineUid(null);
         this.onHoverItem?.(null);
+        this.setCanvasCursor(this.resolveBaselineCursor());
         return;
       }
       const hit = this.raycastItemUid();
@@ -1468,12 +1688,23 @@ export class PlacementController {
             name: def.name,
             clientX,
             clientY,
+            kind: 'item',
           });
+          if (
+            modeState.mode === 'select' &&
+            this.store.getSelectedUids().includes(hit.uid) &&
+            !this.isFloorTile(item.itemId)
+          ) {
+            this.setCanvasCursor('move');
+          } else {
+            this.setCanvasCursor('select');
+          }
           return;
         }
       }
       this.sceneManager.setHoverOutlineUid(null);
       this.onHoverItem?.(null);
+      this.setCanvasCursor(modeState.mode === 'bulk-select' ? 'marquee' : 'pan');
       return;
     }
 
@@ -1484,6 +1715,7 @@ export class PlacementController {
       this.sceneManager.setEraseHoverUid(
         overCanvas ? this.raycastEraseUid(modeState.eraseFilter) : null,
       );
+      this.setCanvasCursor('erase');
       return;
     }
 
@@ -1492,7 +1724,10 @@ export class PlacementController {
       this.sceneManager.setHoverOutlineUid(null);
       this.onHoverItem?.(null);
       const def = this.store.data.itemsById.get(modeState.placementItemId);
-      if (!def) return;
+      if (!def) {
+        this.refreshBaselineCursor();
+        return;
+      }
       const movingUid = modeState.mode === 'move' ? (this.store.getSelectedUid() ?? undefined) : undefined;
       const target = this.resolvePlacementTarget(def, modeState.placementRotation, movingUid);
       this.currentTarget = target;
@@ -1512,13 +1747,25 @@ export class PlacementController {
       } else {
         this.clearGhost();
       }
+      if (modeState.mode === 'move') {
+        this.setCanvasCursor('move');
+      } else {
+        this.setCanvasCursor(target && !target.valid ? 'place-invalid' : 'place');
+      }
+      return;
     }
+
+    this.refreshBaselineCursor();
   }
 
   private handlePointerCancel = (e: PointerEvent): void => {
     this.activePointers.delete(e.pointerId);
     if (this.activePointers.size < 2) {
       this.lastPinchDist = 0;
+      this.lastPinchCenter = null;
+    }
+    if (this.activePointers.size === 0) {
+      this.pinchCancelled = false;
     }
     if (this.dragBatchOpen) {
       this.closeDragBatch(this.resolveActiveDragBatchReason());
@@ -1530,21 +1777,41 @@ export class PlacementController {
     this.dragKind = 'none';
     this.pointerDownItemUid = null;
     this.hideMarquee();
+    this.onHoverItem?.(null);
+    this.onHoverPerson?.(null);
+    this.refreshBaselineCursor();
   };
 
   private handlePointerUp = (e: PointerEvent): void => {
     this.activePointers.delete(e.pointerId);
     if (this.activePointers.size < 2) {
       this.lastPinchDist = 0;
+      this.lastPinchCenter = null;
+    }
+    const wasPinchCancelled = this.pinchCancelled;
+    if (this.activePointers.size === 0) {
+      this.pinchCancelled = false;
     }
 
-    if (!this.isPointerDown) {
+    if (!this.isPointerDown || wasPinchCancelled) {
+      this.isPointerDown = false;
       if (this.dragBatchOpen) {
         this.closeDragBatch(this.resolveActiveDragBatchReason());
       }
+      this.refreshBaselineCursor();
       return;
     }
     this.isPointerDown = false;
+
+    const schedulePostUpHover = () => {
+      if (e.pointerType === 'touch') return;
+      if (e.target === this.canvas && !this.cursorOverride && this.sceneManager.getCameraViewMode?.() === 'isometric') {
+        this.pendingHover = { clientX: e.clientX, clientY: e.clientY, overCanvas: true };
+        if (this.hoverRafId === 0) {
+          this.hoverRafId = requestAnimationFrame(this.flushHoverUpdate);
+        }
+      }
+    };
 
     // Live Mode: click interacts ONLY with interactive items; never selects or bounces static furniture
     if (!this.store.isEditMode()) {
@@ -1562,6 +1829,8 @@ export class PlacementController {
           this.store.triggerInteraction(clickedUid);
         }
       }
+      this.refreshBaselineCursor();
+      schedulePostUpHover();
       return;
     }
 
@@ -1575,6 +1844,7 @@ export class PlacementController {
       }
       this.paintedKeys.clear();
       this.dragKind = 'none';
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1582,6 +1852,7 @@ export class PlacementController {
       this.closeDragBatch(this.erasedAnyInBatch ? 'delete' : undefined);
       this.erasedAnyInBatch = false;
       this.dragKind = 'none';
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1591,6 +1862,8 @@ export class PlacementController {
       if (!this.didDrag && this.pointerDownItemUid) {
         this.store.toggleSelectionUid(this.pointerDownItemUid);
       }
+      this.refreshBaselineCursor();
+      schedulePostUpHover();
       return;
     }
 
@@ -1598,23 +1871,36 @@ export class PlacementController {
     if (this.dragKind === 'drag-item' && this.didDrag && modeState.mode === 'move') {
       this.commitMove();
       this.dragKind = 'none';
+      this.refreshBaselineCursor();
+      schedulePostUpHover();
       return;
     }
 
     this.dragKind = 'none';
-    if (this.didDrag) return;
+    // On touch screens, sliding 1 finger in place/move mode aims the ghost and releasing commits it!
+    const isTouchPlaceOrMove =
+      e.pointerType === 'touch' && (modeState.mode === 'place' || modeState.mode === 'move');
+    if (this.didDrag && !isTouchPlaceOrMove) {
+      this.refreshBaselineCursor();
+      schedulePostUpHover();
+      return;
+    }
 
     // Click in Place mode (non-paintable furniture/surface/ceiling/decor)
     if (modeState.mode === 'place' && modeState.placementItemId) {
       this.updatePointerNdc(e.clientX, e.clientY);
       const def = this.store.data.itemsById.get(modeState.placementItemId);
-      if (!def) return;
+      if (!def) {
+        this.refreshBaselineCursor();
+        return;
+      }
       const target = this.resolvePlacementTarget(def, modeState.placementRotation);
       if (target && target.valid) {
         this.placeFromTarget(def, modeState.placementVariantId ?? def.variants[0].id, target);
       } else if (target?.reason) {
         this.store.notify(target.reason, 'error');
       }
+      this.refreshBaselineCursor();
       return;
     }
 
@@ -1633,6 +1919,8 @@ export class PlacementController {
         );
       }
       this.commitMove();
+      this.refreshBaselineCursor();
+      schedulePostUpHover();
       return;
     }
 
@@ -1648,6 +1936,8 @@ export class PlacementController {
         this.store.selectItem(null);
       }
     }
+    this.refreshBaselineCursor();
+    schedulePostUpHover();
   };
 
   private commitMove(): void {
@@ -1787,6 +2077,8 @@ export class PlacementController {
     this.closeDragBatch();
     this.unsubTickHook?.();
     this.unsubTickHook = null;
+    this.unsubViewMode?.();
+    this.unsubViewMode = null;
     this.cancelPendingHover();
     this.canvas.removeEventListener('pointerdown', this.handlePointerDown);
     this.canvas.removeEventListener('pointerleave', this.handleCanvasLeave);

@@ -29,6 +29,7 @@ import type {
 } from '../state/houseStore';
 import type { ActiveVisitorSnapshot, VisitorModule } from '../visitors/VisitorModule';
 import { CelebrationBanner } from './CelebrationBanner';
+import { installStorybookCursors } from './cursors';
 import { PolaroidShareModal } from './PolaroidShareModal';
 import {
   type IconName,
@@ -97,6 +98,8 @@ type PovSceneManager = SceneManager & {
   ) => void;
   enterAngelPov?: () => void;
   exitPovMode?: () => void;
+  recenterVisitorPov?: () => void;
+  setAngelVirtualInput?: (forward: number, right: number, up: number) => void;
   onCameraViewModeChange?: (
     cb: (mode: HudCameraViewMode, targetId: string | null) => void,
   ) => () => void;
@@ -105,6 +108,16 @@ type PovVisitorModule = VisitorModule & {
   getPovPoseForPerson?: (id: string) => HudPovPose | null;
   setPovHiddenPerson?: (id: string | null) => void;
   getPovCandidates?: () => HudPovCandidate[];
+};
+type CursorPlacementController = PlacementController & {
+  setCursorOverride?: (state: string | null) => void;
+  setOnHoverPerson?: (
+    cb: ((info: { instanceId: string; clientX: number; clientY: number } | null) => void) | null,
+  ) => void;
+};
+type ExtendedHoverItemInfo = HoverItemInfo & {
+  kind?: 'item' | 'interact' | 'person';
+  subtitle?: string;
 };
 
 type PopoverKind =
@@ -579,6 +592,7 @@ export class HudController {
   private searchQuery = '';
   private saveStatusText = 'Saved';
   private activePopover: PopoverKind = null;
+  private hudHidden = false;
   private visitorsTab: 'here' | 'staff' | 'invite' | 'log' = 'here';
   private hasUnseenGuestLogEntry = false;
   private selectedGuestLogId: string | null = null;
@@ -658,6 +672,10 @@ export class HudController {
 
   private liveCtaWrapEl!: HTMLDivElement;
   private buildSidebarEl!: HTMLElement;
+  private mobileDrawerCollapsed = false;
+  private mobileDrawerToggleEl!: HTMLButtonElement;
+  private angelTouchControlsEl!: HTMLDivElement;
+  private touchHudRestoreBtnEl!: HTMLButtonElement;
   private tabRailEl!: HTMLDivElement;
   private subcategoryStripEl!: HTMLDivElement;
   private sidebarBodyEl!: HTMLDivElement;
@@ -748,6 +766,11 @@ export class HudController {
     this.visitorModule = modules.visitorModule;
     this.audioModule = modules.audioModule;
     this.sceneryModule = modules.sceneryModule;
+
+    installStorybookCursors();
+    (this.placement as CursorPlacementController).setOnHoverPerson?.((info) =>
+      this.setHoverPerson(info),
+    );
 
     this.ensureValidGroupDefaults();
 
@@ -859,6 +882,10 @@ export class HudController {
             }
           } else {
             this.activeBasicsGroup = null;
+          }
+          // On compact phones, tuck the bottom catalog sheet once an item is picked so the 3D room is clear to place
+          if (window.innerWidth <= 760 && !this.mobileDrawerCollapsed) {
+            this.setMobileDrawerCollapsed(true);
           }
         } else {
           this.activeBasicsGroup = null;
@@ -980,6 +1007,9 @@ export class HudController {
     if (povSm.onCameraViewModeChange) {
       this.unsubscribes.push(
         povSm.onCameraViewModeChange((mode) => {
+          if (mode !== 'isometric') {
+            this.setHoverItem(null);
+          }
           if (mode !== 'visitor_pov') {
             (this.visitorModule as PovVisitorModule | undefined)?.setPovHiddenPerson?.(null);
           }
@@ -1042,6 +1072,10 @@ export class HudController {
         if (this.polaroidModal.isOpen()) {
           return;
         }
+        if (this.hudHidden) {
+          this.setHudHidden(false);
+          return;
+        }
         if (this.sceneManager.isoCamera.isCinematicMode()) {
           this.setCinematicMode(false);
           return;
@@ -1055,6 +1089,33 @@ export class HudController {
         }
         return;
       }
+
+      if (
+        !event.repeat &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        (event.key === 'h' || event.key === 'H') &&
+        !this.polaroidModal.isOpen() &&
+        !this.isTutorialActive()
+      ) {
+        const target = event.target as HTMLElement | null;
+        const isEditable = Boolean(
+          target &&
+            (target.tagName === 'INPUT' ||
+              target.tagName === 'TEXTAREA' ||
+              target.tagName === 'SELECT' ||
+              target.isContentEditable ||
+              target.closest?.('[contenteditable="true"]')),
+        );
+        if (!isEditable) {
+          event.preventDefault();
+          this.audioModule?.playUiClick();
+          this.setHudHidden(!this.hudHidden);
+          return;
+        }
+      }
+
       this.handleKonamiKeyDown(event);
     };
     window.addEventListener('keydown', onKeyDown);
@@ -1088,9 +1149,10 @@ export class HudController {
         trackingTap = true;
       };
       const onCanvasPointerUp = (ev: PointerEvent) => {
+        const tapTol = ev.pointerType === 'touch' ? 15 : 6;
         if (trackingStaffMove && this.movingStaffId) {
           trackingStaffMove = false;
-          if (Math.hypot(ev.clientX - downX, ev.clientY - downY) <= 6) {
+          if (Math.hypot(ev.clientX - downX, ev.clientY - downY) <= tapTol) {
             ev.stopPropagation();
             ev.preventDefault();
             this.handleStaffMoveCanvasClick(ev.clientX, ev.clientY);
@@ -1107,7 +1169,7 @@ export class HudController {
         ) {
           return;
         }
-        if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > 6) return;
+        if (Math.hypot(ev.clientX - downX, ev.clientY - downY) > tapTol) return;
         const hitId = this.sceneManager.pickVisitorAtClientPos(ev.clientX, ev.clientY);
         if (hitId) {
           this.audioModule?.playUiClick();
@@ -1140,24 +1202,122 @@ export class HudController {
     }
   }
 
-  setHoverItem(info: HoverItemInfo | null): void {
+  private positionHoverTooltip(clientX: number, clientY: number): void {
+    const pad = 14;
+    const measuredW = this.hoverTooltipEl.offsetWidth || 168;
+    const maxX = Math.max(pad, window.innerWidth - measuredW - pad);
+    const x = Math.min(Math.max(pad, clientX + 16), maxX);
+    const y = Math.max(56, clientY - 36);
+    this.hoverTooltipEl.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+  }
+
+  isHudHidden(): boolean {
+    return this.hudHidden;
+  }
+
+  setHudHidden(hidden: boolean): void {
+    const next = Boolean(hidden);
+    this.hudHidden = next;
+    this.root.classList.toggle('is-hud-hidden', next);
+    if (next) {
+      this.setActivePopover(null);
+      this.setHoverItem(null);
+      this.setHoverHint(null);
+      this.cancelMovingStaff();
+      this.clearSelectedVisitor();
+      if (this.store.isEditMode()) {
+        this.store.setEditMode(false);
+      }
+    }
+  }
+
+  setHoverPerson(info: { instanceId: string; clientX: number; clientY: number } | null): void {
     if (!this.hoverTooltipEl) return;
-    if (!info || !this.store.isEditMode()) {
+    if (
+      !info ||
+      this.hudHidden ||
+      this.store.isEditMode() ||
+      this.activePopover !== null ||
+      this.getCameraViewMode() !== 'isometric' ||
+      this.isTutorialActive()
+    ) {
       this.hoverTooltipEl.classList.remove('visible');
       return;
     }
-    this.hoverTooltipEl.textContent = info.name;
-    const pad = 14;
-    const maxX = Math.max(pad, window.innerWidth - 200);
-    const x = Math.min(Math.max(pad, info.clientX + 14), maxX);
-    const y = Math.max(56, info.clientY - 34);
-    this.hoverTooltipEl.style.transform = `translate3d(${Math.round(x)}px, ${Math.round(y)}px, 0)`;
+
+    const snap = this.visitorModule
+      ?.getActiveVisitors()
+      .find((v) => v.instanceId === info.instanceId);
+    if (!snap) {
+      this.hoverTooltipEl.classList.remove('visible');
+      return;
+    }
+
+    const def = this.store.data.visitorsById.get(snap.visitorId);
+    const displayName = snap.name ?? def?.name ?? snap.visitorId;
+    const isSpecial = Boolean(
+      (snap as { isSpecial?: boolean }).isSpecial || (def as SpecialVisitorDef | undefined)?.special,
+    );
+
+    this.hoverTooltipEl.innerHTML = '';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = isSpecial ? `${displayName} ✦` : displayName;
+
+    const chip = document.createElement('span');
+    chip.className = 'hover-tooltip-chip is-person';
+    const iDot = document.createElement('span');
+    iDot.className = 'hover-chip-i';
+    iDot.textContent = 'i';
+    chip.append(iDot, document.createTextNode('Info'));
+
+    this.hoverTooltipEl.append(nameSpan, chip);
     this.hoverTooltipEl.classList.add('visible');
+    this.positionHoverTooltip(info.clientX, info.clientY);
+  }
+
+  setHoverItem(info: HoverItemInfo | null): void {
+    if (!this.hoverTooltipEl) return;
+    const ext = info as ExtendedHoverItemInfo | null;
+    if (
+      !ext ||
+      this.hudHidden ||
+      this.activePopover !== null ||
+      this.getCameraViewMode() !== 'isometric' ||
+      this.isTutorialActive()
+    ) {
+      this.hoverTooltipEl.classList.remove('visible');
+      return;
+    }
+
+    const isEdit = this.store.isEditMode();
+    if (!isEdit && ext.kind !== 'interact') {
+      this.hoverTooltipEl.classList.remove('visible');
+      return;
+    }
+
+    this.hoverTooltipEl.innerHTML = '';
+    const nameSpan = document.createElement('span');
+    nameSpan.textContent = ext.name;
+    this.hoverTooltipEl.appendChild(nameSpan);
+
+    if (!isEdit && ext.kind === 'interact') {
+      const chip = document.createElement('span');
+      chip.className = 'hover-tooltip-chip is-interact';
+      chip.textContent = '✦';
+      chip.setAttribute('aria-hidden', 'true');
+      this.hoverTooltipEl.appendChild(chip);
+    }
+
+    this.hoverTooltipEl.classList.add('visible');
+    this.positionHoverTooltip(ext.clientX, ext.clientY);
   }
 
   dispose(): void {
     this.tutorialCleanup?.();
     this.tutorialCleanup = null;
+    (this.placement as CursorPlacementController).setOnHoverPerson?.(null);
+    (this.placement as CursorPlacementController).setCursorOverride?.(null);
+    document.body.classList.remove('is-dragging-slider');
     this.cancelMovingStaff();
     this.clearSelectedVisitor();
     this.clearLocationTimers();
@@ -1798,7 +1958,7 @@ export class HudController {
 
     // Left Island: [Illustrated Room Icon + Label] + [Location · Time · Weather Icons Only]
     const leftIsland = document.createElement('div');
-    leftIsland.className = 'hud-island';
+    leftIsland.className = 'hud-island hud-island-left';
 
     this.roomBtnEl = document.createElement('button');
     this.roomBtnEl.type = 'button';
@@ -1841,7 +2001,7 @@ export class HudController {
 
     // Center Island: Live / Build Switch + Build Undo/Redo + Camera + Wall Cutaway + Cinematic
     const centerIsland = document.createElement('div');
-    centerIsland.className = 'hud-island';
+    centerIsland.className = 'hud-island hud-island-center';
 
     const modeSwitch = document.createElement('div');
     modeSwitch.className = 'mode-switch';
@@ -1954,7 +2114,7 @@ export class HudController {
       'minus',
       21,
     );
-    zoomOutBtn.className = 'icon-btn';
+    zoomOutBtn.className = 'icon-btn hud-desktop-only';
     zoomOutBtn.dataset.tooltip = 'Zoom Out';
     zoomOutBtn.setAttribute('aria-label', 'Zoom out');
 
@@ -1968,7 +2128,7 @@ export class HudController {
       'plus',
       21,
     );
-    zoomInBtn.className = 'icon-btn';
+    zoomInBtn.className = 'icon-btn hud-desktop-only';
     zoomInBtn.dataset.tooltip = 'Zoom In';
     zoomInBtn.setAttribute('aria-label', 'Zoom in');
 
@@ -2056,7 +2216,7 @@ export class HudController {
 
     // Right Island: Open/Closed Switch + Visitors Icon+Count + Sound Icon + Menu Icon
     const rightIsland = document.createElement('div');
-    rightIsland.className = 'hud-island';
+    rightIsland.className = 'hud-island hud-island-right';
 
     this.houseOpenBtnEl = document.createElement('button');
     this.houseOpenBtnEl.type = 'button';
@@ -2294,7 +2454,19 @@ export class HudController {
     this.sidebarBodyEl.className = 'sidebar-catalog-body';
 
     mainCol.append(toolRow, searchWrap, this.subcategoryStripEl, this.sidebarBodyEl);
-    this.buildSidebarEl.append(this.tabRailEl, mainCol);
+
+    this.mobileDrawerToggleEl = document.createElement('button');
+    this.mobileDrawerToggleEl.type = 'button';
+    this.mobileDrawerToggleEl.className = 'mobile-drawer-toggle';
+    this.mobileDrawerToggleEl.setAttribute('aria-label', 'Toggle build catalog drawer');
+    this.mobileDrawerToggleEl.setAttribute('aria-expanded', 'true');
+    this.mobileDrawerToggleEl.textContent = 'Hide Catalog ▾';
+    this.mobileDrawerToggleEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setMobileDrawerCollapsed(!this.mobileDrawerCollapsed);
+    });
+
+    this.buildSidebarEl.append(this.mobileDrawerToggleEl, this.tabRailEl, mainCol);
     this.root.appendChild(this.buildSidebarEl);
 
     // ── Mutually Exclusive Popovers ──
@@ -2479,6 +2651,101 @@ export class HudController {
     this.contextBarEl = document.createElement('div');
     this.contextBarEl.className = 'context-bar hidden';
     this.root.appendChild(this.contextBarEl);
+
+    // ── Touch-Only Angel's POV Virtual Flight Pad ──
+    this.angelTouchControlsEl = this.buildAngelTouchControls();
+    this.root.appendChild(this.angelTouchControlsEl);
+
+    // ── Touch-Only Subtle Restore Pill when HUD is Hidden ──
+    this.touchHudRestoreBtnEl = document.createElement('button');
+    this.touchHudRestoreBtnEl.type = 'button';
+    this.touchHudRestoreBtnEl.className = 'touch-hud-restore-btn';
+    this.touchHudRestoreBtnEl.textContent = 'Show HUD';
+    this.touchHudRestoreBtnEl.setAttribute('aria-label', 'Show HUD');
+    this.touchHudRestoreBtnEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setHudHidden(false);
+    });
+    this.root.appendChild(this.touchHudRestoreBtnEl);
+  }
+
+  private setMobileDrawerCollapsed(collapsed: boolean): void {
+    this.mobileDrawerCollapsed = Boolean(collapsed);
+    if (this.buildSidebarEl) {
+      this.buildSidebarEl.classList.toggle('mobile-collapsed', this.mobileDrawerCollapsed);
+    }
+    this.root.classList.toggle('mobile-drawer-collapsed', this.mobileDrawerCollapsed);
+    if (this.mobileDrawerToggleEl) {
+      this.mobileDrawerToggleEl.textContent = this.mobileDrawerCollapsed
+        ? 'Catalog ▴'
+        : 'Hide Catalog ▾';
+      this.mobileDrawerToggleEl.setAttribute('aria-expanded', String(!this.mobileDrawerCollapsed));
+    }
+  }
+
+  private buildAngelTouchControls(): HTMLDivElement {
+    const wrap = document.createElement('div');
+    wrap.className = 'angel-touch-controls hidden';
+    wrap.setAttribute('aria-label', 'Touch flight controls');
+
+    const held = new Set<string>();
+    const syncAxes = () => {
+      const forward = (held.has('fwd') ? 1 : 0) - (held.has('back') ? 1 : 0);
+      const right = (held.has('right') ? 1 : 0) - (held.has('left') ? 1 : 0);
+      const up = (held.has('up') ? 1 : 0) - (held.has('down') ? 1 : 0);
+      (this.sceneManager as PovSceneManager).setAngelVirtualInput?.(forward, right, up);
+    };
+
+    const makePadBtn = (key: string, glyph: string, label: string, extraClass = '') => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = extraClass ? `angel-pad-btn ${extraClass}` : 'angel-pad-btn';
+      btn.textContent = glyph;
+      btn.setAttribute('aria-label', label);
+      const press = (ev: PointerEvent) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        try {
+          btn.setPointerCapture(ev.pointerId);
+        } catch {
+          // ignore
+        }
+        held.add(key);
+        btn.classList.add('is-pressed');
+        syncAxes();
+      };
+      const release = (ev: PointerEvent) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        held.delete(key);
+        btn.classList.remove('is-pressed');
+        syncAxes();
+      };
+      btn.addEventListener('pointerdown', press);
+      btn.addEventListener('pointerup', release);
+      btn.addEventListener('pointercancel', release);
+      btn.addEventListener('lostpointercapture', release);
+      return btn;
+    };
+
+    const dpad = document.createElement('div');
+    dpad.className = 'angel-dpad';
+    dpad.append(
+      makePadBtn('fwd', '↑', 'Fly forward', 'dpad-up'),
+      makePadBtn('left', '←', 'Strafe left', 'dpad-left'),
+      makePadBtn('right', '→', 'Strafe right', 'dpad-right'),
+      makePadBtn('back', '↓', 'Fly backward', 'dpad-down'),
+    );
+
+    const altPad = document.createElement('div');
+    altPad.className = 'angel-alt-pad';
+    altPad.append(
+      makePadBtn('up', '▲', 'Fly up'),
+      makePadBtn('down', '▼', 'Fly down'),
+    );
+
+    wrap.append(dpad, altPad);
+    return wrap;
   }
 
   private createSimSpeedGroup(className: string): HTMLDivElement {
@@ -2542,8 +2809,11 @@ export class HudController {
   }
 
   private setActivePopover(kind: PopoverKind): void {
-    if (kind !== null && this.movingStaffId) {
-      this.cancelMovingStaff();
+    if (kind !== null) {
+      this.setHoverItem(null);
+      if (this.movingStaffId) {
+        this.cancelMovingStaff();
+      }
     }
     this.updateTopOffset();
     this.activePopover = kind;
@@ -2610,6 +2880,9 @@ export class HudController {
     this.undoRedoGroupEl.classList.toggle('hidden', !isEdit);
     this.buildSidebarEl.classList.toggle('tucked', !isEdit);
     this.liveCtaWrapEl.classList.toggle('hidden', isEdit);
+    if (!isEdit) {
+      this.setMobileDrawerCollapsed(false);
+    }
     this.syncDockToolButtons();
     this.updateTopOffset();
   }
@@ -2658,6 +2931,9 @@ export class HudController {
       btn.append(iconWrap, label);
       btn.addEventListener('click', () => {
         this.audioModule?.playUiClick();
+        if (this.mobileDrawerCollapsed) {
+          this.setMobileDrawerCollapsed(false);
+        }
         this.activeTab = tab.id;
         this.activeSubcategory = 'all';
         if (tab.id !== 'basics') {
@@ -3994,6 +4270,7 @@ export class HudController {
       dragging = true;
       track.setPointerCapture(e.pointerId);
       orb.classList.add('dragging');
+      document.body.classList.add('is-dragging-slider');
       applyClientX(e.clientX);
     });
     track.addEventListener('pointermove', (e) => {
@@ -4004,6 +4281,7 @@ export class HudController {
       if (!dragging) return;
       dragging = false;
       orb.classList.remove('dragging');
+      document.body.classList.remove('is-dragging-slider');
       if (track.hasPointerCapture(e.pointerId)) {
         track.releasePointerCapture(e.pointerId);
       }
@@ -4238,6 +4516,7 @@ export class HudController {
       dragging = true;
       track.setPointerCapture(e.pointerId);
       orb.classList.add('dragging');
+      document.body.classList.add('is-dragging-slider');
       applyClientX(e.clientX);
     });
     track.addEventListener('pointermove', (e) => {
@@ -4248,6 +4527,7 @@ export class HudController {
       if (!dragging) return;
       dragging = false;
       orb.classList.remove('dragging');
+      document.body.classList.remove('is-dragging-slider');
       if (track.hasPointerCapture(e.pointerId)) {
         track.releasePointerCapture(e.pointerId);
       }
@@ -5074,11 +5354,23 @@ export class HudController {
   private renderPovBanner(): void {
     if (!this.povBannerEl) return;
     const mode = this.getCameraViewMode();
+    this.root.classList.toggle('is-pov-active', mode !== 'isometric');
+    this.root.classList.toggle('is-angel-pov', mode === 'angel_pov');
+    if (this.angelTouchControlsEl) {
+      this.angelTouchControlsEl.classList.toggle('hidden', mode !== 'angel_pov');
+    }
+    if (mode !== 'angel_pov') {
+      (this.sceneManager as PovSceneManager).setAngelVirtualInput?.(0, 0, 0);
+    }
     if (mode === 'isometric') {
       this.povBannerEl.classList.add('hidden');
       this.povBannerEl.innerHTML = '';
       return;
     }
+
+    const isTouchUi =
+      typeof window !== 'undefined' &&
+      (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth <= 760);
 
     this.povBannerEl.classList.remove('hidden');
     this.povBannerEl.innerHTML = '';
@@ -5137,10 +5429,19 @@ export class HudController {
         this.povBannerEl.appendChild(cycleWrap);
       }
 
-      const hint = document.createElement('span');
-      hint.className = 'pov-banner-hint';
-      hint.textContent = 'Drag to look · R center';
-      this.povBannerEl.appendChild(hint);
+      if (isTouchUi) {
+        const centerBtn = this.makeBtn('Center', () => {
+          this.audioModule?.playUiClick();
+          (this.sceneManager as PovSceneManager).recenterVisitorPov?.();
+        });
+        centerBtn.className = 'btn btn-xs pov-recenter-btn';
+        this.povBannerEl.appendChild(centerBtn);
+      } else {
+        const hint = document.createElement('span');
+        hint.className = 'pov-banner-hint';
+        hint.textContent = 'Drag to look · R center';
+        this.povBannerEl.appendChild(hint);
+      }
     } else {
       const title = document.createElement('span');
       title.className = 'pov-banner-title';
@@ -5148,7 +5449,9 @@ export class HudController {
 
       const hint = document.createElement('span');
       hint.className = 'pov-banner-hint';
-      hint.textContent = 'WASD Fly · Space/Shift Alt · Drag Look';
+      hint.textContent = isTouchUi
+        ? 'Drag look · Pad fly'
+        : 'WASD Fly · Space/Shift Alt · Drag Look';
 
       this.povBannerEl.append(title, hint);
     }
@@ -5627,6 +5930,29 @@ export class HudController {
       ),
     );
     this.menuPopoverEl.appendChild(actions);
+
+    // Hide HUD toggle row (with H shortcut keycap)
+    const hideHudBtn = document.createElement('button');
+    hideHudBtn.type = 'button';
+    hideHudBtn.className = 'btn menu-hide-hud-btn';
+    const hideHudText = document.createElement('span');
+    hideHudText.className = 'menu-hide-hud-text';
+    const hideHudTitle = document.createElement('span');
+    hideHudTitle.className = 'menu-hide-hud-title';
+    hideHudTitle.textContent = 'Hide HUD';
+    const hideHudSub = document.createElement('span');
+    hideHudSub.className = 'menu-hide-hud-sub';
+    hideHudSub.textContent = 'Hide all UI overlays (press H to restore)';
+    hideHudText.append(hideHudTitle, hideHudSub);
+    const hideHudKbd = document.createElement('kbd');
+    hideHudKbd.className = 'help-kbd';
+    hideHudKbd.textContent = 'H';
+    hideHudBtn.append(hideHudText, hideHudKbd);
+    hideHudBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setHudHidden(!this.hudHidden);
+    });
+    this.menuPopoverEl.appendChild(hideHudBtn);
 
     // Storybook Cheat Panel launcher (shows live DEV / ON / OFF / 🔒 badge)
     const cheatBtn = document.createElement('button');
@@ -6144,6 +6470,7 @@ export class HudController {
       makeControlRow(makeKbdGroup(['R']), 'Rotate Item', 'Spin while placing or selected'),
       makeControlRow(makeKbdGroup(['Shift', 'Click'], '+'), 'Multi-Select', 'Select multiple walls or items'),
       makeControlRow(makeKbdGroup(['⌘Z', '⌫'], '/'), 'Undo / Delete', 'Undo edit · Remove item'),
+      makeControlRow(makeKbdGroup(['H']), 'Hide HUD', 'Toggle clean HUDless view'),
       makeControlRow(makeKbdGroup(['?']), 'Cheats', 'Secret keyboard code'),
     );
     this.helpPopoverEl.appendChild(list);
@@ -6451,6 +6778,7 @@ export class HudController {
       return;
     }
     this.selectedVisitorId = instanceId;
+    this.setHoverItem(null);
     if (closePopover) {
       this.setActivePopover(null);
     }
@@ -7659,10 +7987,7 @@ export class HudController {
     if (!member) return;
     this.setActivePopover(null);
     this.movingStaffId = staffId;
-    const canvas = this.sceneManager.renderer?.domElement;
-    if (canvas) {
-      canvas.style.cursor = 'crosshair';
-    }
+    (this.placement as CursorPlacementController).setCursorOverride?.('move');
     this.setHoverHint(
       `Click a floor tile near a matching station to place ${member.name} (Esc to cancel)`,
     );
@@ -7671,10 +7996,7 @@ export class HudController {
   private cancelMovingStaff(): void {
     if (!this.movingStaffId) return;
     this.movingStaffId = null;
-    const canvas = this.sceneManager.renderer?.domElement;
-    if (canvas) {
-      canvas.style.cursor = '';
-    }
+    (this.placement as CursorPlacementController).setCursorOverride?.(null);
     this.setHoverHint(null);
   }
 
