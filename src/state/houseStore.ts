@@ -22,6 +22,7 @@ export type InteractionMode = 'select' | 'place' | 'move' | 'bulk-select' | 'era
 export type EraseFilter = 'all' | 'floor' | 'wall' | 'furniture';
 export type ExpandSide = 'north' | 'south' | 'east' | 'west';
 export type WallViewMode = 'auto' | 'translucent' | 'solid';
+export type HouseDoorPolicy = 'open' | 'full' | 'closed';
 export type SimSpeed = 0 | 1 | 2 | 5;
 
 const MUSIC_PARTY_HUBS = new Set(['dj_booth', 'record_player', 'diner_jukebox', 'karaoke_mic']);
@@ -57,6 +58,7 @@ export interface StoreEventMap {
   editModeChanged: { editMode: boolean };
   gridVisibilityChanged: { visible: boolean };
   wallViewChanged: { mode: WallViewMode; showCeiling: boolean };
+  doorPolicyChanged: { policy: HouseDoorPolicy };
   houseOpenChanged: { open: boolean };
   timeCycleChanged: { running: boolean };
   simSpeedChanged: { speed: SimSpeed };
@@ -163,7 +165,7 @@ export class HouseStore {
   private gridVisible = false;
   private wallViewMode: WallViewMode = 'auto';
   private showCeiling = true;
-  private houseOpen = true;
+  private doorPolicy: HouseDoorPolicy = 'open';
   private timeCycleRunning = false;
   private simSpeed: SimSpeed = 1;
   private selectedUids: string[] = [];
@@ -184,6 +186,7 @@ export class HouseStore {
     editModeChanged: new Set(),
     gridVisibilityChanged: new Set(),
     wallViewChanged: new Set(),
+    doorPolicyChanged: new Set(),
     houseOpenChanged: new Set(),
     timeCycleChanged: new Set(),
     simSpeedChanged: new Set(),
@@ -296,20 +299,41 @@ export class HouseStore {
     this.emit('wallViewChanged', { mode: this.wallViewMode, showCeiling: this.showCeiling });
   }
 
+  getDoorPolicy(): HouseDoorPolicy {
+    return this.doorPolicy;
+  }
+
+  setDoorPolicy(policy: HouseDoorPolicy): void {
+    const next: HouseDoorPolicy =
+      policy === 'open' || policy === 'full' || policy === 'closed' ? policy : 'open';
+    if (this.doorPolicy === next) return;
+    this.doorPolicy = next;
+    this.emit('doorPolicyChanged', { policy: this.doorPolicy });
+    this.emit('houseOpenChanged', { open: this.doorPolicy === 'open' });
+  }
+
+  cycleDoorPolicy(): HouseDoorPolicy {
+    const next: HouseDoorPolicy =
+      this.doorPolicy === 'open'
+        ? 'full'
+        : this.doorPolicy === 'full'
+          ? 'closed'
+          : 'open';
+    this.setDoorPolicy(next);
+    return next;
+  }
+
   isHouseOpen(): boolean {
-    return this.houseOpen;
+    return this.doorPolicy === 'open';
   }
 
   setHouseOpen(open: boolean): void {
-    const next = Boolean(open);
-    if (this.houseOpen === next) return;
-    this.houseOpen = next;
-    this.emit('houseOpenChanged', { open: this.houseOpen });
+    this.setDoorPolicy(Boolean(open) ? 'open' : 'closed');
   }
 
   toggleHouseOpen(): boolean {
-    this.setHouseOpen(!this.houseOpen);
-    return this.houseOpen;
+    this.setHouseOpen(!this.isHouseOpen());
+    return this.isHouseOpen();
   }
 
   isTimeCycleRunning(): boolean {

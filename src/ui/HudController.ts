@@ -714,6 +714,12 @@ export class HudController {
           this.renderVisitorsPopover();
         }
       }),
+      this.store.on('doorPolicyChanged', () => {
+        this.syncHouseOpenButton();
+        if (this.activePopover === 'visitors') {
+          this.renderVisitorsPopover();
+        }
+      }),
       this.store.on('timeCycleChanged', () => {
         this.syncAtmosphereTopPill();
         if (this.activePopover === 'atmosphere') {
@@ -1369,8 +1375,6 @@ export class HudController {
     this.houseOpenBtnEl = document.createElement('button');
     this.houseOpenBtnEl.type = 'button';
     this.houseOpenBtnEl.className = 'open-toggle-pill';
-    this.houseOpenBtnEl.setAttribute('role', 'switch');
-    this.houseOpenBtnEl.title = 'Toggle whether visitors can drop by automatically';
 
     this.houseOpenDotEl = document.createElement('span');
     this.houseOpenDotEl.className = 'open-status-dot';
@@ -1379,12 +1383,14 @@ export class HudController {
     this.houseOpenBtnEl.append(this.houseOpenDotEl, this.houseOpenLabelEl);
     this.houseOpenBtnEl.addEventListener('click', () => {
       this.audioModule?.playUiClick();
-      this.store.toggleHouseOpen();
-      const nowOpen = this.store.isHouseOpen();
-      this.store.notify(
-        nowOpen ? 'House is Open — guests may drop by!' : 'House is Closed to drop-in guests',
-        'info',
-      );
+      const next = this.store.cycleDoorPolicy();
+      const msg =
+        next === 'open'
+          ? 'House is Open — guests may drop by!'
+          : next === 'full'
+            ? 'House is Full — current guests stay, no new arrivals'
+            : 'House is Closed — sending guests home';
+      this.store.notify(msg, 'info');
     });
 
     const divRight = document.createElement('span');
@@ -1843,13 +1849,21 @@ export class HudController {
 
   private syncHouseOpenButton(): void {
     if (!this.houseOpenBtnEl) return;
-    const isOpen = this.store.isHouseOpen();
-    this.houseOpenBtnEl.classList.toggle('is-open', isOpen);
-    this.houseOpenBtnEl.setAttribute('aria-checked', String(isOpen));
-    this.houseOpenLabelEl.textContent = isOpen ? 'Open' : 'Closed';
-    this.houseOpenBtnEl.title = isOpen
-      ? 'House is Open — guests drop by automatically (click to Close)'
-      : 'House is Closed — invite guests manually (click to Open)';
+    const policy = this.store.getDoorPolicy();
+    this.houseOpenBtnEl.classList.toggle('is-open', policy === 'open');
+    this.houseOpenBtnEl.classList.toggle('is-full', policy === 'full');
+    this.houseOpenBtnEl.classList.toggle('is-closed', policy === 'closed');
+    this.houseOpenLabelEl.textContent =
+      policy === 'open' ? 'Open' : policy === 'full' ? 'Full' : 'Closed';
+    const tip =
+      policy === 'open'
+        ? 'Open — guests arrive on their own'
+        : policy === 'full'
+          ? 'Full — current guests stay, no new arrivals'
+          : 'Closed — no arrivals, sending guests home';
+    this.houseOpenBtnEl.dataset.tooltip = tip;
+    this.houseOpenBtnEl.removeAttribute('title');
+    this.houseOpenBtnEl.setAttribute('aria-label', `${tip} (click to cycle)`);
   }
 
   private renderTabRail(): void {
@@ -4717,9 +4731,13 @@ export class HudController {
       if (active.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'visitors-empty';
-        empty.textContent = this.store.isHouseOpen()
-          ? 'Guests drop by automatically while Open, or switch to Invite.'
-          : 'House is Closed. Switch to Invite or open the house.';
+        const policy = this.store.getDoorPolicy();
+        empty.textContent =
+          policy === 'open'
+            ? 'Guests drop by automatically while Open, or switch to Invite.'
+            : policy === 'full'
+              ? 'House is Full — no new drop-ins arrive automatically. Switch to Invite or Open.'
+              : 'House is Closed. Switch to Invite or set Open.';
         this.visitorsPopoverEl.appendChild(empty);
       } else {
         const topActionRow = document.createElement('div');

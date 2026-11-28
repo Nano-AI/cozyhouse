@@ -305,14 +305,16 @@ body,
   color: var(--accent-build);
 }
 
-/* ── Open / Closed Top-Right Switch ── */
+/* ── Open / Full / Closed Top-Right Door Policy Pill ── */
 .open-toggle-pill {
+  position: relative;
   appearance: none;
   border: 1.6px solid var(--border-ink);
   background: var(--surface-chip);
   color: var(--ink-primary);
   border-radius: 999px;
   height: 32px;
+  min-width: 78px;
   padding: 0 11px 0 9px;
   font-size: 12px;
   font-weight: 700;
@@ -320,6 +322,7 @@ body,
   cursor: pointer;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   transition: background 160ms var(--ease-out), color 160ms ease, transform 120ms var(--ease-out);
 }
@@ -337,6 +340,16 @@ body,
   color: #1f543b;
 }
 
+.open-toggle-pill.is-full {
+  background: #fef0d3;
+  color: #6e450e;
+}
+
+.open-toggle-pill.is-closed {
+  background: var(--surface-chip);
+  color: var(--ink-secondary);
+}
+
 .open-status-dot {
   width: 9px;
   height: 9px;
@@ -349,6 +362,14 @@ body,
 
 .open-toggle-pill.is-open .open-status-dot {
   background: #3da072;
+}
+
+.open-toggle-pill.is-full .open-status-dot {
+  background: #e8a238;
+}
+
+.open-toggle-pill.is-closed .open-status-dot {
+  background: #8f8479;
 }
 
 .count-pill {

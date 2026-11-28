@@ -882,6 +882,7 @@ export class VisitorModule {
   private variantCounters = new Map<string, number>();
   private unsubscribeHouse: () => void;
   private unsubscribeOpen: (() => void) | null = null;
+  private unsubscribeDoorPolicy: (() => void) | null = null;
   private unsubscribeStaff: (() => void) | null = null;
   private spawnCounter = 0;
   private staffVariantSeed = 0;
@@ -920,15 +921,26 @@ export class VisitorModule {
 
     this.unsubscribeHouse = store.on('houseChanged', ({ reason }) => this.handleHouseChanged(reason));
 
-    // Subscribe to Open/Closed & Staff events on HouseStore
+    // Subscribe to 3-state Door Policy ('open' | 'full' | 'closed'), Open/Closed fallback & Staff events
     const extStore = store as unknown as {
-      on?: (ev: string, fn: (payload: { open?: boolean; staff?: HiredStaff[] }) => void) => () => void;
+      on?: (
+        ev: string,
+        fn: (payload: {
+          open?: boolean;
+          policy?: 'open' | 'full' | 'closed';
+          staff?: HiredStaff[];
+        }) => void,
+      ) => () => void;
     };
     if (typeof extStore.on === 'function') {
-      this.unsubscribeOpen = extStore.on('houseOpenChanged', ({ open }) => {
-        if (typeof open === 'boolean') {
-          this.handleHouseOpenChanged(open);
+      this.unsubscribeDoorPolicy = extStore.on('doorPolicyChanged', ({ policy }) => {
+        if (policy) {
+          this.handleDoorPolicyChanged(policy);
         }
+      });
+      this.unsubscribeOpen = extStore.on('houseOpenChanged', () => {
+        // Resolve the authoritative 3-state policy so 'full' never accidentally dismisses guests!
+        this.handleDoorPolicyChanged(this.getDoorPolicy());
       });
       this.unsubscribeStaff = extStore.on('staffChanged', () => {
         this.syncStaffWithStore();
@@ -1124,9 +1136,15 @@ export class VisitorModule {
     }
   }
 
-  private isHouseOpen(): boolean {
-    const s = this.store as unknown as { isHouseOpen?: () => boolean };
-    return typeof s.isHouseOpen === 'function' ? s.isHouseOpen() : true;
+  private getDoorPolicy(): 'open' | 'full' | 'closed' {
+    const s = this.store as unknown as {
+      getDoorPolicy?: () => 'open' | 'full' | 'closed';
+      isHouseOpen?: () => boolean;
+    };
+    if (typeof s.getDoorPolicy === 'function') {
+      return s.getDoorPolicy();
+    }
+    return typeof s.isHouseOpen === 'function' ? (s.isHouseOpen() ? 'open' : 'closed') : 'open';
   }
 
   private setDoorVisitorOpenSafe(uid: string, open: boolean): void {
@@ -1194,13 +1212,18 @@ export class VisitorModule {
     return (count % 3) as VisitorVariantIndex;
   }
 
-  private handleHouseOpenChanged(open: boolean): void {
-    if (open) {
+  private handleDoorPolicyChanged(policy: 'open' | 'full' | 'closed'): void {
+    if (policy === 'open') {
       this.autonomousSpawnTimer = Math.min(this.autonomousSpawnTimer, 2.2);
       return;
     }
 
-    // House closed: stop spawning and gently nudge existing autonomous visitors home
+    // 'full' (At Capacity): halt all new autonomous arrivals while letting everyone currently inside stay!
+    if (policy === 'full') {
+      return;
+    }
+
+    // 'closed': halt arrivals AND gently nudge existing autonomous visitors home
     let changed = false;
     for (const v of this.active) {
       if (!v.isAutonomous) continue;
@@ -2959,7 +2982,8 @@ export class VisitorModule {
    * autonomous Legendary Special Character spawner (~2 min initial interval × 1.45 decay).
    */
   private updateAutonomousSpawner(dt: number, state: HouseState): void {
-    if (!this.isHouseOpen()) return;
+    // Only spawn autonomous regular & special visitors when door policy is strictly 'open'
+    if (this.getDoorPolicy() !== 'open') return;
     if (this.visitorDefs.length === 0) return;
 
     // 1. Decaying Autonomous Legendary Special Character Spawner (120s -> 174s -> 252s ...)
@@ -5359,6 +5383,8 @@ export class VisitorModule {
     this.unsubscribeHouse();
     this.unsubscribeOpen?.();
     this.unsubscribeOpen = null;
+    this.unsubscribeDoorPolicy?.();
+    this.unsubscribeDoorPolicy = null;
     this.unsubscribeStaff?.();
     this.unsubscribeStaff = null;
 
