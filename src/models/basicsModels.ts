@@ -2,12 +2,163 @@ import * as THREE from 'three';
 import { WALL_THICKNESS } from '../engine/GridSystem';
 import { type MergeSide, type ModelContext, type TabModelBuilder } from './ModelKit';
 
-const WALL_CREAM = '#F4EDE2';
+const WALL_CREAM = '#F5EFE4';
 const BRASS = '#DFBC6E';
 const BRASS_DARK = '#C49D4C';
 const DARK_WOOD = '#8C6B4B';
 
-/** Helper to extrude a 2D XY shape symmetrically centered on Z = 0. */
+/**
+ * Removes duplicate consecutive vertices and trailing wrap-around vertex from a 2D polygon ring.
+ */
+function cleanRing2D(pts: THREE.Vector2[]): THREE.Vector2[] {
+  const out: THREE.Vector2[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    if (out.length === 0 || p.distanceToSquared(out[out.length - 1]) > 1e-10) {
+      out.push(p.clone());
+    }
+  }
+  while (out.length > 1 && out[0].distanceToSquared(out[out.length - 1]) <= 1e-10) {
+    out.pop();
+  }
+  return out;
+}
+
+/**
+ * Builds a watertight, solid flat-shaded extruded BufferGeometry centered on Z = 0
+ * directly via THREE.ShapeUtils.triangulateShape.
+ *
+ * NOTE: Three.js r175 has a known bug where `THREE.ExtrudeGeometry({ bevelEnabled: false })`
+ * skips populating `contractedContourVertices`, emitting 0 front/back cap triangles!
+ * Building caps + sidewalls explicitly guarantees 100% solid front (+Z), back (-Z), and
+ * outward sidewall faces with clean box-projected UVs and exact flat normals.
+ */
+function buildSolidExtrudeGeometry(
+  shape: THREE.Shape,
+  depth: number,
+  curveSegments = 12,
+): THREE.BufferGeometry {
+  const extracted = shape.extractPoints(curveSegments);
+  const contour = cleanRing2D(extracted.shape);
+  if (THREE.ShapeUtils.isClockWise(contour)) {
+    contour.reverse();
+  }
+
+  const holes: THREE.Vector2[][] = [];
+  for (const rawHole of extracted.holes) {
+    const hole = cleanRing2D(rawHole);
+    if (hole.length < 3) continue;
+    if (!THREE.ShapeUtils.isClockWise(hole)) {
+      hole.reverse();
+    }
+    holes.push(hole);
+  }
+
+  const allPts: THREE.Vector2[] = [...contour];
+  for (const h of holes) {
+    for (const p of h) allPts.push(p);
+  }
+
+  const faces = THREE.ShapeUtils.triangulateShape(contour, holes);
+  const halfD = depth / 2;
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+
+  const pushTri = (
+    ax: number,
+    ay: number,
+    az: number,
+    au: number,
+    av: number,
+    bx: number,
+    by: number,
+    bz: number,
+    bu: number,
+    bv: number,
+    cx: number,
+    cy: number,
+    cz: number,
+    cu: number,
+    cv: number,
+    nx: number,
+    ny: number,
+    nz: number,
+  ) => {
+    positions.push(ax, ay, az, bx, by, bz, cx, cy, cz);
+    normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz);
+    uvs.push(au, av, bu, bv, cu, cv);
+  };
+
+  // Front (+Z) and Back (-Z) solid cap faces
+  for (let i = 0; i < faces.length; i++) {
+    const [ia, ib, ic] = faces[i];
+    const pA = allPts[ia];
+    const pB = allPts[ib];
+    const pC = allPts[ic];
+    if (!pA || !pB || !pC) continue;
+    // Ensure CCW in XY plane so front cap normal points strictly +Z
+    const area2 = (pB.x - pA.x) * (pC.y - pA.y) - (pB.y - pA.y) * (pC.x - pA.x);
+    const b = area2 >= 0 ? pB : pC;
+    const c = area2 >= 0 ? pC : pB;
+
+    pushTri(
+      pA.x, pA.y, halfD, pA.x, pA.y,
+      b.x, b.y, halfD, b.x, b.y,
+      c.x, c.y, halfD, c.x, c.y,
+      0, 0, 1,
+    );
+    pushTri(
+      pA.x, pA.y, -halfD, pA.x, pA.y,
+      c.x, c.y, -halfD, c.x, c.y,
+      b.x, b.y, -halfD, b.x, b.y,
+      0, 0, -1,
+    );
+  }
+
+  // Extruded sidewalls for outer CCW contour and each CW hole
+  const rings = [contour, ...holes];
+  for (const ring of rings) {
+    let dist = 0;
+    const n = ring.length;
+    for (let i = 0; i < n; i++) {
+      const p0 = ring[i];
+      const p1 = ring[(i + 1) % n];
+      const dx = p1.x - p0.x;
+      const dy = p1.y - p0.y;
+      const len = Math.hypot(dx, dy);
+      if (len < 1e-6) continue;
+      // Right-hand normal: outward for CCW outer contour, inward-into-cutout for CW hole
+      const nx = dy / len;
+      const ny = -dx / len;
+      const u0 = dist;
+      const u1 = dist + len;
+      dist = u1;
+
+      pushTri(
+        p0.x, p0.y, halfD, u0, halfD,
+        p0.x, p0.y, -halfD, u0, -halfD,
+        p1.x, p1.y, -halfD, u1, -halfD,
+        nx, ny, 0,
+      );
+      pushTri(
+        p0.x, p0.y, halfD, u0, halfD,
+        p1.x, p1.y, -halfD, u1, -halfD,
+        p1.x, p1.y, halfD, u1, halfD,
+        nx, ny, 0,
+      );
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  return geo;
+}
+
+/** Helper to extrude a 2D XY shape solidly and symmetrically centered on Z = 0. */
 function extrudeCentered(
   ctx: ModelContext,
   shape: THREE.Shape,
@@ -27,12 +178,7 @@ function extrudeCentered(
     name?: string;
   },
 ): THREE.Mesh {
-  const geo = new THREE.ExtrudeGeometry(shape, {
-    depth,
-    bevelEnabled: false,
-    curveSegments: opts?.curveSegments ?? 12,
-  });
-  geo.translate(0, 0, -depth / 2);
+  const geo = buildSolidExtrudeGeometry(shape, depth, opts?.curveSegments ?? 12);
   const mat = ctx.mat(color, {
     roughness: opts?.roughness,
     metalness: opts?.metalness,
@@ -689,13 +835,20 @@ function buildDoorCafeGlass(ctx: ModelContext): void {
   });
   // Wooden hanging café door sign plaque proudly clear of mullions (d = 0.060)
   ctx.box(0.24, 0.11, 0.060, '#FAF2E3', cx, 1.24, 0, { parent: pivot, roughness: 0.76 });
-  // Vertical brass café push/pull handles on both sides near meeting edge
+  // Vertical brass café push/pull handles with flush standoff pegs on both sides
   const handleX = spec.leafDir * (spec.leafW - 0.09);
-  for (const sz of [-0.058, 0.058]) {
-    ctx.cyl(0.016, 0.016, 0.26, 7, BRASS, handleX, 1.02, sz, {
+  for (const sz of [-0.056, 0.056]) {
+    ctx.cyl(0.015, 0.015, 0.26, 7, BRASS, handleX, 1.02, sz, {
       parent: pivot,
       roughness: 0.28,
       metalness: 0.68,
+    });
+  }
+  for (const hy of [0.92, 1.12]) {
+    ctx.box(0.018, 0.018, 0.112, BRASS_DARK, handleX, hy, 0, {
+      parent: pivot,
+      roughness: 0.3,
+      metalness: 0.65,
     });
   }
 }
@@ -770,7 +923,7 @@ function buildDoorArched(ctx: ModelContext): void {
     });
     addWallMoldings(ctx, accent, h, { skipBaseboard: true });
 
-    // Hinged quarter-arch door leaf inside DoorPivot
+    // Hinged unified single-piece quarter-arch door leaf inside DoorPivot
     const pivot = new THREE.Group();
     pivot.name = 'DoorPivot';
     pivot.userData.swingSign = spec.swingSign;
@@ -778,45 +931,76 @@ function buildDoorArched(ctx: ModelContext): void {
     pivot.rotation.y = ctx.isActive ? spec.swingSign * Math.PI * 0.44 : 0;
     ctx.group.add(pivot);
 
-    const leafR = R - 0.012;
+    const leafBotY = 0.032;
+    const leafR = R - 0.014; // 0.876
+    const angPad = 0.014;
+    const leafEdgeX = 0.89 - leafR * Math.sin(angPad); // ~0.8777 (exact vertical edge at arc end!)
+    const leafTopMeetY = springY + leafR * Math.cos(angPad);
+
     const leafShape = new THREE.Shape();
     if (isLeft) {
-      leafShape.moveTo(0.006, 0.024);
-      leafShape.lineTo(spec.leafW, 0.024);
-      leafShape.lineTo(spec.leafW, springY + leafR);
-      leafShape.absarc(0.89, springY, leafR, Math.PI / 2 + 0.016, Math.PI, false);
+      leafShape.moveTo(0.014, leafBotY);
+      leafShape.lineTo(leafEdgeX, leafBotY);
+      leafShape.lineTo(leafEdgeX, leafTopMeetY);
+      leafShape.absarc(0.89, springY, leafR, Math.PI / 2 + angPad, Math.PI, false);
       leafShape.closePath();
     } else {
-      leafShape.moveTo(-spec.leafW, 0.024);
-      leafShape.lineTo(-0.006, 0.024);
-      leafShape.lineTo(-0.006, springY);
-      leafShape.absarc(-0.89, springY, leafR, 0, Math.PI / 2 - 0.016, false);
-      leafShape.lineTo(-spec.leafW, 0.024);
+      leafShape.moveTo(-leafEdgeX, leafBotY);
+      leafShape.lineTo(-0.014, leafBotY);
+      leafShape.lineTo(-0.014, springY);
+      leafShape.absarc(-0.89, springY, leafR, 0, Math.PI / 2 - angPad, false);
+      leafShape.lineTo(-leafEdgeX, leafBotY);
       leafShape.closePath();
     }
     extrudeCentered(ctx, leafShape, leafD, primary, {
       parent: pivot,
       roughness: 0.72,
+      curveSegments: 16,
+    });
+
+    // Matching curved quarter-arch recessed accent panel cleanly proud (+0.007 per face)
+    const inPad = 0.11;
+    const inR = leafR - inPad;
+    const inAngPad = 0.14;
+    const inEdgeX = 0.89 - inR * Math.sin(inAngPad);
+    const inTopY = springY + inR * Math.cos(inAngPad);
+    const panelShape = new THREE.Shape();
+    if (isLeft) {
+      panelShape.moveTo(0.014 + inPad, 0.20);
+      panelShape.lineTo(inEdgeX, 0.20);
+      panelShape.lineTo(inEdgeX, inTopY);
+      panelShape.absarc(0.89, springY, inR, Math.PI / 2 + inAngPad, Math.PI, false);
+      panelShape.closePath();
+    } else {
+      panelShape.moveTo(-inEdgeX, 0.20);
+      panelShape.lineTo(-0.014 - inPad, 0.20);
+      panelShape.lineTo(-0.014 - inPad, springY);
+      panelShape.absarc(-0.89, springY, inR, 0, Math.PI / 2 - inAngPad, false);
+      panelShape.lineTo(-inEdgeX, 0.20);
+      panelShape.closePath();
+    }
+    extrudeCentered(ctx, panelShape, leafD + 0.014, shade(primary, -0.09), {
+      parent: pivot,
+      roughness: 0.78,
       curveSegments: 14,
     });
 
-    // Recessed accent panel (+0.007 per face)
-    const cx = spec.leafDir * (spec.leafW * 0.5);
-    ctx.box(spec.leafW - 0.24, 1.24, leafD + 0.014, shade(primary, -0.09), cx, 0.88, 0, {
-      parent: pivot,
-      roughness: 0.78,
-    });
-    // Cottage iron hinge straps (+0.006 proud of inset panel) & brass knob near center seam
-    for (const hy of [0.46, 1.38]) {
-      ctx.box(0.22, 0.042, leafD + 0.026, '#5E5B57', spec.leafDir * 0.13, hy, 0, {
+    // Sleek flush brass barrel hinges along hinge edge & brass doorknob near center seam
+    for (const hy of [0.42, 1.24]) {
+      ctx.cyl(0.014, 0.014, 0.09, 7, BRASS_DARK, spec.leafDir * 0.014, hy, 0, {
         parent: pivot,
-        roughness: 0.48,
-        metalness: 0.5,
+        roughness: 0.34,
+        metalness: 0.62,
       });
     }
-    const knobX = spec.leafDir * (spec.leafW - 0.09);
-    for (const sz of [-0.058, 0.058]) {
-      ctx.sphere(0.036, 8, BRASS, knobX, 0.98, sz, {
+    const knobX = spec.leafDir * (leafEdgeX - 0.085);
+    ctx.box(0.040, 0.11, leafD + 0.024, BRASS_DARK, knobX, 0.98, 0, {
+      parent: pivot,
+      roughness: 0.32,
+      metalness: 0.62,
+    });
+    for (const sz of [-0.056, 0.056]) {
+      ctx.sphere(0.034, 8, BRASS, knobX, 0.98, sz, {
         parent: pivot,
         roughness: 0.28,
         metalness: 0.68,
@@ -826,8 +1010,9 @@ function buildDoorArched(ctx: ModelContext): void {
   }
 
   if (mergeSide === 'middle') {
-    // Middle bay of a 3+ arched door span: open lintel frame with full-width leaf
-    addStandardDoorWallFrame(ctx, h, 2.08, spec);
+    // Middle bay of a 3+ arched door span: solid header y = 2.26..2.60 matching arch crown!
+    const midOpenH = 2.26;
+    addStandardDoorWallFrame(ctx, h, midOpenH, spec);
     const pivot = new THREE.Group();
     pivot.name = 'DoorPivot';
     pivot.userData.swingSign = spec.swingSign;
@@ -836,13 +1021,17 @@ function buildDoorArched(ctx: ModelContext): void {
     ctx.group.add(pivot);
 
     const cx = spec.leafW / 2;
-    ctx.box(spec.leafW, 2.04, leafD, primary, cx, 1.044, 0, { parent: pivot, roughness: 0.72 });
-    ctx.box(spec.leafW - 0.24, 1.56, leafD + 0.014, shade(primary, -0.09), cx, 1.04, 0, {
+    const leafH = midOpenH - 0.044;
+    ctx.box(spec.leafW, leafH, leafD, primary, cx, 0.032 + leafH / 2, 0, {
+      parent: pivot,
+      roughness: 0.72,
+    });
+    ctx.box(spec.leafW - 0.24, leafH - 0.36, leafD + 0.014, shade(primary, -0.09), cx, 0.032 + leafH / 2, 0, {
       parent: pivot,
       roughness: 0.78,
     });
-    for (const sz of [-0.058, 0.058]) {
-      ctx.sphere(0.036, 8, BRASS, spec.leafW - 0.09, 0.98, sz, {
+    for (const sz of [-0.056, 0.056]) {
+      ctx.sphere(0.034, 8, BRASS, spec.leafW - 0.09, 0.98, sz, {
         parent: pivot,
         roughness: 0.28,
         metalness: 0.68,
@@ -856,12 +1045,12 @@ function buildDoorArched(ctx: ModelContext): void {
   const springY = 1.68;
 
   const wallShape = makeWallWithArchOpening(h, openHalfW, 0, springY);
-  extrudeCentered(ctx, wallShape, t, accent, { roughness: 0.86, curveSegments: 14 });
+  extrudeCentered(ctx, wallShape, t, accent, { roughness: 0.86, curveSegments: 16 });
 
-  const trimShape = makeArchTrimShape(openHalfW - 0.004, 0.048, 0.002, springY);
+  const trimShape = makeArchTrimShape(openHalfW - 0.004, 0.048, 0.006, springY);
   extrudeCentered(ctx, trimShape, t + 0.026, shade(accent, -0.09), {
     roughness: 0.74,
-    curveSegments: 14,
+    curveSegments: 16,
   });
 
   ctx.box(0.78, 0.022, t + 0.022, DARK_WOOD, 0, 0.013, 0, { roughness: 0.65 });
@@ -875,38 +1064,44 @@ function buildDoorArched(ctx: ModelContext): void {
   ctx.group.add(pivot);
 
   const leafShape = new THREE.Shape();
-  leafShape.moveTo(0.006, 0.024);
-  leafShape.lineTo(0.774, 0.024);
-  leafShape.lineTo(0.774, springY);
-  leafShape.absarc(0.39, springY, 0.384, 0, Math.PI, false);
+  leafShape.moveTo(0.008, 0.032);
+  leafShape.lineTo(0.772, 0.032);
+  leafShape.lineTo(0.772, springY);
+  leafShape.absarc(0.39, springY, 0.382, 0, Math.PI, false);
   leafShape.closePath();
   extrudeCentered(ctx, leafShape, leafD, primary, {
     parent: pivot,
     roughness: 0.72,
-    curveSegments: 14,
+    curveSegments: 16,
   });
 
   const insetShape = new THREE.Shape();
-  insetShape.moveTo(0.12, 0.24);
-  insetShape.lineTo(0.66, 0.24);
+  insetShape.moveTo(0.12, 0.22);
+  insetShape.lineTo(0.66, 0.22);
   insetShape.lineTo(0.66, springY - 0.04);
   insetShape.absarc(0.39, springY - 0.04, 0.27, 0, Math.PI, false);
   insetShape.closePath();
   extrudeCentered(ctx, insetShape, leafD + 0.014, shade(primary, -0.09), {
     parent: pivot,
     roughness: 0.78,
-    curveSegments: 12,
+    curveSegments: 14,
   });
 
-  for (const hy of [0.46, 1.48]) {
-    ctx.box(0.22, 0.042, leafD + 0.026, '#5E5B57', 0.12, hy, 0, {
+  // Sleek flush brass barrel hinges & brass doorknob + escutcheon
+  for (const hy of [0.42, 1.38]) {
+    ctx.cyl(0.014, 0.014, 0.09, 7, BRASS_DARK, 0.014, hy, 0, {
       parent: pivot,
-      roughness: 0.48,
-      metalness: 0.5,
+      roughness: 0.34,
+      metalness: 0.62,
     });
   }
-  for (const sz of [-0.058, 0.058]) {
-    ctx.sphere(0.036, 8, BRASS, 0.68, 0.98, sz, {
+  ctx.box(0.040, 0.11, leafD + 0.024, BRASS_DARK, 0.68, 0.98, 0, {
+    parent: pivot,
+    roughness: 0.32,
+    metalness: 0.62,
+  });
+  for (const sz of [-0.056, 0.056]) {
+    ctx.sphere(0.034, 8, BRASS, 0.68, 0.98, sz, {
       parent: pivot,
       roughness: 0.28,
       metalness: 0.68,
@@ -982,7 +1177,7 @@ function buildDoorSliding(ctx: ModelContext): void {
     });
     if (handleSide !== 'none') {
       const hx = handleSide === 'left' ? cx - w / 2 + 0.052 : cx + w / 2 - 0.052;
-      for (const dz of [-0.030, 0.030]) {
+      for (const dz of [-0.026, 0.026]) {
         ctx.box(0.022, 0.26, 0.020, BRASS, hx, 1.04, cz + dz, {
           parent,
           roughness: 0.3,

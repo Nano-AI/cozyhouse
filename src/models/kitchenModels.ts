@@ -68,7 +68,7 @@ function buildKitchenCounter(ctx: ModelContext): void {
     ctx.box(colW, doorH, 0.022, frameShade, cx, doorY, frontZ + 0.008);
     ctx.box(colW - 0.10, doorH - 0.10, 0.010, panelShade, cx, doorY, frontZ + 0.021);
     const pullX = cx + (cx > 0 ? -colW * 0.34 : colW * 0.34);
-    ctx.box(0.018, 0.12, 0.018, BRASS, pullX, doorY + doorH * 0.24, frontZ + 0.035, {
+    ctx.box(0.018, 0.12, 0.018, BRASS, pullX, doorY + doorH * 0.24, frontZ + 0.032, {
       metalness: 0.72,
       roughness: 0.3,
     });
@@ -239,15 +239,22 @@ function buildKitchenIsland(ctx: ModelContext): void {
     ctx.box(0.06, 0.14, 0.125, ctx.shade(ctx.primary, -0.08), bx, bodyTop - 0.07, bodyZ + bodyD / 2 + 0.095);
   }
 
-  // Brass side towel bar + draped linen tea towel on +X end
+  // Brass side towel bar with 2 mounting brackets + draped linen tea towel on +X end
   const barX = bodyW / 2 + 0.045;
-  ctx.cyl(0.012, 0.012, 0.40, 8, BRASS, barX, bodyTop - 0.10, bodyZ, {
+  const barY = bodyTop - 0.10;
+  for (const bz of [bodyZ - 0.16, bodyZ + 0.16]) {
+    ctx.box(0.052, 0.018, 0.018, BRASS, bodyW / 2 + 0.022, barY, bz, {
+      metalness: 0.75,
+      roughness: 0.28,
+    });
+  }
+  ctx.cyl(0.012, 0.012, 0.40, 8, BRASS, barX, barY, bodyZ, {
     rotX: Math.PI / 2,
     metalness: 0.75,
     roughness: 0.28,
   });
-  ctx.box(0.026, 0.24, 0.20, '#F5EFE4', barX + 0.008, bodyTop - 0.22, bodyZ + 0.02, { roughness: 0.9 });
-  ctx.box(0.036, 0.032, 0.212, '#DF9E8D', barX + 0.008, bodyTop - 0.30, bodyZ + 0.02, { roughness: 0.9 });
+  ctx.box(0.026, 0.24, 0.20, '#F5EFE4', barX + 0.006, barY - 0.115, bodyZ + 0.02, { roughness: 0.9 });
+  ctx.box(0.034, 0.032, 0.212, '#DF9E8D', barX + 0.006, barY - 0.195, bodyZ + 0.02, { roughness: 0.9 });
 }
 
 /** 4. fridge_tall (1x1, h 1.90, toggle: open fridge) */
@@ -300,19 +307,21 @@ function buildFridgeTall(ctx: ModelContext): void {
   const upperY = bodyBottom + freezerH + 0.06 + upperH / 2;
 
   if (ctx.isActive) {
-    // Glowing warm fridge interior cavity + 2 shelves + milk carton & pastel jar
-    ctx.box(bodyW - 0.12, upperH - 0.06, 0.032, '#FFF7DF', 0, upperY, frontZ - 0.028, {
+    // Glowing warm fridge interior backing proud of solid shell + 2 shelves + milk & pastel jars
+    ctx.box(bodyW - 0.10, upperH - 0.08, 0.014, '#FFF7DF', 0, upperY, frontZ + 0.006, {
       emissive: '#FFE8AD',
       emissiveIntensity: 0.85,
       roughness: 0.5,
       castShadow: false,
     });
-    for (const sy of [upperY - 0.20, upperY + 0.14]) {
-      ctx.box(bodyW - 0.16, 0.022, 0.12, GLASS_TINT, 0, sy, frontZ + 0.048, { opacity: 0.72 });
+    const shelf1Y = upperY - 0.22;
+    const shelf2Y = upperY + 0.12;
+    for (const sy of [shelf1Y, shelf2Y]) {
+      ctx.box(bodyW - 0.16, 0.02, 0.10, GLASS_TINT, 0, sy, frontZ + 0.064, { opacity: 0.72 });
     }
-    ctx.box(0.11, 0.22, 0.09, '#A9CCE3', -0.14, upperY - 0.08, frontZ + 0.045);
-    ctx.cyl(0.055, 0.055, 0.14, 8, '#EFA89B', 0.12, upperY - 0.11, frontZ + 0.045);
-    ctx.cyl(0.06, 0.06, 0.15, 8, '#B8DCBF', -0.04, upperY + 0.23, frontZ + 0.045);
+    ctx.box(0.10, 0.21, 0.08, '#A9CCE3', -0.14, shelf1Y + 0.115, frontZ + 0.062);
+    ctx.cyl(0.048, 0.048, 0.14, 8, '#EFA89B', 0.12, shelf1Y + 0.08, frontZ + 0.062);
+    ctx.cyl(0.052, 0.052, 0.15, 8, '#B8DCBF', -0.04, shelf2Y + 0.085, frontZ + 0.062);
   }
 
   const doorPivot = new THREE.Group();
@@ -384,14 +393,16 @@ function buildFridgeRetro(ctx: ModelContext): void {
   // Front recessed seal + chunky rounded door
   const frontZ = bodyZ + bodyD / 2;
   if (ctx.isActive) {
-    // Cool frosty interior glow + 2 soda cans peeking out
-    ctx.box(bodyW - 0.12, bodyH - 0.12, 0.04, '#D6F3FF', 0, bodyY, frontZ - 0.005, {
+    // Cool frosty interior backing proud of shell + glass shelf + 2 chilled cans standing on it
+    ctx.box(bodyW - 0.10, bodyH - 0.10, 0.014, '#D6F3FF', 0, bodyY, frontZ + 0.006, {
       emissive: '#9EE2FF',
       emissiveIntensity: 0.85,
       castShadow: false,
     });
-    ctx.cyl(0.045, 0.045, 0.15, 8, '#F2A39A', -0.10, bodyY - 0.12, frontZ + 0.02);
-    ctx.cyl(0.045, 0.045, 0.15, 8, '#A9DFC8', 0.08, bodyY - 0.12, frontZ + 0.02);
+    const miniShelfY = bodyY - 0.18;
+    ctx.box(bodyW - 0.16, 0.018, 0.095, GLASS_TINT, 0, miniShelfY, frontZ + 0.062, { opacity: 0.72 });
+    ctx.cyl(0.042, 0.042, 0.14, 8, '#F2A39A', -0.10, miniShelfY + 0.079, frontZ + 0.06);
+    ctx.cyl(0.042, 0.042, 0.14, 8, '#A9DFC8', 0.08, miniShelfY + 0.079, frontZ + 0.06);
   }
 
   const doorPivot = new THREE.Group();
@@ -593,8 +604,8 @@ function buildKitchenSink(ctx: ModelContext): void {
   const basinW = 0.64;
   const sideW = (w - basinW) / 2;
   const basinTopY = topY - 0.006;
-  const basinH = 0.234;
-  const basinFloorY = basinTopY - basinH;
+  const basinFloorY = bodyBottom + lowerCabH + 0.004;
+  const basinH = basinTopY - basinFloorY;
 
   // Left & right upper cabinet + countertop surrounds
   for (const sx of [-(basinW / 2 + sideW / 2), basinW / 2 + sideW / 2]) {
@@ -602,7 +613,7 @@ function buildKitchenSink(ctx: ModelContext): void {
     ctx.box(sideW, topH, topD, ctx.accent, sx, topY - topH / 2, centerZ + 0.01, { roughness: 0.52 });
   }
   // Rear countertop deck behind basin (supports faucet, cleanly clear of basin back)
-  ctx.box(basinW, 0.18 + topH, 0.22, ctx.accent, 0, topY - (0.18 + topH) / 2, centerZ - topD / 2 + 0.12, {
+  ctx.box(basinW - 0.008, 0.18 + topH, 0.22, ctx.accent, 0, topY - (0.18 + topH) / 2, centerZ - topD / 2 + 0.12, {
     roughness: 0.52,
   });
 
@@ -619,12 +630,12 @@ function buildKitchenSink(ctx: ModelContext): void {
     roughness: 0.28,
   });
   // Back porcelain wall
-  ctx.box(basinW - 0.008, basinH, wallT, PORCELAIN, 0, basinFloorY + basinH / 2, basinZ - basinD / 2 + wallT / 2, {
+  ctx.box(basinW - 0.012, basinH, wallT, PORCELAIN, 0, basinFloorY + basinH / 2, basinZ - basinD / 2 + wallT / 2, {
     roughness: 0.24,
   });
   // Left & right inner porcelain walls strictly between front apron & back wall
   const innerSideD = basinD - 0.048 - wallT - 0.004;
-  for (const sx of [-basinW / 2 + wallT / 2 + 0.004, basinW / 2 - wallT / 2 - 0.004]) {
+  for (const sx of [-basinW / 2 + wallT / 2 + 0.006, basinW / 2 - wallT / 2 - 0.006]) {
     ctx.box(wallT, basinH - 0.004, innerSideD, PORCELAIN, sx, basinFloorY + basinH / 2, basinZ - 0.004, {
       roughness: 0.24,
     });
@@ -658,14 +669,15 @@ function buildKitchenSink(ctx: ModelContext): void {
       metalness: 0.75,
       roughness: 0.26,
     });
-    ctx.box(0.055, 0.014, 0.014, BRASS, hx + (hx > 0 ? 0.022 : -0.022), topY + 0.055, faucetZ + 0.01, {
+    ctx.box(0.055, 0.014, 0.014, BRASS, hx + (hx > 0 ? 0.022 : -0.022), topY + 0.050, faucetZ + 0.01, {
       metalness: 0.75,
       roughness: 0.26,
     });
   }
-  // Tiny pastel hand soap bottle on corner ledge
+  // Tiny pastel hand soap dispenser on corner ledge
   ctx.cyl(0.032, 0.036, 0.10, 8, '#B8D8C8', 0.34, topY + 0.05, faucetZ + 0.03, { roughness: 0.38 });
   ctx.cyl(0.01, 0.01, 0.03, 6, CHROME, 0.34, topY + 0.115, faucetZ + 0.03, { metalness: 0.75 });
+  ctx.box(0.012, 0.01, 0.034, CHROME, 0.34, topY + 0.128, faucetZ + 0.044, { metalness: 0.75 });
 
   // Running water stream + basin splash ripple when active!
   if (ctx.isActive) {
@@ -867,11 +879,11 @@ function buildDiningTable(ctx: ModelContext): void {
   const legColor = ctx.shade(ctx.primary, -0.06);
   for (const sx of [-ox, ox]) {
     for (const sz of [-oz, oz]) {
-      ctx.cyl(0.046, 0.032, legH, 8, legColor, sx, FLOOR_BASE_Y + legH / 2, sz, {
+      ctx.cyl(0.046, 0.032, legH - 0.004, 8, legColor, sx, FLOOR_BASE_Y + legH / 2 + 0.002, sz, {
         rotZ: sx > 0 ? 0.04 : -0.04,
         rotX: sz > 0 ? -0.04 : 0.04,
       });
-      // Warm brass foot ferrule
+      // Warm brass foot ferrule seated flush on FLOOR_BASE_Y
       ctx.cyl(0.034, 0.031, 0.055, 8, BRASS, sx * 1.015, FLOOR_BASE_Y + 0.0275, sz * 1.015, {
         metalness: 0.72,
         roughness: 0.3,
@@ -896,7 +908,7 @@ function buildDiningChair(ctx: ModelContext): void {
     [0.18, 0.17, 0.06, -0.06],
   ];
   for (const [lx, lz, rz, rx] of legPos) {
-    ctx.cyl(0.024, 0.017, legH, 7, frameDark, lx, FLOOR_BASE_Y + legH / 2, lz, {
+    ctx.cyl(0.024, 0.017, legH - 0.004, 7, frameDark, lx, FLOOR_BASE_Y + legH / 2 + 0.002, lz, {
       rotZ: rz,
       rotX: rx,
     });
@@ -1056,10 +1068,11 @@ function buildSpiceRack(ctx: ModelContext): void {
 function buildElectricKettle(ctx: ModelContext): void {
   const baseH = 0.032;
   const bodyH = 0.205;
-  const bodyBottom = baseH + 0.004;
+  const bodyBottom = baseH;
 
-  // Slim matte dark heating dock at local y = 0
+  // Slim matte dark heating dock at local y = 0 + recessed contact ring
   ctx.box(0.27, baseH, 0.27, DARK_IRON, 0, baseH / 2, 0, { roughness: 0.65 });
+  ctx.cyl(0.118, 0.122, 0.008, 12, '#2C2E32', 0, baseH + 0.003, 0, { roughness: 0.55 });
   // Indicator LED pill on front of dock
   ctx.box(
     0.045,

@@ -68,7 +68,9 @@ function addCustomMesh(
   if (opts?.scaleX !== undefined || opts?.scaleY !== undefined || opts?.scaleZ !== undefined) {
     mesh.scale.set(opts.scaleX ?? 1, opts.scaleY ?? 1, opts.scaleZ ?? 1);
   }
-  mesh.castShadow = !ctx.isGhost && (opts?.castShadow ?? true);
+  const isGlowing = ctx.isActive && opts?.emissive !== undefined;
+  const defaultCast = ctx.def.layer !== 'ceiling';
+  mesh.castShadow = !ctx.isGhost && !isGlowing && (opts?.castShadow ?? defaultCast);
   mesh.receiveShadow = !ctx.isGhost && (opts?.receiveShadow ?? true);
   if (opts?.name) mesh.name = opts.name;
   (opts?.parent ?? ctx.group).add(mesh);
@@ -103,11 +105,13 @@ function buildDjBooth(ctx: ModelContext): void {
     emissive: primary,
     emissiveIntensity: ledGlow,
     roughness: 0.3,
+    castShadow: false,
   });
   ctx.box(1.52, 0.034, 0.028, brightTint, 0, baseY + 0.198, 0.424, {
     emissive: primary,
     emissiveIntensity: ledGlow,
     roughness: 0.3,
+    castShadow: false,
   });
 
   // 3 bold geometric VU equalizer bars on the front fascia
@@ -121,6 +125,7 @@ function buildDjBooth(ctx: ModelContext): void {
       emissive: col,
       emissiveIntensity: isActive ? 0.98 : 0.16,
       roughness: 0.32,
+      castShadow: false,
     });
   }
 
@@ -156,6 +161,7 @@ function buildDjBooth(ctx: ModelContext): void {
       emissive: padCol,
       emissiveIntensity: isActive ? 1.05 : 0.2,
       roughness: 0.3,
+      castShadow: false,
     });
   }
 
@@ -296,6 +302,7 @@ function buildSpeakerTower(ctx: ModelContext): void {
   ctx.sphere(0.012, 6, '#9AE6B4', 0.175, 1.24, 0.246, {
     emissive: '#9AE6B4',
     emissiveIntensity: 0.85,
+    castShadow: false,
   });
 }
 
@@ -345,6 +352,7 @@ function buildSubwooferBox(ctx: ModelContext): void {
   ctx.sphere(0.013, 6, accent, 0.23, 0.60, 0.322, {
     emissive: accent,
     emissiveIntensity: 0.9,
+    castShadow: false,
   });
 }
 
@@ -548,11 +556,11 @@ function buildLedStripWall(ctx: ModelContext): void {
     roughness: 0.35,
   });
 
-  // Twin mounting clips & tiny power hub end-cap
+  // Twin mounting clips & tiny power hub end-cap (strictly non-coplanar with channel & glow halo)
   for (const sx of [-0.34, 0.34]) {
     ctx.box(0.045, 0.092, 0.012, '#3F4550', sx, 0, 0.006, { metalness: 0.4 });
   }
-  ctx.box(0.044, 0.052, 0.040, '#3F4550', 0.464, 0, 0.024);
+  ctx.box(0.042, 0.056, 0.028, '#3F4550', 0.456, 0, 0.028);
 
   // 7 segmented pastel LED diffuser cells
   const segPalette = [
@@ -574,9 +582,9 @@ function buildLedStripWall(ctx: ModelContext): void {
     });
   }
 
-  // Ambient pastel wall-wash glow halo when active
+  // Ambient pastel wall-wash glow halo when active (centered strictly between wall & channel)
   if (isActive) {
-    ctx.box(0.92, 0.18, 0.022, primary, 0, 0, 0.014, {
+    ctx.box(0.86, 0.18, 0.006, primary, 0, 0, 0.006, {
       opacity: 0.24,
       emissive: primary,
       emissiveIntensity: 0.85,
@@ -589,78 +597,86 @@ function buildLedStripWall(ctx: ModelContext): void {
 function buildFogMachine(ctx: ModelContext): void {
   const { primary, accent, isActive, shade } = ctx;
   const baseY = FLOOR_BASE_Y;
+  // Offset chassis slightly back (-Z) so active front mist puffs stay cleanly within the 1x1 tile
+  const dz = -0.08;
 
-  // 4 stubby rubber feet
-  ctx.legs(0.38, 0.44, 0.032, 0.028, '#383C46', baseY, 0.05);
+  // 4 stubby rubber feet aligned under chassis
+  for (const sx of [-0.14, 0.14]) {
+    for (const sz of [dz - 0.17, dz + 0.17]) {
+      ctx.cyl(0.028, 0.028, 0.032, 8, '#383C46', sx, baseY + 0.016, sz, { roughness: 0.72 });
+    }
+  }
 
   // Compact industrial pastel chassis
   const bodyY = baseY + 0.032 + 0.105;
-  ctx.box(0.40, 0.21, 0.46, primary, 0, bodyY, 0, {
+  ctx.box(0.40, 0.21, 0.44, primary, 0, bodyY, dz, {
     roughness: 0.52,
     metalness: 0.18,
   });
-  ctx.box(0.36, 0.024, 0.42, shade(primary, 0.14), 0, bodyY + 0.114, 0, {
+  ctx.box(0.36, 0.024, 0.40, shade(primary, 0.14), 0, bodyY + 0.114, dz, {
     roughness: 0.48,
   });
 
   // Side ventilation louver slats
   for (const sx of [-0.204, 0.204]) {
     for (let i = -1; i <= 1; i++) {
-      ctx.box(0.012, 0.018, 0.18, '#464C58', sx, bodyY + i * 0.042, -0.02);
+      ctx.box(0.012, 0.018, 0.18, '#464C58', sx, bodyY + i * 0.042, dz - 0.02);
     }
   }
 
   // Top arched carry handle (reaches ~0.34)
   for (const sx of [-0.145, 0.145]) {
-    ctx.box(0.022, 0.072, 0.026, '#505765', sx, bodyY + 0.145, 0, {
+    ctx.box(0.022, 0.072, 0.026, '#505765', sx, bodyY + 0.145, dz, {
       metalness: 0.5,
       roughness: 0.35,
     });
   }
-  ctx.cyl(0.015, 0.015, 0.31, 8, '#505765', 0, bodyY + 0.178, 0, {
+  ctx.cyl(0.015, 0.015, 0.31, 8, '#505765', 0, bodyY + 0.178, dz, {
     rotZ: Math.PI / 2,
     metalness: 0.5,
     roughness: 0.35,
   });
 
-  // Rear clear fluid reservoir tank + blue-mint fog juice
-  ctx.box(0.24, 0.13, 0.10, '#DFF0F6', 0, bodyY - 0.01, -0.26, {
+  // Rear clear fluid reservoir tank + blue-mint fog juice (translucent -> castShadow: false)
+  const tankZ = dz - 0.245;
+  ctx.box(0.24, 0.13, 0.095, '#DFF0F6', 0, bodyY - 0.01, tankZ, {
     opacity: 0.55,
     roughness: 0.14,
+    castShadow: false,
   });
-  ctx.box(0.21, 0.082, 0.076, '#A6E0E8', 0, bodyY - 0.028, -0.26, {
+  ctx.box(0.21, 0.082, 0.070, '#A6E0E8', 0, bodyY - 0.028, tankZ, {
     roughness: 0.25,
   });
-  ctx.cyl(0.026, 0.026, 0.028, 8, '#464C58', 0, bodyY + 0.068, -0.26);
+  ctx.cyl(0.026, 0.026, 0.028, 8, '#464C58', 0, bodyY + 0.068, tankZ);
 
   // Front discharge plate, nozzle, and status indicator LED
-  ctx.box(0.32, 0.145, 0.024, '#414754', 0, bodyY, 0.236, { roughness: 0.5 });
-  ctx.cyl(0.036, 0.046, 0.072, 10, '#C5CDD8', 0, bodyY, 0.272, {
+  ctx.box(0.32, 0.145, 0.024, '#414754', 0, bodyY, dz + 0.226, { roughness: 0.5 });
+  ctx.cyl(0.036, 0.046, 0.068, 10, '#C5CDD8', 0, bodyY, dz + 0.260, {
     rotX: Math.PI / 2,
     metalness: 0.68,
     roughness: 0.26,
   });
-  ctx.cyl(0.024, 0.024, 0.02, 8, '#1E2026', 0, bodyY, 0.305, { rotX: Math.PI / 2 });
-  ctx.sphere(0.014, 6, isActive ? '#6EE7B7' : '#7A818E', 0.115, bodyY + 0.042, 0.254, {
+  ctx.cyl(0.024, 0.024, 0.018, 8, '#1E2026', 0, bodyY, dz + 0.291, { rotX: Math.PI / 2 });
+  ctx.sphere(0.014, 6, isActive ? '#6EE7B7' : '#7A818E', 0.115, bodyY + 0.042, dz + 0.244, {
     emissive: isActive ? '#6EE7B7' : undefined,
     emissiveIntensity: 1.2,
   });
 
-  // Drifting translucent puffy mist clouds when active
+  // Drifting translucent puffy mist clouds when active (compact plume inside 1x1 footprint)
   if (isActive) {
     const puffs = [
-      { x: 0.0, y: bodyY + 0.01, z: 0.36, r: 0.075, op: 0.48 },
-      { x: -0.06, y: bodyY + 0.06, z: 0.44, r: 0.105, op: 0.40 },
-      { x: 0.07, y: bodyY + 0.05, z: 0.47, r: 0.095, op: 0.38 },
-      { x: 0.0, y: bodyY + 0.12, z: 0.54, r: 0.125, op: 0.30 },
-      { x: -0.09, y: bodyY + 0.15, z: 0.59, r: 0.10, op: 0.24 },
-      { x: 0.08, y: bodyY + 0.17, z: 0.61, r: 0.09, op: 0.20 },
+      { x: 0.0, y: bodyY + 0.01, z: 0.27, r: 0.062, op: 0.48 },
+      { x: -0.055, y: bodyY + 0.05, z: 0.33, r: 0.078, op: 0.40 },
+      { x: 0.06, y: bodyY + 0.045, z: 0.35, r: 0.072, op: 0.38 },
+      { x: 0.0, y: bodyY + 0.10, z: 0.39, r: 0.086, op: 0.30 },
+      { x: -0.075, y: bodyY + 0.135, z: 0.41, r: 0.072, op: 0.24 },
+      { x: 0.07, y: bodyY + 0.15, z: 0.42, r: 0.066, op: 0.20 },
     ];
     for (const p of puffs) {
       ctx.sphere(p.r, 7, accent, p.x, p.y, p.z, {
-        scaleX: 1.18,
+        scaleX: 1.16,
         scaleY: 0.85,
-        scaleZ: 1.12,
+        scaleZ: 1.10,
         opacity: p.op,
         emissive: accent,
         emissiveIntensity: 0.24,
@@ -675,8 +691,12 @@ function buildFogMachine(ctx: ModelContext): void {
 function buildPartySpotlight(ctx: ModelContext): void {
   const { primary, accent, isActive, shade } = ctx;
 
-  // Ceiling canopy & twin hanger rods
-  ctx.cyl(0.09, 0.10, 0.024, 10, accent, 0, -0.012, 0, {
+  // Ceiling mounting rail bar anchoring both hanger rods + central wiring canopy hub
+  ctx.box(0.56, 0.022, 0.068, accent, 0, -0.011, 0, {
+    metalness: 0.55,
+    roughness: 0.35,
+  });
+  ctx.cyl(0.062, 0.072, 0.032, 10, shade(accent, -0.10), 0, -0.016, 0, {
     metalness: 0.55,
     roughness: 0.35,
   });
@@ -849,12 +869,22 @@ function buildVinylCrate(ctx: ModelContext): void {
   for (let i = 0; i < sleeveColors.length; i++) {
     const t = i / (sleeveColors.length - 1);
     const sz = -0.155 + t * 0.31;
-    const tilt = -0.15 + t * 0.26;
-    const hVar = 0.375 + (i % 3) * 0.012;
-    ctx.box(0.39, hVar, 0.014, sleeveColors[i], (i % 2 === 0 ? -0.008 : 0.008), baseY + 0.03 + hVar / 2, sz, {
-      rotX: tilt,
-      roughness: 0.65,
-    });
+    const tilt = -0.11 + t * 0.22;
+    const hVar = 0.372 + ((i * 2) % 3) * 0.014;
+    const yBottom = baseY + 0.024 + (i % 3) * 0.003;
+    ctx.box(
+      0.39,
+      hVar,
+      0.012,
+      sleeveColors[i],
+      i % 2 === 0 ? -0.008 : 0.008,
+      yBottom + hVar / 2,
+      sz,
+      {
+        rotX: tilt,
+        roughness: 0.65,
+      },
+    );
   }
 
   // Album cover geometric graphic accent cleanly proud of front-most sleeve
@@ -932,35 +962,62 @@ function buildBalloonArch(ctx: ModelContext): void {
     shade(accent, -0.06),
   ];
 
-  // 11 primary arch balloons spanning the graceful 2x1 doorway arch (top ~2.10)
-  const mainCount = 11;
+  // 15 primary arch balloons sampled uniformly along arc length so every balloon hugs its neighbors snugly
+  const archRx = 0.78;
+  const archRy = 1.66;
+  const archBaseY = baseY + 0.22;
+  const aStart = Math.PI * 0.985;
+  const aEnd = Math.PI * 0.015;
+  const lutSteps = 120;
+  const lutAngles: number[] = [];
+  const lutDist: number[] = [0];
+  let prevX = archRx * Math.cos(aStart);
+  let prevY = archBaseY + archRy * Math.sin(aStart);
+  lutAngles.push(aStart);
+  for (let s = 1; s <= lutSteps; s++) {
+    const a = aStart + (aEnd - aStart) * (s / lutSteps);
+    const px = archRx * Math.cos(a);
+    const py = archBaseY + archRy * Math.sin(a);
+    lutDist.push(lutDist[s - 1] + Math.hypot(px - prevX, py - prevY));
+    lutAngles.push(a);
+    prevX = px;
+    prevY = py;
+  }
+  const totalLen = lutDist[lutSteps];
+
+  const mainCount = 15;
   for (let i = 0; i < mainCount; i++) {
-    const t = i / (mainCount - 1);
-    const angle = Math.PI * (0.96 - t * 0.92);
-    const bx = 0.78 * Math.cos(angle);
-    const by = baseY + 0.19 + 1.69 * Math.sin(angle);
-    const bz = (i % 2 === 0 ? 1 : -1) * 0.045;
-    const r = 0.165 + (i % 3 === 1 ? 0.035 : 0);
+    const target = (i / (mainCount - 1)) * totalLen;
+    let idx = 0;
+    while (idx < lutSteps - 1 && lutDist[idx + 1] < target) idx++;
+    const segLen = Math.max(1e-5, lutDist[idx + 1] - lutDist[idx]);
+    const frac = (target - lutDist[idx]) / segLen;
+    const angle = lutAngles[idx] + (lutAngles[idx + 1] - lutAngles[idx]) * frac;
+
+    const bx = archRx * Math.cos(angle);
+    const by = archBaseY + archRy * Math.sin(angle);
+    const bz = (i % 2 === 0 ? 1 : -1) * 0.036;
+    const r = 0.168 + (i % 3 === 1 ? 0.026 : 0);
     const col = palette[i % palette.length];
     const isPearl = col === '#EFE0A8';
 
     ctx.sphere(r, 8, col, bx, by, bz, {
       scaleX: 1.04,
-      scaleY: 1.10,
+      scaleY: 1.08,
       scaleZ: 0.96,
       roughness: isPearl ? 0.28 : 0.42,
       metalness: isPearl ? 0.25 : 0.05,
     });
   }
 
-  // 6 organic cluster accent balloons for lush boutique garland fullness
+  // 6 organic cluster accent balloons tucked tightly against the primary garland
   const clusters = [
-    { x: -0.76, y: baseY + 0.46, z: 0.13, r: 0.135, c: 1 },
-    { x: -0.58, y: baseY + 1.38, z: 0.14, r: 0.145, c: 4 },
-    { x: -0.22, y: baseY + 1.80, z: -0.13, r: 0.13, c: 2 },
-    { x: 0.20, y: baseY + 1.82, z: 0.13, r: 0.14, c: 0 },
-    { x: 0.62, y: baseY + 1.30, z: -0.13, r: 0.14, c: 4 },
-    { x: 0.74, y: baseY + 0.52, z: 0.13, r: 0.13, c: 3 },
+    { x: -0.75, y: baseY + 0.56, z: 0.11, r: 0.135, c: 1 },
+    { x: -0.58, y: baseY + 1.38, z: 0.11, r: 0.145, c: 4 },
+    { x: -0.22, y: baseY + 1.80, z: -0.11, r: 0.13, c: 2 },
+    { x: 0.20, y: baseY + 1.82, z: 0.11, r: 0.14, c: 0 },
+    { x: 0.60, y: baseY + 1.32, z: -0.11, r: 0.14, c: 4 },
+    { x: 0.74, y: baseY + 0.58, z: 0.11, r: 0.13, c: 3 },
   ];
   for (const cl of clusters) {
     const col = palette[cl.c];

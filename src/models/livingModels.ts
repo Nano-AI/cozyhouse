@@ -157,25 +157,28 @@ function buildBedCanopy(ctx: ModelContext): void {
     roughness: 0.92,
   });
 
-  // Soft sheer overhead canopy fabric strictly above crown beams (clear by +0.008)
+  // Soft sheer overhead canopy fabric resting flush on top of crown beams
   const drapeCol = shade(primary, 0.14);
   const canopySpan = mergedBedSpanX(mergeSide, 0.82);
-  ctx.box(canopySpan.w, 0.024, 1.62, drapeCol, canopySpan.cx, topY + 0.048, 0, {
+  ctx.box(canopySpan.w, 0.024, 1.62, drapeCol, canopySpan.cx, topY + 0.041, 0, {
     opacity: 0.68,
     roughness: 0.95,
     castShadow: false,
   });
-  // Gathered corner curtain drapes only on unmerged outer posts!
+  // Gathered corner curtain drapes connected continuously through mid tie-back cuffs!
   const drapeXs: number[] = [];
   if (hasLeftEdge) drapeXs.push(-0.78);
   if (hasRightEdge) drapeXs.push(0.78);
   for (const sx of drapeXs) {
     for (const sz of [-0.78, 0.78]) {
-      ctx.cyl(0.105, 0.068, 1.02, 7, drapeCol, sx, topY - 0.54, sz, {
+      ctx.cyl(0.105, 0.064, 1.06, 7, drapeCol, sx, topY - 0.53, sz, {
         opacity: 0.76,
         roughness: 0.95,
       });
-      ctx.cyl(0.064, 0.115, 0.60, 7, drapeCol, sx, baseY + 0.56, sz, {
+      ctx.cyl(0.072, 0.072, 0.07, 7, shade(primary, -0.16), sx, topY - 1.06, sz, {
+        roughness: 0.88,
+      });
+      ctx.cyl(0.064, 0.115, 0.66, 7, drapeCol, sx, baseY + 0.58, sz, {
         opacity: 0.76,
         roughness: 0.95,
       });
@@ -300,8 +303,15 @@ function buildBedLoft(ctx: ModelContext): void {
     roughness: 0.92,
   });
 
-  // Cozy under-loft chill futon strictly grounded & non-overlapping (seat top = 0.424!)
-  ctx.box(1.22, 0.12, 0.68, shade(accent, -0.12), -0.18, baseY + 0.10, -0.34, { roughness: 0.74 });
+  // Cozy under-loft chill futon strictly grounded on short legs & non-overlapping (seat top = 0.424!)
+  for (const fx of [-0.72, 0.36]) {
+    for (const fz of [-0.62, -0.06]) {
+      ctx.cyl(0.022, 0.018, 0.045, 6, shade(accent, -0.2), fx, baseY + 0.0225, fz, {
+        roughness: 0.72,
+      });
+    }
+  }
+  ctx.box(1.22, 0.12, 0.68, shade(accent, -0.12), -0.18, baseY + 0.105, -0.34, { roughness: 0.74 });
   ctx.box(1.18, 0.20, 0.64, shade(primary, 0.12), -0.18, baseY + 0.264, -0.32, { roughness: 0.92 });
   ctx.box(1.18, 0.34, 0.14, primary, -0.18, baseY + 0.54, -0.58, { rotX: -0.14, roughness: 0.92 });
   ctx.box(0.28, 0.22, 0.09, CREAM_LINEN, -0.52, baseY + 0.48, -0.42, {
@@ -575,7 +585,7 @@ function buildDeskStudy(ctx: ModelContext): void {
   ctx.box(0.84, 0.066, 0.68, shade(primary, -0.04), -0.22, underY - 0.069, 0.01, {
     roughness: 0.72,
   });
-  ctx.sphere(0.02, 6, BRASS, -0.22, underY - 0.069, 0.372, {
+  ctx.sphere(0.02, 6, BRASS, -0.22, underY - 0.069, 0.365, {
     roughness: 0.28,
     metalness: 0.68,
   });
@@ -675,7 +685,11 @@ function buildChairOffice(ctx: ModelContext): void {
       roughness: 0.45,
       metalness: 0.22,
     });
-    // Caster wheel touching FLOOR_BASE_Y cleanly
+    // Caster wheel & vertical caster stem touching FLOOR_BASE_Y cleanly
+    ctx.cyl(0.012, 0.012, 0.030, 6, metalCol, dx * 0.27, baseY + 0.044, dz * 0.27, {
+      roughness: 0.45,
+      metalness: 0.4,
+    });
     ctx.cyl(0.024, 0.024, 0.026, 7, '#464B52', dx * 0.27, baseY + 0.024, dz * 0.27, {
       rotZ: Math.PI / 2,
       rotY: -a,
@@ -699,8 +713,9 @@ function buildChairOffice(ctx: ModelContext): void {
   ctx.box(0.48, 0.040, 0.46, accent, 0, baseY + 0.378, 0.01, { parent: spin, roughness: 0.55 });
   ctx.box(0.45, 0.064, 0.43, primary, 0, baseY + 0.430, 0.02, { parent: spin, roughness: 0.88 });
 
-  // Backrest support spine behind cushion + contoured backrest cushion + proud lumbar bolster
-  ctx.box(0.09, 0.34, 0.040, accent, 0, baseY + 0.57, -0.245, {
+  // Under-seat L-bracket + backrest support spine bolted cleanly to seat shell
+  ctx.box(0.088, 0.032, 0.14, accent, 0, baseY + 0.378, -0.20, { parent: spin, roughness: 0.52 });
+  ctx.box(0.088, 0.34, 0.040, accent, 0, baseY + 0.54, -0.242, {
     parent: spin,
     rotX: -0.09,
     roughness: 0.52,
@@ -799,12 +814,19 @@ function buildWardrobeTall(ctx: ModelContext): void {
       parent: hinge,
       roughness: 0.76,
     });
-    // Vertical brass handle near center seam
-    ctx.cyl(0.014, 0.014, 0.19, 6, BRASS, -side * 0.71, doorY - 0.06, 0.044, {
+    // Vertical brass handle firmly mounted to door stile via flush standoff pegs
+    ctx.cyl(0.014, 0.014, 0.19, 6, BRASS, -side * 0.71, doorY - 0.06, 0.040, {
       parent: hinge,
       roughness: 0.28,
       metalness: 0.68,
     });
+    for (const dy of [-0.125, 0.005]) {
+      ctx.box(0.016, 0.016, 0.026, BRASS, -side * 0.71, doorY + dy, 0.027, {
+        parent: hinge,
+        roughness: 0.3,
+        metalness: 0.65,
+      });
+    }
   }
 }
 
@@ -1088,17 +1110,17 @@ function buildSideTableRound(ctx: ModelContext): void {
     roughness: 0.72,
   });
 
-  // 3 splayed tapered tripod wooden legs cleanly meeting FLOOR_BASE_Y
+  // 3 splayed tapered tripod wooden legs cleanly meeting FLOOR_BASE_Y (minY = 0.024)
   const legH = topY - topH - baseY;
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
     const dx = Math.cos(a);
     const dz = Math.sin(a);
     const pivot = new THREE.Group();
-    pivot.position.set(dx * 0.20, baseY + legH / 2 + 0.004, dz * 0.20);
+    pivot.position.set(dx * 0.20, baseY + legH / 2 - 0.001, dz * 0.20);
     pivot.rotation.y = -a;
     ctx.group.add(pivot);
-    ctx.cyl(0.025, 0.017, legH * 0.985, 6, WARM_OAK, 0, 0, 0, {
+    ctx.cyl(0.025, 0.017, legH * 1.006, 6, WARM_OAK, 0, 0, 0, {
       parent: pivot,
       rotZ: 0.14,
       roughness: 0.7,

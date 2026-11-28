@@ -32,6 +32,32 @@ function addSegment(
 }
 
 /**
+ * Sculpts a smooth, continuous tapered cat tail along 3D waypoints with rounded joints (zero gaps).
+ */
+function addCatTail(
+  ctx: ModelContext,
+  pts: Array<{ x: number; y: number; z: number; r: number; col: string }>,
+): void {
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i];
+    ctx.sphere(p.r, 7, p.col, p.x, p.y, p.z, { roughness: 0.92 });
+    if (i < pts.length - 1) {
+      const n = pts[i + 1];
+      const a = new THREE.Vector3(p.x, p.y, p.z);
+      const b = new THREE.Vector3(n.x, n.y, n.z);
+      const dir = new THREE.Vector3().subVectors(b, a);
+      const len = dir.length();
+      if (len > 1e-4) {
+        const mid = new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5);
+        const seg = ctx.cyl(n.r, p.r, len, 8, p.col, mid.x, mid.y, mid.z, { roughness: 0.92 });
+        seg.quaternion.setFromUnitVectors(up, dir.normalize());
+      }
+    }
+  }
+}
+
+/**
  * Adds a pair of adorable triangular cat ears with soft pink inner ears to a head group.
  */
 function addCatEars(
@@ -141,8 +167,8 @@ function buildCatTree(ctx: ModelContext): void {
     roughness: 0.92,
   });
 
-  // Side stepping ledge perch
-  ctx.cyl(0.175, 0.175, 0.044, 12, shade(primary, 0.06), 0.24, 1.03, 0.12, { roughness: 0.9 });
+  // Side stepping ledge perch solidly anchored around the tall back-right sisal post
+  ctx.cyl(0.175, 0.175, 0.044, 12, shade(primary, 0.06), 0.22, 1.03, 0.05, { roughness: 0.9 });
 
   // Upper sisal post from cubby roof to top perch
   ctx.cyl(0.048, 0.050, 0.42, 10, sisal, -0.14, 1.19, -0.02, { roughness: 0.95 });
@@ -200,9 +226,9 @@ function buildCatCondoTower(ctx: ModelContext): void {
     // Wood arch trim sill
     ctx.box(0.22, 0.024, 0.036, accent, 0, -0.105, 0.300, { parent: doorGroup });
 
-    // Subtle interior cushion peek inside upper & bottom caves
+    // Subtle interior cushion peek resting cleanly on the wood sill inside upper & bottom caves
     if (i !== 1) {
-      ctx.box(0.14, 0.026, 0.040, '#F7F1E7', 0, -0.088, 0.292, { parent: doorGroup });
+      ctx.box(0.14, 0.024, 0.036, '#F7F1E7', 0, -0.080, 0.296, { parent: doorGroup });
     }
   }
 
@@ -320,7 +346,7 @@ function buildCatTunnel(ctx: ModelContext): void {
   const { primary, accent, shade } = ctx;
   const baseY = FLOOR_BASE_Y;
   const r = 0.180;
-  const cy = baseY + r + 0.022;
+  const cy = baseY + r + 0.017;
   const len = 1.50;
 
   // Open hollow outer crinkle fabric cylinder
@@ -431,52 +457,62 @@ function buildPetBedRound(ctx: ModelContext): void {
   const { primary, accent, shade } = ctx;
   const baseY = FLOOR_BASE_Y;
 
-  // Soft base cushion footprint
-  ctx.cyl(0.35, 0.37, 0.048, 16, shade(primary, -0.10), 0, baseY + 0.024, 0, {
+  // Grounded soft base pad
+  ctx.cyl(0.365, 0.382, 0.056, 18, shade(primary, -0.10), 0, baseY + 0.028, 0, {
     roughness: 0.92,
   });
 
-  // Sunken soft fleece inner sleeping pillow
-  ctx.sphere(0.275, 12, accent, 0, baseY + 0.082, 0, {
-    scaleY: 0.24,
+  // Sunken soft fleece inner sleeping pillow + gentle domed top
+  ctx.cyl(0.242, 0.252, 0.050, 16, accent, 0, baseY + 0.064, 0, { roughness: 0.95 });
+  ctx.sphere(0.242, 14, accent, 0, baseY + 0.088, 0, {
+    scaleY: 0.22,
     roughness: 0.95,
   });
   // Subtle quilted center tuft button
-  ctx.cyl(0.026, 0.026, 0.012, 8, shade(primary, -0.06), 0, baseY + 0.148, 0, {
+  ctx.cyl(0.024, 0.024, 0.012, 8, shade(primary, -0.06), 0, baseY + 0.140, 0, {
     roughness: 0.9,
   });
 
-  // Plump continuous doughnut bolster rim
-  ctx.torus(0.305, 0.096, 8, 18, primary, 0, baseY + 0.118, 0, {
+  // Plump continuous full-circle doughnut bolster ring
+  const ringR = 0.285;
+  ctx.torus(ringR, 0.094, 10, 22, primary, 0, baseY + 0.106, 0, {
     rotX: Math.PI / 2,
     scaleZ: 0.86,
     roughness: 0.94,
   });
 
-  // 5 sculpted overlapping pillowy bolster puffs around back & sides (leaving front chin-dip)
-  const puffAngles = [-2.35, -1.55, -0.78, 0.78, 1.55];
-  for (let i = 0; i < puffAngles.length; i++) {
-    const a = puffAngles[i];
-    // Angle 0 points -Z (back), ±PI/2 are sides
-    const px = Math.sin(a) * 0.305;
-    const pz = -Math.cos(a) * 0.305;
-    ctx.sphere(0.112, 8, i % 2 === 0 ? shade(primary, 0.05) : primary, px, baseY + 0.155, pz, {
-      scaleX: 1.06,
-      scaleY: 0.86,
-      scaleZ: 1.06,
-      roughness: 0.95,
-    });
+  // Smooth continuous raised U-shaped rear backrest bolster (wraps back & flanks, dips open at +Z front)
+  const arcTube = 0.064;
+  const arcY = baseY + 0.168;
+  const arcScaleY = 0.82;
+  const arcStart = Math.PI * 1.02;
+  const arcLen = Math.PI * 0.96;
+  const crownCol = shade(primary, 0.05);
+
+  const rearGeo = new THREE.TorusGeometry(ringR, arcTube, 10, 20, arcLen);
+  const rearMesh = new THREE.Mesh(rearGeo, ctx.mat(crownCol, { roughness: 0.95 }));
+  rearMesh.position.set(0, arcY, 0);
+  rearMesh.rotation.set(Math.PI / 2, 0, arcStart);
+  rearMesh.scale.set(1, 1, arcScaleY);
+  rearMesh.castShadow = !ctx.isGhost;
+  rearMesh.receiveShadow = !ctx.isGhost;
+  ctx.group.add(rearMesh);
+
+  // Smooth hemispherical caps sealing both ends of the raised rear bolster arc
+  for (const theta of [arcStart, arcStart + arcLen]) {
+    ctx.sphere(
+      arcTube,
+      8,
+      crownCol,
+      ringR * Math.cos(theta),
+      arcY,
+      ringR * Math.sin(theta),
+      { scaleY: arcScaleY, roughness: 0.95 },
+    );
   }
-  // Center back crown bolster puff
-  ctx.sphere(0.118, 8, shade(primary, 0.06), 0, baseY + 0.162, -0.305, {
-    scaleX: 1.15,
-    scaleY: 0.88,
-    scaleZ: 0.98,
-    roughness: 0.95,
-  });
 
   // Cute stitched woven label tag on front bolster lip
-  ctx.box(0.068, 0.042, 0.018, '#CAA47D', 0, baseY + 0.095, 0.392, { roughness: 0.85 });
+  ctx.box(0.066, 0.038, 0.016, '#CAA47D', 0, baseY + 0.098, 0.376, { roughness: 0.85 });
 }
 
 function buildPetBowls(ctx: ModelContext): void {
@@ -525,6 +561,7 @@ function buildPetBowls(ctx: ModelContext): void {
     opacity: 0.74,
     roughness: 0.10,
     metalness: 0.08,
+    castShadow: false,
   });
   // Subtle crisp white water shimmer highlight
   ctx.box(0.044, 0.005, 0.014, '#FFFFFF', rx - 0.022, baseY + 0.146, 0.024, {
@@ -580,14 +617,14 @@ function buildPetAutoFeeder(ctx: ModelContext): void {
   });
 
   // Kibble inside bowl — generous fresh mound + tumbling morsels when active!
-  const moundH = isActive ? 0.56 : 0.30;
-  ctx.sphere(0.088, 8, '#9A6E49', 0, baseY + 0.046, 0.145, {
+  const moundH = isActive ? 0.44 : 0.26;
+  ctx.sphere(0.088, 8, '#9A6E49', 0, baseY + 0.056, 0.145, {
     scaleY: moundH,
     roughness: 0.9,
   });
   if (isActive) {
-    ctx.sphere(0.016, 5, '#B38359', -0.015, baseY + 0.095, 0.108);
-    ctx.sphere(0.015, 5, '#7D5535', 0.016, baseY + 0.112, 0.098);
+    ctx.sphere(0.016, 5, '#B38359', -0.015, baseY + 0.098, 0.108);
+    ctx.sphere(0.015, 5, '#7D5535', 0.016, baseY + 0.114, 0.098);
   }
 }
 
@@ -595,8 +632,8 @@ function buildLitterBox(ctx: ModelContext): void {
   const { primary, accent, shade } = ctx;
   const baseY = FLOOR_BASE_Y;
 
-  // Front paw-catching litter mat
-  ctx.box(0.38, 0.012, 0.17, '#DBD2C5', 0, baseY + 0.006, 0.34, {
+  // Front paw-catching litter mat (cleanly forward of tray base to avoid coplanar floor overlap)
+  ctx.box(0.38, 0.012, 0.16, '#DBD2C5', 0, baseY + 0.006, 0.352, {
     roughness: 0.92,
     castShadow: false,
   });
@@ -628,8 +665,8 @@ function buildLitterBox(ctx: ModelContext): void {
   ctx.cyl(0.105, 0.105, 0.020, 12, '#3B3633', 0, baseY + 0.275, doorZ + 0.022, {
     rotX: Math.PI / 2,
   });
-  // Swinging semi-translucent cat flap
-  ctx.box(0.195, 0.19, 0.012, '#F7F3EC', 0, baseY + 0.225, doorZ + 0.040, {
+  // Swinging semi-translucent cat flap (cleanly above tray rim lip)
+  ctx.box(0.195, 0.174, 0.012, '#F7F3EC', 0, baseY + 0.232, doorZ + 0.042, {
     opacity: 0.46,
     rotX: 0.10,
     roughness: 0.2,
@@ -660,12 +697,12 @@ function buildCatWallShelf(ctx: ModelContext): void {
     ctx.cone(0.022, 0.046, 4, primary, sx, 0.098, 0.032, { rotY: Math.PI / 4 });
   }
 
-  // Two sleek angled triangular brackets strictly underneath shelf
+  // Two sleek angled triangular brackets flush against the wall (z = 0) strictly underneath shelf
   for (const sx of [-0.24, 0.24]) {
-    ctx.box(0.034, 0.136, 0.026, bracketWood, sx, -0.058, 0.020, { roughness: 0.78 });
+    ctx.box(0.034, 0.136, 0.032, bracketWood, sx, -0.058, 0.016, { roughness: 0.78 });
     addSegment(
       ctx,
-      new THREE.Vector3(sx, -0.098, 0.036),
+      new THREE.Vector3(sx, -0.098, 0.032),
       new THREE.Vector3(sx, 0.010, 0.24),
       0.014,
       bracketWood,
@@ -758,6 +795,7 @@ function buildWindowHammock(ctx: ModelContext): void {
         rotX: Math.PI / 2,
         opacity: 0.78,
         roughness: 0.2,
+        castShadow: false,
       });
     }
   }
@@ -929,16 +967,14 @@ function buildCatCalico(ctx: ModelContext): void {
     });
   }
 
-  // Graceful curved tail wrapping around the right flank toward front paws
-  const tailPts = [
-    { x: 0.02, y: baseY + 0.054, z: -0.132, r: 0.030, col: baseCoat },
-    { x: 0.105, y: baseY + 0.042, z: -0.105, r: 0.028, col: isCalico ? patchB : baseCoat },
-    { x: 0.145, y: baseY + 0.034, z: -0.010, r: 0.026, col: isCalico ? patchA : baseCoat },
-    { x: 0.120, y: baseY + 0.030, z: 0.088, r: 0.024, col: bibCol },
-  ];
-  for (const tp of tailPts) {
-    ctx.sphere(tp.r, 7, tp.col, tp.x, tp.y, tp.z, { scaleY: 0.85, roughness: 0.9 });
-  }
+  // Graceful continuous curved tail wrapping around the right flank toward front paws
+  addCatTail(ctx, [
+    { x: 0.015, y: baseY + 0.062, z: -0.122, r: 0.026, col: baseCoat },
+    { x: 0.096, y: baseY + 0.044, z: -0.102, r: 0.024, col: isCalico ? patchB : baseCoat },
+    { x: 0.142, y: baseY + 0.038, z: -0.020, r: 0.023, col: isCalico ? patchA : baseCoat },
+    { x: 0.138, y: baseY + 0.036, z: 0.056, r: 0.021, col: isCalico ? patchA : baseCoat },
+    { x: 0.108, y: baseY + 0.036, z: 0.102, r: 0.020, col: bibCol },
+  ]);
 }
 
 function buildCatSleepy(ctx: ModelContext): void {
@@ -1019,16 +1055,13 @@ function buildCatSleepy(ctx: ModelContext): void {
     roughness: 0.92,
   });
 
-  // Fluffy tail curled gracefully across the front and tucked near the nose!
-  const tailPts = [
-    { x: -0.135, y: baseY + 0.050, z: 0.118, r: 0.034, col: primary },
-    { x: -0.055, y: baseY + 0.048, z: 0.180, r: 0.032, col: primary },
-    { x: 0.032, y: baseY + 0.054, z: 0.194, r: 0.029, col: accent },
-    { x: 0.095, y: baseY + 0.068, z: 0.168, r: 0.025, col: accent },
-  ];
-  for (const tp of tailPts) {
-    ctx.sphere(tp.r, 7, tp.col, tp.x, tp.y, tp.z, { scaleY: 0.84, roughness: 0.94 });
-  }
+  // Smooth continuous fluffy tail curled gracefully across the front and tucked near the nose!
+  addCatTail(ctx, [
+    { x: -0.135, y: baseY + 0.052, z: 0.105, r: 0.029, col: primary },
+    { x: -0.068, y: baseY + 0.048, z: 0.172, r: 0.027, col: primary },
+    { x: 0.020, y: baseY + 0.050, z: 0.192, r: 0.026, col: accent },
+    { x: 0.092, y: baseY + 0.062, z: 0.170, r: 0.023, col: accent },
+  ]);
 }
 
 function buildCatKitten(ctx: ModelContext): void {
@@ -1081,9 +1114,9 @@ function buildCatKitten(ctx: ModelContext): void {
   );
   ctx.sphere(0.026, 7, pawCol, 0.076, baseY + 0.130, 0.150, { roughness: 0.9 });
 
-  // Tiny pastel yarn ball right underneath the batting paw
-  ctx.sphere(0.036, 8, '#F2B4C4', 0.105, baseY + 0.042, 0.175, { roughness: 0.92 });
-  ctx.torus(0.036, 0.005, 5, 10, '#E397AA', 0.105, baseY + 0.042, 0.175, {
+  // Tiny pastel yarn ball right underneath the batting paw (seated cleanly above FLOOR_BASE_Y)
+  ctx.sphere(0.036, 8, '#F2B4C4', 0.105, baseY + 0.044, 0.175, { roughness: 0.92 });
+  ctx.torus(0.035, 0.005, 5, 10, '#E397AA', 0.105, baseY + 0.044, 0.175, {
     rotX: 0.7,
     rotY: 0.4,
   });
@@ -1141,15 +1174,13 @@ function buildCatKitten(ctx: ModelContext): void {
     parent: head,
   });
 
-  // Perky upright happy question-mark tail (reaches height ~0.33)
-  const t0 = new THREE.Vector3(0, baseY + 0.102, -0.102);
-  const t1 = new THREE.Vector3(0, baseY + 0.215, -0.132);
-  const t2 = new THREE.Vector3(0, baseY + 0.295, -0.118);
-  const t3 = new THREE.Vector3(0.028, baseY + 0.305, -0.082);
-  addSegment(ctx, t0, t1, 0.018, tailCol, 7);
-  addSegment(ctx, t1, t2, 0.016, tailCol, 7);
-  addSegment(ctx, t2, t3, 0.015, accent, 7);
-  ctx.sphere(0.018, 6, accent, t3.x, t3.y, t3.z, { roughness: 0.92 });
+  // Perky upright happy question-mark tail with seamless joints (reaches height ~0.33)
+  addCatTail(ctx, [
+    { x: 0, y: baseY + 0.098, z: -0.098, r: 0.019, col: tailCol },
+    { x: 0, y: baseY + 0.212, z: -0.132, r: 0.017, col: tailCol },
+    { x: 0, y: baseY + 0.294, z: -0.118, r: 0.016, col: accent },
+    { x: 0.028, y: baseY + 0.306, z: -0.082, r: 0.016, col: accent },
+  ]);
 }
 
 function buildCatLoaf(ctx: ModelContext): void {
@@ -1219,16 +1250,15 @@ function buildCatLoaf(ctx: ModelContext): void {
     tiltZ: 0.20,
   });
 
-  // Ultra-content happy half-moon squint eyes (^ ^)
+  // Ultra-content happy arched half-moon squint eyes (◠ ◠) hugging the face cleanly
+  const eyeGeo = new THREE.TorusGeometry(0.011, 0.0034, 5, 8, Math.PI);
+  const eyeMat = ctx.mat('#362E32', { roughness: 0.35 });
   for (const sx of [-0.036, 0.036]) {
-    ctx.box(0.017, 0.006, 0.007, '#362E32', sx - 0.006, 0.012, 0.079, {
-      rotZ: 0.45,
-      parent: head,
-    });
-    ctx.box(0.017, 0.006, 0.007, '#362E32', sx + 0.006, 0.012, 0.083, {
-      rotZ: -0.45,
-      parent: head,
-    });
+    const eyeMesh = new THREE.Mesh(eyeGeo, eyeMat);
+    eyeMesh.position.set(sx, 0.008, 0.078);
+    eyeMesh.castShadow = false;
+    eyeMesh.receiveShadow = !ctx.isGhost;
+    head.add(eyeMesh);
     // Soft rosy blush dots on plump cheeks
     ctx.sphere(0.015, 6, '#F4B2BE', sx * 1.52, -0.014, 0.066, {
       scaleZ: 0.45,
@@ -1245,19 +1275,13 @@ function buildCatLoaf(ctx: ModelContext): void {
     parent: head,
   });
 
-  // Fluffy tail tucked neatly along the right flank of the loaf
-  const tailPts = [
-    { x: 0.115, y: 0.034, z: -0.105, r: 0.028 },
-    { x: 0.132, y: 0.034, z: -0.012, r: 0.026 },
-    { x: 0.115, y: 0.036, z: 0.076, r: 0.024 },
-  ];
-  for (let i = 0; i < tailPts.length; i++) {
-    const tp = tailPts[i];
-    ctx.sphere(tp.r, 7, i === 2 ? pawCol : primary, tp.x, tp.y, tp.z, {
-      scaleY: 0.8,
-      roughness: 0.92,
-    });
-  }
+  // Smooth continuous fluffy tail tucked neatly along the right flank of the loaf
+  addCatTail(ctx, [
+    { x: 0.072, y: 0.044, z: -0.142, r: 0.025, col: primary },
+    { x: 0.132, y: 0.038, z: -0.068, r: 0.023, col: primary },
+    { x: 0.136, y: 0.036, z: 0.016, r: 0.022, col: primary },
+    { x: 0.116, y: 0.036, z: 0.084, r: 0.020, col: pawCol },
+  ]);
 }
 
 export const buildPetsModel: TabModelBuilder = (ctx: ModelContext): boolean => {

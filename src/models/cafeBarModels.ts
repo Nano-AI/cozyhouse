@@ -54,12 +54,12 @@ function buildCafeCounter(ctx: ModelContext): void {
     ctx.box(0.092, bodyH - 0.08, 0.034, tone, sx, bodyY, frontZ + 0.012, { roughness: 0.7 });
   }
 
-  // Top & bottom brushed brass front trim bands cleanly proud of carcass sides
-  ctx.box(w - 0.02, 0.024, 0.036, BRASS, 0, bodyBottom + bodyH - 0.02, frontZ + 0.024, {
+  // Top & bottom brushed brass front trim bands seated solidly into carcass and proud of slats
+  ctx.box(w - 0.02, 0.026, 0.046, BRASS, 0, bodyBottom + bodyH - 0.02, frontZ + 0.015, {
     metalness: 0.72,
     roughness: 0.28,
   });
-  ctx.box(w - 0.02, 0.024, 0.036, BRASS, 0, bodyBottom + 0.02, frontZ + 0.024, {
+  ctx.box(w - 0.02, 0.026, 0.046, BRASS, 0, bodyBottom + 0.02, frontZ + 0.015, {
     metalness: 0.72,
     roughness: 0.28,
   });
@@ -102,10 +102,15 @@ function buildEspressoMachine(ctx: ModelContext): void {
     });
   }
 
-  // Cup warmer top rail + 2 miniature stacked porcelain espresso cups on top
+  // Cup warmer top gallery rail with grounded corner posts + 2 stacked porcelain espresso cups
   const topY = baseH + bodyH;
   ctx.box(bodyW - 0.06, 0.012, bodyD - 0.04, CHROME, 0, topY + 0.006, -0.075, { metalness: 0.75, roughness: 0.25 });
-  ctx.box(bodyW - 0.06, 0.014, 0.012, CHROME, 0, topY + 0.048, -0.18, { metalness: 0.8, roughness: 0.2 });
+  ctx.box(bodyW - 0.06, 0.012, 0.012, CHROME, 0, topY + 0.048, -0.18, { metalness: 0.8, roughness: 0.2 });
+  for (const sx of [-bodyW / 2 + 0.036, bodyW / 2 - 0.036]) {
+    ctx.cyl(0.007, 0.007, 0.044, 6, CHROME, sx, topY + 0.028, -0.18, { metalness: 0.82, roughness: 0.2 });
+    ctx.cyl(0.007, 0.007, 0.044, 6, CHROME, sx, topY + 0.028, -0.01, { metalness: 0.82, roughness: 0.2 });
+    ctx.box(0.010, 0.010, 0.164, CHROME, sx, topY + 0.048, -0.091, { metalness: 0.8, roughness: 0.2 });
+  }
   for (const cx of [-0.14, -0.03]) {
     ctx.cyl(0.034, 0.028, 0.052, 8, PORCELAIN, cx, topY + 0.034, -0.07, { roughness: 0.34 });
   }
@@ -226,10 +231,10 @@ function buildBlenderSmoothie(ctx: ModelContext): void {
     roughness: 0.14,
     castShadow: false,
   });
-  // Sculpted side handle (+X)
-  ctx.box(0.052, 0.018, 0.022, ctx.accent, 0.118, 0.355, 0);
+  // Sculpted side handle (+X), solidly anchored at both top and narrow tapered base
+  ctx.box(0.058, 0.018, 0.022, ctx.accent, 0.115, 0.355, 0);
   ctx.box(0.022, 0.165, 0.022, ctx.accent, 0.138, 0.275, 0, { rotZ: -0.08 });
-  ctx.box(0.048, 0.018, 0.022, ctx.accent, 0.112, 0.20, 0);
+  ctx.box(0.068, 0.018, 0.022, ctx.accent, 0.104, 0.20, 0);
 
   // Snug dome lid + removable center filler cap
   ctx.cyl(0.092, 0.108, 0.032, 12, ctx.accent, 0, 0.408, 0, { roughness: 0.45 });
@@ -382,7 +387,7 @@ function buildBarStool(ctx: ModelContext): void {
     [1, 1],
   ];
   for (const [dx, dz] of dirs) {
-    ctx.cyl(0.02, 0.015, legH, 7, WALNUT, dx * legSpread, FLOOR_BASE_Y + legH / 2, dz * legSpread, {
+    ctx.cyl(0.02, 0.015, legH - 0.004, 7, WALNUT, dx * legSpread, FLOOR_BASE_Y + legH / 2 + 0.002, dz * legSpread, {
       rotZ: dx * 0.11,
       rotX: -dz * 0.11,
     });
@@ -432,15 +437,21 @@ function buildPastryCase(ctx: ModelContext): void {
     roughness: 0.28,
   });
 
-  // Interior display deck + upper shelf tray
+  // Interior display deck + upper glass shelf resting on brass side support ledges
   const tray1Y = cabTopY + 0.016;
   const tray2Y = cabTopY + 0.23;
   ctx.box(w - 0.06, 0.026, d - 0.06, ctx.accent, 0, tray1Y, 0, { roughness: 0.45 });
-  ctx.box(w - 0.12, 0.02, d - 0.20, GLASS_CLEAR, 0, tray2Y, -0.04, {
+  ctx.box(w - 0.064, 0.02, d - 0.16, GLASS_CLEAR, 0, tray2Y, -0.04, {
     opacity: 0.46,
     roughness: 0.15,
     castShadow: false,
   });
+  for (const sx of [-w / 2 + 0.024, w / 2 - 0.024]) {
+    ctx.box(0.018, 0.016, d - 0.16, BRASS, sx, tray2Y - 0.014, -0.035, {
+      metalness: 0.74,
+      roughness: 0.28,
+    });
+  }
 
   // Miniature pastries on lower tray: 2 golden croissants + strawberry fruit tart
   for (const cx of [-0.22, -0.01]) {
@@ -619,25 +630,26 @@ function buildCafeBooth(ctx: ModelContext): void {
   const seatH = 0.29;
   const seatTopY = FLOOR_BASE_Y + plinthH + seatH;
 
-  // Grounded walnut wooden plinth base
-  ctx.box(w - 0.08, plinthH, d - 0.10, WALNUT, 0, FLOOR_BASE_Y + plinthH / 2, -0.02);
+  // Grounded walnut wooden plinth base tucked flush between the end cheek panels & rear wall
+  ctx.box(w - 0.12, plinthH, d - 0.17, WALNUT, 0, FLOOR_BASE_Y + plinthH / 2, 0.015);
 
   // Plush bench seat box + rounded front cushion roll + cream diner piping
-  ctx.box(w - 0.08, seatH, d - 0.12, ctx.primary, 0, FLOOR_BASE_Y + plinthH + seatH / 2, 0.03, {
+  ctx.box(w - 0.12, seatH, d - 0.14, ctx.primary, 0, FLOOR_BASE_Y + plinthH + seatH / 2, 0.03, {
     roughness: 0.85,
   });
-  ctx.cyl(0.072, 0.072, w - 0.08, 10, ctx.shade(ctx.primary, 0.05), 0, seatTopY - 0.072, d / 2 - 0.03, {
+  ctx.cyl(0.072, 0.072, w - 0.12, 10, ctx.shade(ctx.primary, 0.05), 0, seatTopY - 0.072, d / 2 - 0.03, {
     rotZ: Math.PI / 2,
     roughness: 0.85,
   });
-  ctx.box(w - 0.06, 0.022, 0.024, ctx.accent, 0, seatTopY - 0.012, d / 2 - 0.015, { roughness: 0.78 });
+  ctx.box(w - 0.12, 0.022, 0.024, ctx.accent, 0, seatTopY - 0.012, d / 2 - 0.015, { roughness: 0.78 });
 
   // Tall channel-tufted banquette backrest (-Z): 5 vertical plush rounded cushions
   const backH = 0.56;
   const backY = seatTopY + backH / 2 - 0.04;
   const backZ = -d / 2 + 0.15;
-  // Solid rear wood panel so back of booth looks sleek too
-  ctx.box(w - 0.04, 0.92 - FLOOR_BASE_Y, 0.06, WALNUT, 0, FLOOR_BASE_Y + (0.92 - FLOOR_BASE_Y) / 2, -d / 2 + 0.04);
+  // Solid rear wood panel strictly between end cheeks, slightly below cushion top (zero coplanar faces)
+  const rearH = 0.895 - FLOOR_BASE_Y;
+  ctx.box(w - 0.12, rearH, 0.056, WALNUT, 0, FLOOR_BASE_Y + rearH / 2, -d / 2 + 0.068);
 
   const channelCount = 5;
   const chanW = (w - 0.18) / channelCount;
@@ -647,12 +659,12 @@ function buildCafeBooth(ctx: ModelContext): void {
     ctx.box(chanW - 0.022, backH - 0.06, 0.18, tone, cx, backY, backZ + 0.02, { roughness: 0.86 });
   }
   // Retro cream horizontal head-roll accent band along top of backrest
-  ctx.cyl(0.072, 0.072, w - 0.12, 10, ctx.accent, 0, 0.95 - 0.072, backZ + 0.02, {
+  ctx.cyl(0.072, 0.072, w - 0.14, 10, ctx.accent, 0, 0.95 - 0.072, backZ + 0.02, {
     rotZ: Math.PI / 2,
     roughness: 0.82,
   });
 
-  // Sculpted wooden end cheek panels stacked cleanly without vertical overlap
+  // Sculpted wooden end cheek panels framing both outer ends cleanly without overlap
   for (const sx of [-w / 2 + 0.03, w / 2 - 0.03]) {
     ctx.box(0.06, 0.44, d - 0.08, WALNUT, sx, FLOOR_BASE_Y + 0.22, 0);
     ctx.box(0.06, 0.476, 0.26, WALNUT, sx, FLOOR_BASE_Y + 0.44 + 0.238, backZ);
@@ -668,33 +680,33 @@ function buildCoffeeGrinder(ctx: ModelContext): void {
 
   // Vertical motor housing column
   ctx.box(0.175, 0.19, 0.155, ctx.primary, 0, 0.131, -0.035, { roughness: 0.44 });
-  // Front angled chrome dosing chute pointing toward catch cup
-  ctx.box(0.056, 0.052, 0.085, CHROME, 0, 0.175, 0.082, {
+  // Front angled chrome dosing chute seated into housing and projecting over catch cup
+  ctx.box(0.056, 0.052, 0.095, CHROME, 0, 0.175, 0.066, {
     rotX: 0.42,
     metalness: 0.8,
     roughness: 0.22,
   });
-  // Side grind-size dial + power LED
-  ctx.cyl(0.028, 0.03, 0.024, 8, CHROME, 0.095, 0.15, -0.02, {
+  // Side grind-size dial + flush-mounted power LED on front housing face
+  ctx.cyl(0.028, 0.03, 0.024, 8, CHROME, 0.095, 0.15, -0.03, {
     rotZ: Math.PI / 2,
     metalness: 0.78,
     roughness: 0.24,
   });
-  ctx.sphere(0.011, 6, ctx.isActive ? '#FFB24C' : '#6A6E72', -0.056, 0.115, 0.066, {
+  ctx.sphere(0.011, 6, ctx.isActive ? '#FFB24C' : '#6A6E72', -0.054, 0.115, 0.045, {
     emissive: ctx.isActive ? '#FF9028' : undefined,
     emissiveIntensity: ctx.isActive ? 1.3 : 0,
     castShadow: false,
   });
 
-  // Dark grind-adjustment collar ring
-  ctx.cyl(0.068, 0.074, 0.032, 10, DARK_IRON, 0, 0.24, -0.025, { roughness: 0.55 });
+  // Dark grind-adjustment collar ring centered cleanly over housing
+  ctx.cyl(0.068, 0.074, 0.032, 10, DARK_IRON, 0, 0.24, -0.035, { roughness: 0.55 });
 
   // SpinTarget group inside clear bean hopper: burr cone + roasted coffee beans!
   const spinGroup = new THREE.Group();
   spinGroup.name = 'SpinTarget';
   spinGroup.userData.spinAxis = 'y';
   spinGroup.userData.spinSpeed = 5.0;
-  spinGroup.position.set(0, 0.31, -0.025);
+  spinGroup.position.set(0, 0.31, -0.035);
   ctx.group.add(spinGroup);
 
   ctx.cone(0.036, 0.044, 8, CHROME, 0, -0.035, 0, {
@@ -722,12 +734,12 @@ function buildCoffeeGrinder(ctx: ModelContext): void {
   }
 
   // Clear conical glass bean hopper + snug dark top lid
-  ctx.cyl(0.108, 0.052, 0.145, 12, GLASS_CLEAR, 0, 0.326, -0.025, {
+  ctx.cyl(0.108, 0.052, 0.145, 12, GLASS_CLEAR, 0, 0.326, -0.035, {
     opacity: 0.34,
     roughness: 0.14,
     castShadow: false,
   });
-  ctx.cyl(0.112, 0.114, 0.022, 12, DARK_IRON, 0, 0.408, -0.025, { roughness: 0.55 });
+  ctx.cyl(0.112, 0.114, 0.022, 12, DARK_IRON, 0, 0.408, -0.035, { roughness: 0.55 });
 }
 
 /** 12. pourover_stand (1x1, surface, h 0.36, toggle: drip brew) */
@@ -878,7 +890,7 @@ function buildNeonDrinkMenu(ctx: ModelContext): void {
     castShadow: false,
   };
 
-  // Outer glowing neon border frame tubes
+  // Outer glowing neon border frame tubes + dark acrylic mounting standoff clips
   const bw = w - 0.10;
   const bh = h - 0.10;
   ctx.cyl(0.011, 0.011, bw, 6, tubeColor, 0, bh / 2, tubeZ, { ...tubeOpts, rotZ: Math.PI / 2 });
@@ -886,18 +898,30 @@ function buildNeonDrinkMenu(ctx: ModelContext): void {
   ctx.cyl(0.011, 0.011, bh, 6, tubeColor, -bw / 2, 0, tubeZ, tubeOpts);
   ctx.cyl(0.011, 0.011, bh, 6, tubeColor, bw / 2, 0, tubeZ, tubeOpts);
 
-  // Sculpted neon martini cocktail glass on left side
+  const addNeonClip = (cx: number, cy: number): void => {
+    ctx.cyl(0.007, 0.007, 0.026, 6, '#1E222A', cx, cy, backD + 0.011, {
+      rotX: Math.PI / 2,
+      roughness: 0.6,
+      castShadow: false,
+    });
+  };
+  addNeonClip(0, bh / 2);
+  addNeonClip(0, -bh / 2);
+
+  // Sculpted neon martini cocktail glass on left side + mounting clips
   const mx = -0.17;
   ctx.cyl(0.011, 0.011, 0.22, 6, tubeColor, mx, 0.11, tubeZ, { ...tubeOpts, rotZ: Math.PI / 2 });
   ctx.cyl(0.011, 0.011, 0.18, 6, tubeColor, mx - 0.052, 0.032, tubeZ, { ...tubeOpts, rotZ: 0.62 });
   ctx.cyl(0.011, 0.011, 0.18, 6, tubeColor, mx + 0.052, 0.032, tubeZ, { ...tubeOpts, rotZ: -0.62 });
   ctx.cyl(0.011, 0.011, 0.14, 6, tubeColor, mx, -0.105, tubeZ, tubeOpts);
   ctx.cyl(0.011, 0.011, 0.12, 6, tubeColor, mx, -0.17, tubeZ, { ...tubeOpts, rotZ: Math.PI / 2 });
+  addNeonClip(mx, 0.11);
+  addNeonClip(mx, -0.17);
   // Contrasting glowing neon garnish olive/cherry + stirrer stick
   ctx.cyl(0.008, 0.008, 0.11, 6, altColor, mx + 0.032, 0.11, tubeZ + 0.004, { ...altOpts, rotZ: -0.45 });
   ctx.sphere(0.022, 7, altColor, mx + 0.012, 0.072, tubeZ + 0.006, altOpts);
 
-  // 3 staggered glowing neon drink-menu line bars on right side
+  // 3 staggered glowing neon drink-menu line bars on right side + mounting clips
   const lineSpecs: [number, number][] = [
     [0.10, 0.26],
     [0.0, 0.21],
@@ -908,6 +932,7 @@ function buildNeonDrinkMenu(ctx: ModelContext): void {
       ...warmOpts,
       rotZ: Math.PI / 2,
     });
+    addNeonClip(0.03 + lw / 2, ly);
   }
 }
 
@@ -928,12 +953,18 @@ function buildBottleShelf(ctx: ModelContext): void {
     for (const sx of [-w / 2 + 0.06, w / 2 - 0.06]) {
       ctx.box(0.02, 0.06, shelfD - 0.03, BRASS, sx, ty - 0.04, shelfD / 2, { metalness: 0.76, roughness: 0.26 });
     }
-    // Slender front brass bottle guard rail
+    // Slender front brass bottle guard rail anchored into shelf by twin end-posts
     ctx.cyl(0.006, 0.006, w - 0.06, 6, BRASS, 0, ty + 0.052, shelfD - 0.014, {
       rotZ: Math.PI / 2,
       metalness: 0.78,
       roughness: 0.24,
     });
+    for (const px of [-w / 2 + 0.034, w / 2 - 0.034]) {
+      ctx.cyl(0.006, 0.006, 0.044, 6, BRASS, px, ty + 0.034, shelfD - 0.014, {
+        metalness: 0.78,
+        roughness: 0.24,
+      });
+    }
   }
 
   // 7 colorful translucent glass bar bottles (4 bottom tier, 3 top tier)
@@ -1235,10 +1266,14 @@ function buildDinerJukebox(ctx: ModelContext): void {
     emissive: lit ? '#FFE8B0' : undefined,
     emissiveIntensity: lit ? 0.85 : 0,
   });
-  // Colorful selector buttons row below title strip
+  // Brushed chrome selector button housing bar + 5 colorful push-buttons seated cleanly inside
+  ctx.box(0.48, 0.054, 0.022, CHROME, 0, titleY - 0.125, frontZ + 0.010, {
+    metalness: 0.84,
+    roughness: 0.2,
+  });
   const btnColors = ['#E88A80', '#F2D27C', '#9AD4BE', '#9BBCE3', '#D4A8E0'];
   for (let i = 0; i < 5; i++) {
-    ctx.box(0.068, 0.036, 0.024, btnColors[i], -0.17 + i * 0.085, titleY - 0.125, frontZ + 0.02, {
+    ctx.box(0.066, 0.034, 0.020, btnColors[i], -0.17 + i * 0.085, titleY - 0.125, frontZ + 0.022, {
       emissive: lit ? btnColors[i] : undefined,
       emissiveIntensity: lit ? 0.55 : 0,
     });
