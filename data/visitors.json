@@ -575,6 +575,34 @@
           "trait": "Wanders in pushing his round glasses up, humming along to the playlist, stopping at every painting and plant, and happily settling into whatever room he lands in."
         }
       ]
+    },
+    {
+      "id": "tung_tung_sahur",
+      "name": "Tung Tung Tung Sahur",
+      "special": true,
+      "archetypeIcon": "🪵",
+      "description": "An ultra-rare living wooden log cryptid carrying a baseball bat. Appears out of nowhere, bonks a couple guests, yells his name, and vanishes.",
+      "color": "#9A6A42",
+      "accentColor": "#9A6A42",
+      "model": "models/visitors/tung-tung-sahur.glb",
+      "likedTags": ["wood", "music", "party", "retro"],
+      "dislikedTags": [],
+      "preferredInteractions": ["dance", "jam"],
+      "walkSpeed": 1.55,
+      "patienceSeconds": 45,
+      "voiceProfile": {
+        "basePitch": 118,
+        "pitchVariance": 38,
+        "syllableRate": 5.8,
+        "waveform": "triangle"
+      },
+      "personas": [
+        {
+          "name": "Tung Tung Tung Sahur",
+          "pronouns": "he/him",
+          "trait": "Ultra-rare midnight wooden log anomaly. Shows up uninvited, swings his bat, yells TUNG TUNG TUNG SAHUR, and leaves."
+        }
+      ]
     }
   ]
 }

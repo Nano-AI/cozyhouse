@@ -25,7 +25,9 @@ export type SpecialPose =
   | 'gather'
   | 'release'
   | 'strangle'
-  | 'strangled';
+  | 'strangled'
+  | 'bat_swing'
+  | 'tung_yell';
 
 export interface SpecialCharacterRig {
   root: THREE.Group;
@@ -67,6 +69,7 @@ export const SPECIAL_CHARACTER_IDS = new Set([
   'homer',
   'rick',
   'adi',
+  'tung_tung_sahur',
 ]);
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
@@ -3274,6 +3277,520 @@ function buildAdiRig(): SpecialCharacterRig {
 }
 
 /* ============================================================================
+ * 12. TUNG TUNG TUNG SAHUR (`tung_tung_sahur`) — Ultra-Rare Wooden Log Cryptid
+ * ============================================================================ */
+
+function buildTungTungSahurRig(): SpecialCharacterRig {
+  const b = new RigBuilder();
+  const root = new THREE.Group();
+  root.name = 'Special_tung_tung_sahur';
+
+  const shadowMesh = b.addGroundShadow(root, 0.21);
+
+  const bodyPivot = new THREE.Group();
+  const BASE_FLOOR_Y = 0.024;
+  bodyPivot.position.y = BASE_FLOOR_Y;
+  root.add(bodyPivot);
+
+  // Warm golden-honey caramel wood palette matching iconic Tung Tung Tung Sahur
+  const logMat = b.mat('#C68B49', 0.78, 0.02);
+  const faceWoodMat = b.mat('#CE9452', 0.76, 0.02);
+  const woodGrainMat = b.mat('#B57838', 0.84, 0.02);
+  const cutWoodTopMat = b.mat('#DFA86A', 0.72, 0.02);
+  const footWoodMat = b.mat('#D19756', 0.8, 0.02);
+  const socketMat = b.mat('#4A3320', 0.9, 0.02);
+  const browMat = b.mat('#3E2E22', 0.86, 0.02);
+  const eyeWhiteMat = b.mat('#FFFFFF', 0.18, 0.02);
+  const pupilMat = b.mat('#121216', 0.16, 0.04);
+  const mouthMat = b.mat('#3B2516', 0.9, 0.02);
+  const batBarrelMat = b.mat('#D69F5C', 0.64, 0.03);
+  const batMidMat = b.mat('#C9904C', 0.7, 0.03);
+  const batGripMat = b.mat('#B57838', 0.78, 0.03);
+
+  // 1. Long Thin Lanky Wooden Legs, Rounded Kneecaps & Wide Bare Wooden Feet (flush at y = 0)
+  const LEG_HIP_Y = 0.44;
+  const leftLegPivot = new THREE.Group();
+  const rightLegPivot = new THREE.Group();
+  const leftKneePivot = new THREE.Group();
+  const rightKneePivot = new THREE.Group();
+  leftLegPivot.position.set(-0.07, LEG_HIP_Y, 0);
+  rightLegPivot.position.set(0.07, LEG_HIP_Y, 0);
+  bodyPivot.add(leftLegPivot, rightLegPivot);
+
+  for (const [hip, knee] of [
+    [leftLegPivot, leftKneePivot],
+    [rightLegPivot, rightKneePivot],
+  ] as const) {
+    // Hip peg & skinny wooden thigh
+    b.sphere(hip, 0.023, 7, woodGrainMat, 0, 0, 0);
+    b.cyl(hip, 0.021, 0.017, 0.22, 8, logMat, 0, -0.11, 0);
+    knee.position.set(0, -0.215, 0);
+    hip.add(knee);
+    // Little rounded wooden kneecap & skinny shin
+    b.sphere(knee, 0.022, 7, woodGrainMat, 0, 0, 0.005, { sx: 0.96, sy: 1.04, sz: 1.08 });
+    b.cyl(knee, 0.017, 0.015, 0.2, 8, woodGrainMat, 0, -0.1, 0);
+    // Ankle taper into wide bare wooden foot (knee at y=0.225 -> sole bottom at -0.225 => flush on FLOOR_BASE_Y!)
+    b.cyl(knee, 0.018, 0.027, 0.03, 8, logMat, 0, -0.186, 0.002);
+    b.box(knee, 0.088, 0.032, 0.132, footWoodMat, 0, -0.209, 0.03);
+    b.sphere(knee, 0.044, 8, footWoodMat, 0, -0.209, 0.082, { sx: 1.05, sy: 0.36, sz: 0.78 });
+    // Subtle carved bare-foot toe ridge across front edge
+    b.box(knee, 0.072, 0.006, 0.01, woodGrainMat, 0, -0.194, 0.098);
+    for (const tx of [-0.03, -0.01, 0.01, 0.03]) {
+      b.sphere(knee, 0.0115, 6, footWoodMat, tx, -0.211, 0.112, { sx: 0.9, sy: 0.85, sz: 1.15 });
+    }
+  }
+
+  // 2. Tall Slender Golden-Honey Caramel Wood Log Cylinder (r ~ 0.145, h ~ 0.90)
+  const torsoPivot = new THREE.Group();
+  torsoPivot.position.set(0, LEG_HIP_Y, 0);
+  bodyPivot.add(torsoPivot);
+
+  b.cyl(torsoPivot, 0.142, 0.148, 0.9, 14, logMat, 0, 0.45, 0);
+  // Subtle lower chamfered wood rim
+  b.cyl(torsoPivot, 0.148, 0.134, 0.022, 14, woodGrainMat, 0, -0.008, 0);
+  // Beveled top rim & lighter cut-wood top end-cap with concentric ring
+  b.cyl(torsoPivot, 0.128, 0.142, 0.024, 14, logMat, 0, 0.912, 0);
+  b.cyl(torsoPivot, 0.124, 0.124, 0.008, 14, cutWoodTopMat, 0, 0.926, 0);
+  b.torus(torsoPivot, 0.072, 0.006, 5, 14, woodGrainMat, 0, 0.931, 0, { rx: Math.PI / 2 });
+  b.cyl(torsoPivot, 0.024, 0.024, 0.005, 8, woodGrainMat, 0, 0.931, 0);
+
+  // Vertical woodgrain flutes/stripes (#B57838) proud of log surface (avoiding upper +Z face)
+  const grainFlutes: ReadonlyArray<readonly [number, number, number]> = [
+    // [angleRad around Y (0 = +Z front), centerY, height]
+    [0.18, 0.22, 0.36],
+    [-0.22, 0.24, 0.38],
+    [0.88, 0.44, 0.72],
+    [-0.92, 0.46, 0.74],
+    [1.58, 0.48, 0.76],
+    [-1.6, 0.42, 0.7],
+    [2.32, 0.45, 0.78],
+    [-2.28, 0.47, 0.76],
+    [3.04, 0.46, 0.8],
+  ];
+  for (const [ang, cy, fh] of grainFlutes) {
+    const rFlute = 0.145;
+    b.cyl(
+      torsoPivot,
+      0.009,
+      0.01,
+      fh,
+      6,
+      woodGrainMat,
+      Math.sin(ang) * rFlute,
+      cy,
+      Math.cos(ang) * rFlute,
+      { sx: 0.9, sz: 0.7, ry: ang },
+    );
+  }
+
+  // 3. Sculpted Protruding Face on Upper Half of Log (+Z)
+  // Subtle brow ridge & sculpted wooden cheekbones + chin mound
+  b.sphere(torsoPivot, 0.042, 8, faceWoodMat, -0.054, 0.772, 0.134, { sx: 1.15, sy: 0.42, sz: 0.58 });
+  b.sphere(torsoPivot, 0.042, 8, faceWoodMat, 0.054, 0.772, 0.134, { sx: 1.15, sy: 0.42, sz: 0.58 });
+  b.sphere(torsoPivot, 0.028, 7, faceWoodMat, 0, 0.768, 0.143, { sx: 1.1, sy: 0.45, sz: 0.52 });
+  b.sphere(torsoPivot, 0.044, 8, faceWoodMat, -0.074, 0.625, 0.128, { sx: 0.95, sy: 0.82, sz: 0.72 });
+  b.sphere(torsoPivot, 0.044, 8, faceWoodMat, 0.074, 0.625, 0.128, { sx: 0.95, sy: 0.82, sz: 0.72 });
+  b.sphere(torsoPivot, 0.05, 8, faceWoodMat, 0, 0.522, 0.134, { sx: 1.32, sy: 0.52, sz: 0.65 });
+
+  // Dark-shaded eye sockets (#4A3320)
+  b.sphere(torsoPivot, 0.054, 10, socketMat, -0.056, 0.708, 0.128, { sx: 1.06, sy: 1.04, sz: 0.48 });
+  b.sphere(torsoPivot, 0.054, 10, socketMat, 0.056, 0.708, 0.128, { sx: 1.06, sy: 1.04, sz: 0.48 });
+
+  // HUGE bulbous round white eyes (#FFFFFF) with big deadpan centered black pupils + white specular dot
+  b.sphere(torsoPivot, 0.048, 12, eyeWhiteMat, -0.056, 0.708, 0.142, { sx: 0.98, sy: 1.0, sz: 0.74 });
+  b.sphere(torsoPivot, 0.048, 12, eyeWhiteMat, 0.056, 0.708, 0.142, { sx: 0.98, sy: 1.0, sz: 0.74 });
+  b.sphere(torsoPivot, 0.021, 9, pupilMat, -0.056, 0.708, 0.172, { sz: 0.52 });
+  b.sphere(torsoPivot, 0.021, 9, pupilMat, 0.056, 0.708, 0.172, { sz: 0.52 });
+  b.sphere(torsoPivot, 0.0065, 6, eyeWhiteMat, -0.048, 0.718, 0.182, { sz: 0.5 });
+  b.sphere(torsoPivot, 0.0065, 6, eyeWhiteMat, 0.064, 0.718, 0.182, { sz: 0.5 });
+
+  // Thick arched dark-brown eyebrows (#3E2E22)
+  const leftBrowPivot = new THREE.Group();
+  const rightBrowPivot = new THREE.Group();
+  leftBrowPivot.position.set(-0.056, 0.742, 0.166);
+  rightBrowPivot.position.set(0.056, 0.742, 0.166);
+  torsoPivot.add(leftBrowPivot, rightBrowPivot);
+  b.torus(leftBrowPivot, 0.044, 0.0115, 6, 10, browMat, 0, 0, 0, {
+    arc: Math.PI * 0.72,
+    rz: Math.PI * 0.14,
+  });
+  b.torus(rightBrowPivot, 0.044, 0.0115, 6, 10, browMat, 0, 0, 0, {
+    arc: Math.PI * 0.72,
+    rz: Math.PI * 0.14,
+  });
+
+  // Long prominent pointed wooden nose jutting clearly forward between the eyes
+  b.cyl(torsoPivot, 0.013, 0.028, 0.092, 8, logMat, 0, 0.652, 0.184, { rx: Math.PI / 2 });
+  b.sphere(torsoPivot, 0.013, 8, faceWoodMat, 0, 0.651, 0.23, { sz: 1.25 });
+  b.sphere(torsoPivot, 0.015, 7, woodGrainMat, 0, 0.64, 0.158, { sx: 1.3, sy: 0.55, sz: 0.9 });
+
+  // Wide uncanny upward-curved grinning smile (#3B2516) hugging cylinder contour
+  const mouthPivot = new THREE.Group();
+  mouthPivot.position.set(0, 0.566, 0.15);
+  torsoPivot.add(mouthPivot);
+  // Center bottom of grin
+  b.box(mouthPivot, 0.046, 0.013, 0.016, mouthMat, 0, -0.008, 0.004);
+  // Left & right upward-sweeping grin segments hugging log curvature
+  b.box(mouthPivot, 0.038, 0.012, 0.016, mouthMat, -0.036, -0.001, -0.001, { rz: -0.34, ry: -0.26 });
+  b.box(mouthPivot, 0.038, 0.012, 0.016, mouthMat, 0.036, -0.001, -0.001, { rz: 0.34, ry: 0.26 });
+  b.box(mouthPivot, 0.03, 0.011, 0.016, mouthMat, -0.066, 0.014, -0.012, { rz: -0.62, ry: -0.5 });
+  b.box(mouthPivot, 0.03, 0.011, 0.016, mouthMat, 0.066, 0.014, -0.012, { rz: 0.62, ry: 0.5 });
+  // Cheek grin-corner dimples
+  b.sphere(mouthPivot, 0.012, 6, woodGrainMat, -0.079, 0.025, -0.02, { sx: 0.7, sy: 1.2, sz: 0.7 });
+  b.sphere(mouthPivot, 0.012, 6, woodGrainMat, 0.079, 0.025, -0.02, { sx: 0.7, sy: 1.2, sz: 0.7 });
+  // Inner yelling/chatter cavity (compact behind grin at rest, opens wide on tung_yell!)
+  const mouthCavity = b.sphere(mouthPivot, 0.038, 8, mouthMat, 0, 0.002, 0.001, {
+    sx: 1.15,
+    sy: 0.22,
+    sz: 0.42,
+  });
+
+  // 4. Very Skinny Lanky Wooden Stick Arms Attached Midway Down Log Sides with Angled Elbows
+  const leftArmPivot = new THREE.Group();
+  const rightArmPivot = new THREE.Group();
+  const leftElbowPivot = new THREE.Group();
+  const rightElbowPivot = new THREE.Group();
+  leftArmPivot.position.set(-0.156, 0.45, 0);
+  rightArmPivot.position.set(0.156, 0.45, 0);
+  torsoPivot.add(leftArmPivot, rightArmPivot);
+
+  for (const [arm, elbow, side] of [
+    [leftArmPivot, leftElbowPivot, -1],
+    [rightArmPivot, rightElbowPivot, 1],
+  ] as const) {
+    b.sphere(arm, 0.022, 7, woodGrainMat, 0, 0, 0);
+    b.cyl(arm, 0.017, 0.014, 0.21, 7, logMat, 0, -0.105, 0);
+    elbow.position.set(0, -0.205, 0);
+    arm.add(elbow);
+    b.sphere(elbow, 0.018, 6, woodGrainMat, 0, 0, 0);
+    b.cyl(elbow, 0.014, 0.012, 0.2, 7, woodGrainMat, 0, -0.1, 0);
+    // Wooden carved hand & thumb nub
+    b.sphere(elbow, 0.024, 7, footWoodMat, 0, -0.208, 0, { sx: 0.86, sy: 1.04, sz: 0.95 });
+    b.sphere(elbow, 0.011, 6, footWoodMat, -side * 0.016, -0.202, 0.017);
+  }
+
+  // 5. Long Tapered Matching Honey-Wood Baseball Bat (~0.88 length) held in Right Hand!
+  const rightHandAnchor = new THREE.Group();
+  rightHandAnchor.position.set(0, -0.208, 0.014);
+  rightElbowPivot.add(rightHandAnchor);
+
+  const batGroup = new THREE.Group();
+  batGroup.name = 'TungBaseballBat';
+  batGroup.rotation.set(2.3, 0, -0.14);
+  rightHandAnchor.add(batGroup);
+
+  // Pommel knob -> thin #B57838 grip -> smooth honey taper -> long #D69F5C barrel (~0.88 total length)
+  b.sphere(batGroup, 0.02, 7, batGripMat, 0, -0.042, 0, { sy: 0.72 });
+  b.cyl(batGroup, 0.016, 0.014, 0.24, 8, batGripMat, 0, 0.088, 0);
+  b.cyl(batGroup, 0.029, 0.016, 0.26, 10, batMidMat, 0, 0.338, 0);
+  b.cyl(batGroup, 0.04, 0.029, 0.34, 10, batBarrelMat, 0, 0.638, 0);
+  b.sphere(batGroup, 0.04, 10, batBarrelMat, 0, 0.808, 0, { sy: 0.65 });
+
+  // Held 3D coffee cup in left hand (since right hand holds the iconic baseball bat!)
+  let holdingCoffee = false;
+  let coffeeSipTimer = 2.0 + Math.random() * 2.0;
+  const coffeeCup = createHeldCoffeeCupMesh();
+  coffeeCup.group.position.set(0, -0.202, 0.048);
+  leftElbowPivot.add(coffeeCup.group);
+
+  let pose: SpecialPose = 'idle';
+  let animPhase = Math.random() * Math.PI * 2;
+  let poseAge = 0;
+  let levitateHeight = 0;
+
+  const rig: SpecialCharacterRig = {
+    root,
+    bubbleHeight: 1.78,
+
+    setPose(nextPose: SpecialPose): void {
+      pose = nextPose;
+      poseAge = 0;
+    },
+
+    setMood(mood: VisitorMood): void {
+      const tilt = mood === 'bored' || mood === 'leaving' ? 0.16 : 0.06;
+      leftBrowPivot.rotation.z = -tilt;
+      rightBrowPivot.rotation.z = tilt;
+    },
+
+    setHoldingCoffee(holding: boolean): void {
+      holdingCoffee = holding;
+      coffeeCup.group.visible = holding;
+      if (holding) {
+        coffeeSipTimer = 2.0 + Math.random() * 2.0;
+      }
+    },
+
+    update(
+      dt: number,
+      elapsed: number,
+      moveSpeed: number,
+      isBlabbering = false,
+      seatY?: number,
+    ): void {
+      const safeDt = clamp(Number.isFinite(dt) ? dt : 0, 0, 0.1);
+      const safeElapsed = Number.isFinite(elapsed) ? elapsed : 0;
+      const speed = Number.isFinite(moveSpeed) && moveSpeed > 0 ? moveSpeed : 1.55;
+      poseAge += safeDt;
+
+      const targetLev = pose === 'levitate' ? 1.65 : 0;
+      levitateHeight = damp(levitateHeight, targetLev, 5.0, safeDt);
+
+      const isSeatPose = pose === 'sit' || pose === 'thinker' || pose === 'sleep';
+      const targetWorldSeatY =
+        isSeatPose && seatY !== undefined && seatY > 0.08
+          ? seatY
+          : isSeatPose && root.position.y > 0.08
+            ? root.position.y
+            : 0;
+      const isSeatedElevated = isSeatPose && targetWorldSeatY > 0.08;
+      const localSeatBase = isSeatedElevated ? targetWorldSeatY - root.position.y : 0;
+
+      shadowMesh.visible = !isSeatedElevated && levitateHeight < 0.15 && pose !== 'ragdoll';
+      rig.bubbleHeight = 1.78 + levitateHeight;
+
+      bodyPivot.position.set(0, BASE_FLOOR_Y, 0);
+      bodyPivot.rotation.set(0, 0, 0);
+      torsoPivot.rotation.set(0, 0, 0);
+      leftElbowPivot.rotation.set(-0.42, 0, -0.14);
+      rightElbowPivot.rotation.set(-0.48, 0, 0.16);
+      // Default idle/walk carry: long honey-wood bat angled forward-downward cleanly above the floor!
+      batGroup.rotation.set(2.3, 0, -0.14);
+
+      // Mouth chatter when speaking
+      if (isBlabbering) {
+        const ch = 0.5 + 0.5 * Math.sin(safeElapsed * 18);
+        mouthPivot.scale.set(1 + ch * 0.08, 1 + ch * 0.65, 1);
+        mouthCavity.scale.set(1.15, 0.35 + ch * 0.85, 0.42);
+      } else {
+        mouthPivot.scale.set(1, 1, 1);
+        mouthCavity.scale.set(1.15, 0.22, 0.42);
+      }
+
+      switch (pose) {
+        case 'walk': {
+          animPhase += safeDt * speed * 7.5;
+          const stride = Math.sin(animPhase);
+          const hop = Math.abs(stride) * 0.044;
+          bodyPivot.position.y = BASE_FLOOR_Y + hop;
+          leftLegPivot.rotation.set(stride * 0.44, 0, 0);
+          rightLegPivot.rotation.set(-stride * 0.44, 0, 0);
+          leftKneePivot.rotation.set(Math.max(0, -stride) * 0.32, 0, 0);
+          rightKneePivot.rotation.set(Math.max(0, stride) * 0.32, 0, 0);
+          torsoPivot.rotation.set(0.05, stride * 0.08, stride * 0.07);
+          leftArmPivot.rotation.set(-stride * 0.38, 0, 0.22);
+          leftElbowPivot.rotation.set(-0.46 - Math.max(0, stride) * 0.22, 0, -0.14);
+          // Bat held angled forward-downward, bobbing eagerly as he stalks!
+          rightArmPivot.rotation.set(0.08 + stride * 0.24, 0, -0.22);
+          rightElbowPivot.rotation.set(-0.48 - Math.abs(stride) * 0.14, 0, 0.16);
+          batGroup.rotation.set(2.26 + Math.abs(stride) * 0.14, 0, -0.14);
+          break;
+        }
+
+        case 'bat_swing': {
+          // Explosive wind-up -> horizontal home-run BONK sweep -> follow-through!
+          const p = clamp(poseAge / 0.55, 0, 1);
+          let twistY: number;
+          let armRx: number;
+          let armRy: number;
+          let armRz: number;
+          let elbowRx: number;
+          let batRx: number;
+          let batRz: number;
+          if (p < 0.3) {
+            const w = p / 0.3;
+            twistY = -0.82 * w;
+            armRx = 0.08 - 0.93 * w;
+            armRy = -0.78 * w;
+            armRz = -0.22 - 0.4 * w;
+            elbowRx = -0.48 - 0.48 * w;
+            batRx = 2.26 - 1.28 * w;
+            batRz = -0.14 - 0.22 * w;
+          } else if (p < 0.72) {
+            const s = (p - 0.3) / 0.42;
+            const ease = 1 - Math.pow(1 - s, 3);
+            twistY = -0.82 + 1.88 * ease;
+            armRx = -0.85 - 0.4 * ease;
+            armRy = -0.78 + 2.24 * ease;
+            armRz = -0.62 + 0.44 * ease;
+            elbowRx = -0.96 + 0.78 * ease;
+            batRx = 0.98 + 0.52 * ease;
+            batRz = -0.36 + 0.12 * ease;
+          } else {
+            const f = (p - 0.72) / 0.28;
+            twistY = 1.06 - 0.4 * f;
+            armRx = -1.25 + 0.22 * f;
+            armRy = 1.46 - 0.44 * f;
+            armRz = -0.18;
+            elbowRx = -0.18 - 0.24 * f;
+            batRx = 1.5 + 0.24 * f;
+            batRz = -0.24;
+          }
+          bodyPivot.position.y = BASE_FLOOR_Y + Math.sin(p * Math.PI) * 0.044;
+          leftLegPivot.rotation.set(-0.22, 0.14, 0.1);
+          rightLegPivot.rotation.set(0.24, -0.14, -0.1);
+          leftKneePivot.rotation.set(0.26, 0, 0);
+          rightKneePivot.rotation.set(0.22, 0, 0);
+          torsoPivot.rotation.set(0.14, twistY, -twistY * 0.08);
+          leftArmPivot.rotation.set(-0.52, 0.2, 0.38);
+          leftElbowPivot.rotation.set(-0.68, 0, -0.12);
+          rightArmPivot.rotation.set(armRx, armRy, armRz);
+          rightElbowPivot.rotation.set(elbowRx, 0, 0.1);
+          batGroup.rotation.set(batRx, 0, batRz);
+          mouthPivot.scale.set(1.12, 1.55, 1);
+          mouthCavity.scale.set(1.2, 1.25, 0.45);
+          break;
+        }
+
+        case 'tung_yell': {
+          // Iconic TUNG TUNG TUNG SAHUR!! — arms & long bat raised HIGH OVERHEAD, vibrating like a struck drum!
+          const vibe = Math.sin(safeElapsed * 32);
+          const pulse = Math.abs(Math.sin(safeElapsed * 9));
+          bodyPivot.position.y = BASE_FLOOR_Y + pulse * 0.06;
+          bodyPivot.rotation.set(0, vibe * 0.05, vibe * 0.045);
+          leftLegPivot.rotation.set(-0.1, 0.08, 0.1);
+          rightLegPivot.rotation.set(-0.1, -0.08, -0.1);
+          leftKneePivot.rotation.set(0.14, 0, 0);
+          rightKneePivot.rotation.set(0.14, 0, 0);
+          torsoPivot.rotation.set(-0.14 + vibe * 0.03, vibe * 0.06, vibe * 0.04);
+          leftArmPivot.rotation.set(-2.82 + vibe * 0.1, 0, 0.3);
+          leftElbowPivot.rotation.set(-0.18, 0, -0.08);
+          rightArmPivot.rotation.set(-2.88 - vibe * 0.1, 0, -0.28);
+          rightElbowPivot.rotation.set(-0.18, 0, 0.08);
+          // Net rx = -2.88 - 0.18 + 2.99 ≈ -0.07 rad => bat barrel points straight SKYWARD high overhead!
+          batGroup.rotation.set(2.99 + pulse * 0.16, 0, -0.08);
+          mouthPivot.scale.set(1.18, 1.85 + pulse * 0.35, 1);
+          mouthCavity.scale.set(1.25, 1.45 + pulse * 0.25, 0.45);
+          break;
+        }
+
+        case 'sit':
+        case 'thinker':
+        case 'sleep': {
+          bodyPivot.position.y = isSeatedElevated ? localSeatBase - 0.42 : BASE_FLOOR_Y - 0.04;
+          leftLegPivot.rotation.set(-1.42, 0.06, 0);
+          rightLegPivot.rotation.set(-1.42, -0.06, 0);
+          leftKneePivot.rotation.set(1.36, 0, 0);
+          rightKneePivot.rotation.set(1.36, 0, 0);
+          torsoPivot.rotation.set(-0.04, 0, 0);
+          leftArmPivot.rotation.set(-0.28, 0, 0.18);
+          leftElbowPivot.rotation.set(-0.58, 0, -0.1);
+          rightArmPivot.rotation.set(-0.34, 0, -0.2);
+          rightElbowPivot.rotation.set(-0.52, 0, 0.14);
+          batGroup.rotation.set(1.95, 0, -0.2);
+          break;
+        }
+
+        case 'dance': {
+          const beat = Math.sin(safeElapsed * 7.6);
+          bodyPivot.position.y = BASE_FLOOR_Y + Math.abs(beat) * 0.08;
+          leftLegPivot.rotation.set(beat * 0.24, 0, 0.06);
+          rightLegPivot.rotation.set(-beat * 0.24, 0, -0.06);
+          leftKneePivot.rotation.set(Math.max(0, -beat) * 0.24, 0, 0);
+          rightKneePivot.rotation.set(Math.max(0, beat) * 0.24, 0, 0);
+          torsoPivot.rotation.set(0.04, beat * 0.2, beat * 0.1);
+          leftArmPivot.rotation.set(-1.05 + beat * 0.4, 0, 0.28);
+          leftElbowPivot.rotation.set(-0.65, 0, -0.14);
+          rightArmPivot.rotation.set(-1.05 - beat * 0.4, 0, -0.28);
+          rightElbowPivot.rotation.set(-0.65, 0, 0.14);
+          batGroup.rotation.set(1.4 + beat * 0.25, 0, -0.15);
+          break;
+        }
+
+        case 'stumble': {
+          const wob = Math.sin(safeElapsed * 24);
+          bodyPivot.position.y = BASE_FLOOR_Y + Math.abs(Math.sin(safeElapsed * 12)) * 0.08;
+          bodyPivot.rotation.set(-0.2, 0, wob * 0.16);
+          leftLegPivot.rotation.set(-0.25 + wob * 0.2, 0, 0.1);
+          rightLegPivot.rotation.set(0.18 - wob * 0.2, 0, -0.1);
+          leftKneePivot.rotation.set(0.32, 0, 0);
+          rightKneePivot.rotation.set(0.24, 0, 0);
+          leftArmPivot.rotation.set(-1.35 + wob * 0.4, 0, 0.36);
+          leftElbowPivot.rotation.set(-0.4, 0, -0.1);
+          rightArmPivot.rotation.set(-1.35 - wob * 0.4, 0, -0.36);
+          rightElbowPivot.rotation.set(-0.4, 0, 0.1);
+          batGroup.rotation.set(1.5, 0, -0.2);
+          break;
+        }
+
+        case 'strangled': {
+          const shake = Math.sin(safeElapsed * 28);
+          const kick = Math.sin(safeElapsed * 32);
+          bodyPivot.position.y = BASE_FLOOR_Y + 0.14 + shake * 0.035;
+          bodyPivot.rotation.set(0.06 + shake * 0.08, shake * 0.12, -shake * 0.12);
+          leftLegPivot.rotation.set(-0.28 + kick * 0.62, 0, 0.14);
+          rightLegPivot.rotation.set(-0.28 - kick * 0.62, 0, -0.14);
+          leftKneePivot.rotation.set(0.52 + Math.max(0, -kick) * 0.62, 0, 0);
+          rightKneePivot.rotation.set(0.52 + Math.max(0, kick) * 0.62, 0, 0);
+          torsoPivot.rotation.set(-0.08 + shake * 0.12, -shake * 0.16, shake * 0.12);
+          leftArmPivot.rotation.set(-1.55 + shake * 0.5, 0.2, 0.42);
+          leftElbowPivot.rotation.set(-0.55, 0, -0.1);
+          rightArmPivot.rotation.set(-1.55 - shake * 0.5, -0.2, -0.42);
+          rightElbowPivot.rotation.set(-0.55, 0, 0.1);
+          batGroup.rotation.set(1.8, 0, -0.2);
+          mouthPivot.scale.set(1.12, 1.55, 1);
+          mouthCavity.scale.set(1.2, 1.25, 0.45);
+          break;
+        }
+
+        case 'ragdoll': {
+          const spin = safeElapsed * 11;
+          bodyPivot.position.y = BASE_FLOOR_Y + 0.35 + Math.abs(Math.sin(spin * 0.5)) * 0.18;
+          bodyPivot.rotation.set(-1.1 + Math.sin(spin) * 0.4, spin * 0.4, Math.cos(spin) * 0.65);
+          leftLegPivot.rotation.set(0.5, 0, 0.3);
+          rightLegPivot.rotation.set(-0.5, 0, -0.3);
+          leftArmPivot.rotation.set(-1.8, 0, 0.6);
+          leftElbowPivot.rotation.set(-0.35, 0, 0);
+          rightArmPivot.rotation.set(-1.8, 0, -0.6);
+          rightElbowPivot.rotation.set(-0.35, 0, 0);
+          break;
+        }
+
+        case 'idle':
+        case 'admire':
+        default: {
+          const breathe = Math.abs(Math.sin(safeElapsed * 2.2)) * 0.008;
+          bodyPivot.position.y = BASE_FLOOR_Y + breathe + levitateHeight;
+          leftLegPivot.rotation.set(0, 0, 0);
+          rightLegPivot.rotation.set(0, 0, 0);
+          leftKneePivot.rotation.set(0, 0, 0);
+          rightKneePivot.rotation.set(0, 0, 0);
+          torsoPivot.rotation.set(0, Math.sin(safeElapsed * 1.1) * 0.06, 0);
+          leftArmPivot.rotation.set(0.06, 0, 0.22);
+          leftElbowPivot.rotation.set(-0.42, 0, -0.16);
+          // Iconic deadpan idle stance: right hand holds long bat angled forward-downward!
+          rightArmPivot.rotation.set(0.1 + Math.sin(safeElapsed * 2.2) * 0.04, 0, -0.22);
+          rightElbowPivot.rotation.set(-0.48, 0, 0.16);
+          batGroup.rotation.set(2.3, 0, -0.14);
+          break;
+        }
+      }
+
+      const canHoldCoffee = pose === 'idle' || pose === 'walk' || pose === 'sit' || pose === 'admire';
+      if (holdingCoffee && canHoldCoffee) {
+        coffeeCup.group.visible = true;
+        coffeeSipTimer += safeDt;
+        const armPitch = pose === 'sit' ? -0.3 : -0.35;
+        const elbowPitch = pose === 'sit' ? -0.65 : -0.75;
+        leftArmPivot.rotation.set(armPitch, 0, 0.14);
+        leftElbowPivot.rotation.set(elbowPitch, 0, -0.06);
+        coffeeCup.group.rotation.set(-(armPitch + elbowPitch), 0, 0);
+        coffeeCup.updateSteam(coffeeSipTimer);
+      } else {
+        coffeeCup.group.visible = false;
+      }
+    },
+
+    dispose(): void {
+      coffeeCup.dispose();
+      b.dispose();
+    },
+  };
+
+  return rig;
+}
+
+/* ============================================================================
  * FACTORY DISPATCH
  * ============================================================================ */
 
@@ -3303,6 +3820,8 @@ export function createSpecialCharacterRig(visitorId: string): SpecialCharacterRi
       return buildRickRig();
     case 'adi':
       return buildAdiRig();
+    case 'tung_tung_sahur':
+      return buildTungTungSahurRig();
     default:
       return null;
   }

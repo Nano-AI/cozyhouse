@@ -717,6 +717,123 @@
           "speedMultiplier": 1.04
         }
       ]
+    },
+    "tung_tung_sahur": {
+      "delighted": [
+        {
+          "id": "tts_del_1",
+          "text": "TUNG TUNG TUNG SAHUR!!",
+          "emote": "megaphone",
+          "pitchOffset": 1.05,
+          "speedMultiplier": 1.15
+        },
+        {
+          "id": "tts_del_2",
+          "text": "SAHUR!!",
+          "emote": "boom",
+          "pitchOffset": 1.08,
+          "speedMultiplier": 1.18
+        },
+        {
+          "id": "tts_del_3",
+          "text": "TUNG TUNG TUNG!! *hollow bat bonk*",
+          "emote": "dizzyStar",
+          "pitchOffset": 1.02,
+          "speedMultiplier": 1.12
+        }
+      ],
+      "happy": [
+        {
+          "id": "tts_hap_1",
+          "text": "TUNG… TUNG… TUNG… SAHUR!",
+          "emote": "music",
+          "pitchOffset": 0.98,
+          "speedMultiplier": 1.04
+        },
+        {
+          "id": "tts_hap_2",
+          "text": "*hollow wooden knocking*",
+          "emote": "note",
+          "pitchOffset": 0.94,
+          "speedMultiplier": 1.0
+        },
+        {
+          "id": "tts_hap_3",
+          "text": "WAKE UP!! SAHUR TIME!!",
+          "emote": "megaphone",
+          "pitchOffset": 1.04,
+          "speedMultiplier": 1.1
+        }
+      ],
+      "neutral": [
+        {
+          "id": "tts_neu_1",
+          "text": "TUNG… TUNG… TUNG…",
+          "emote": "look",
+          "pitchOffset": 0.9,
+          "speedMultiplier": 0.92
+        },
+        {
+          "id": "tts_neu_2",
+          "text": "*ominous wooden staring*",
+          "emote": "dots",
+          "pitchOffset": 0.88,
+          "speedMultiplier": 0.88
+        },
+        {
+          "id": "tts_neu_3",
+          "text": "*taps baseball bat on floor*",
+          "emote": "boom",
+          "pitchOffset": 0.92,
+          "speedMultiplier": 0.94
+        }
+      ],
+      "bored": [
+        {
+          "id": "tts_bor_1",
+          "text": "…tung…",
+          "emote": "dots",
+          "pitchOffset": 0.84,
+          "speedMultiplier": 0.82
+        },
+        {
+          "id": "tts_bor_2",
+          "text": "*hollow wooden knocking* …anyone awake?",
+          "emote": "moon",
+          "pitchOffset": 0.86,
+          "speedMultiplier": 0.85
+        },
+        {
+          "id": "tts_bor_3",
+          "text": "No one answered the third TUNG.",
+          "emote": "look",
+          "pitchOffset": 0.85,
+          "speedMultiplier": 0.86
+        }
+      ],
+      "leaving": [
+        {
+          "id": "tts_lea_1",
+          "text": "TUNG TUNG TUNG SAHUR!! *vanishes*",
+          "emote": "wind",
+          "pitchOffset": 1.06,
+          "speedMultiplier": 1.16
+        },
+        {
+          "id": "tts_lea_2",
+          "text": "SAHUR!!",
+          "emote": "megaphone",
+          "pitchOffset": 1.05,
+          "speedMultiplier": 1.14
+        },
+        {
+          "id": "tts_lea_3",
+          "text": "*fading hollow wooden knocking in the distance*",
+          "emote": "moon",
+          "pitchOffset": 0.88,
+          "speedMultiplier": 0.9
+        }
+      ]
     }
   }
 }

@@ -1660,6 +1660,189 @@ export class FoleySynth {
     });
   }
 
+  /** Crisp cartoon hollow wooden baseball-bat BONK! (~0.18s). */
+  playTungBatBonk(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+
+    // Punchy hollow wood-knock sine drop (360 -> 145 Hz)
+    const body = ctx.createOscillator();
+    const bGain = ctx.createGain();
+    body.type = 'sine';
+    body.frequency.setValueAtTime(jitter(360, 0.03), now);
+    body.frequency.exponentialRampToValueAtTime(145, now + 0.15);
+
+    bGain.gain.setValueAtTime(0.0001, now);
+    bGain.gain.linearRampToValueAtTime(0.46, now + 0.004);
+    bGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.18);
+
+    body.connect(bGain);
+    bGain.connect(dest);
+    body.onended = () => {
+      body.disconnect();
+      bGain.disconnect();
+    };
+    body.start(now);
+    body.stop(now + 0.195);
+
+    // Resonant hollow hardwood ring (~900 Hz bandpass)
+    const ring = ctx.createOscillator();
+    const bp = ctx.createBiquadFilter();
+    const rGain = ctx.createGain();
+    ring.type = 'triangle';
+    ring.frequency.setValueAtTime(880, now);
+    ring.frequency.exponentialRampToValueAtTime(540, now + 0.085);
+
+    bp.type = 'bandpass';
+    bp.frequency.setValueAtTime(900, now);
+    bp.Q.setValueAtTime(3.2, now);
+
+    rGain.gain.setValueAtTime(0.0001, now);
+    rGain.gain.linearRampToValueAtTime(0.24, now + 0.003);
+    rGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+
+    ring.connect(bp);
+    bp.connect(rGain);
+    rGain.connect(dest);
+    ring.onended = () => {
+      ring.disconnect();
+      bp.disconnect();
+      rGain.disconnect();
+    };
+    ring.start(now);
+    ring.stop(now + 0.115);
+
+    // Short woody impact body click (~900 Hz)
+    this.playFilteredNoiseBurst(ctx, dest, now, 'pink', 900, 2.6, 0.24, 0.045);
+  }
+
+  /**
+   * Iconic 3-hit hollow wooden kentongan/log-drum beat ("TUNG! - TUNG! - TUNG!")
+   * at 0.00s, 0.28s, 0.56s followed by a louder resonant 4th hit ("SAHUR!!") at 0.90s.
+   */
+  playTungChant(ctx: AudioContext, dest: AudioNode): void {
+    const now = ctx.currentTime;
+
+    // 3 rhythmic kentongan log-drum strikes
+    const hits: readonly { offset: number; f0: number; f1: number; amp: number }[] = [
+      { offset: 0.0, f0: 232, f1: 188, amp: 0.38 },
+      { offset: 0.28, f0: 236, f1: 191, amp: 0.4 },
+      { offset: 0.56, f0: 242, f1: 194, amp: 0.42 },
+    ];
+
+    for (const hit of hits) {
+      const t = now + hit.offset;
+
+      const drum = ctx.createOscillator();
+      const dGain = ctx.createGain();
+      drum.type = 'sine';
+      drum.frequency.setValueAtTime(hit.f0, t);
+      drum.frequency.exponentialRampToValueAtTime(hit.f1, t + 0.16);
+
+      dGain.gain.setValueAtTime(0.0001, t);
+      dGain.gain.linearRampToValueAtTime(hit.amp, t + 0.004);
+      dGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+
+      drum.connect(dGain);
+      dGain.connect(dest);
+      drum.onended = () => {
+        drum.disconnect();
+        dGain.disconnect();
+      };
+      drum.start(t);
+      drum.stop(t + 0.235);
+
+      // Hollow slit-drum wooden chamber overtone
+      const wood = ctx.createOscillator();
+      const bp = ctx.createBiquadFilter();
+      const wGain = ctx.createGain();
+      wood.type = 'triangle';
+      wood.frequency.setValueAtTime(hit.f0 * 2.75, t);
+      wood.frequency.exponentialRampToValueAtTime(hit.f1 * 2.7, t + 0.11);
+
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(760, t);
+      bp.Q.setValueAtTime(4.0, t);
+
+      wGain.gain.setValueAtTime(0.0001, t);
+      wGain.gain.linearRampToValueAtTime(0.18, t + 0.003);
+      wGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+
+      wood.connect(bp);
+      bp.connect(wGain);
+      wGain.connect(dest);
+      wood.onended = () => {
+        wood.disconnect();
+        bp.disconnect();
+        wGain.disconnect();
+      };
+      wood.start(t);
+      wood.stop(t + 0.145);
+
+      // Mallet-on-log tap transient
+      this.playFilteredNoiseBurst(ctx, dest, t, 'pink', 1050, 2.5, 0.16, 0.032);
+    }
+
+    // 4th louder dramatic final log resonance ("SAHUR!!") at 0.90s
+    const finale = now + 0.9;
+
+    const mainLog = ctx.createOscillator();
+    const mGain = ctx.createGain();
+    mainLog.type = 'sine';
+    mainLog.frequency.setValueAtTime(260, finale);
+    mainLog.frequency.exponentialRampToValueAtTime(155, finale + 0.42);
+
+    mGain.gain.setValueAtTime(0.0001, finale);
+    mGain.gain.linearRampToValueAtTime(0.5, finale + 0.005);
+    mGain.gain.exponentialRampToValueAtTime(0.0001, finale + 0.5);
+
+    mainLog.connect(mGain);
+    mGain.connect(dest);
+    mainLog.onended = () => {
+      mainLog.disconnect();
+      mGain.disconnect();
+    };
+    mainLog.start(finale);
+    mainLog.stop(finale + 0.52);
+
+    // Subtle woody chord ring (hollow 5th + octave + wooden bar harmonic)
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(1750, finale);
+    lp.frequency.exponentialRampToValueAtTime(720, finale + 0.46);
+    lp.connect(dest);
+
+    const chordPartials: readonly [OscillatorType, number, number, number][] = [
+      ['triangle', 390, 240, 0.18],
+      ['sine', 520, 310, 0.14],
+      ['triangle', 715, 580, 0.11],
+    ];
+    chordPartials.forEach(([type, f0, f1, amp], idx) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f0, finale);
+      osc.frequency.exponentialRampToValueAtTime(f1, finale + 0.42);
+
+      g.gain.setValueAtTime(0.0001, finale);
+      g.gain.linearRampToValueAtTime(amp, finale + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, finale + 0.46);
+
+      osc.connect(g);
+      g.connect(lp);
+      osc.onended = () => {
+        osc.disconnect();
+        g.disconnect();
+        if (idx === chordPartials.length - 1) {
+          lp.disconnect();
+        }
+      };
+      osc.start(finale);
+      osc.stop(finale + 0.48);
+    });
+
+    this.playFilteredNoiseBurst(ctx, dest, finale, 'pink', 960, 2.2, 0.24, 0.045);
+  }
+
   private playFilteredNoiseBurst(
     ctx: AudioContext,
     dest: AudioNode,

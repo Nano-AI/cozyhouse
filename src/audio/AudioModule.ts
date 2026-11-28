@@ -576,6 +576,14 @@ export class AudioModule {
     this.withAudioOutput((ctx, dest) => this.foley.playRockyChords(ctx, dest));
   }
 
+  playTungBatBonk(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playTungBatBonk(ctx, dest));
+  }
+
+  playTungChant(): void {
+    this.withAudioOutput((ctx, dest) => this.foley.playTungChant(ctx, dest));
+  }
+
   playGibberishLine(
     text: string,
     voice: VoiceProfile,

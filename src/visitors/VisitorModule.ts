@@ -238,6 +238,9 @@ type SpecialBehaviorState =
   | 'homer_sleep'
   | 'homer_chase'
   | 'homer_strangle'
+  | 'tung_hunt'
+  | 'tung_swing'
+  | 'tung_yell'
   | 'rick_portal_in'
   | 'rick_portal_out';
 
@@ -379,7 +382,11 @@ function createVisitorVisualHandle(
           regularPose = pose;
           break;
         case 'strangle':
+        case 'bat_swing':
           regularPose = 'work';
+          break;
+        case 'tung_yell':
+          regularPose = 'dance';
           break;
         case 'ragdoll':
           regularPose = 'stumble';
@@ -537,6 +544,10 @@ interface ActiveVisitorRuntime {
   ragdollSpin: number;
   strangledById: string | null;
   strangledTimer: number;
+  tungHitsRemaining: number;
+  tungBonkedIds: Set<string>;
+  tungHuntTimeout: number;
+  tungChantPlayed: boolean;
   stuckAnchorX: number;
   stuckAnchorZ: number;
   prolongedStuckTimer: number;
@@ -619,7 +630,27 @@ const VISITOR_POV_ICONS: Record<string, string> = {
   homebody: '🛋️',
   squeaky_chicken: '🐔',
   rocky: '🕷️',
+  tung_tung_sahur: '🪵',
 };
+
+/** Ultra-rare legendary spawn weights (normal legends default to 1.0; Tung Tung Tung Sahur is ~16× rarer!). */
+export const ULTRA_RARE_SPECIAL_WEIGHTS: Record<string, number> = {
+  tung_tung_sahur: 0.06,
+};
+
+export function pickWeightedSpecialDef<T extends { id: string }>(pool: readonly T[]): T | undefined {
+  if (pool.length === 0) return undefined;
+  let totalWeight = 0;
+  for (const entry of pool) {
+    totalWeight += ULTRA_RARE_SPECIAL_WEIGHTS[entry.id] ?? 1.0;
+  }
+  let roll = Math.random() * totalWeight;
+  for (const entry of pool) {
+    roll -= ULTRA_RARE_SPECIAL_WEIGHTS[entry.id] ?? 1.0;
+    if (roll <= 0) return entry;
+  }
+  return pool[pool.length - 1];
+}
 
 const STAFF_WORK_EMOTES: Record<StaffRole, Array<{ id: string; glyph: string; label: string; color: string }>> = {
   barista: [
@@ -733,6 +764,9 @@ const COFFEE_CARRY_THOUGHTS = [
 const HOMER_EMOTE_RAGE = { id: 'rage', glyph: '😡', label: 'WHY YOU LITTLE—!!', color: '#F2948A' };
 const HOMER_EMOTE_ANGER = { id: 'anger', glyph: '💢', label: 'WHY YOU LITTLE—!!', color: '#F28E86' };
 const HOMER_EMOTE_STRANGLED = { id: 'dizzy', glyph: '😵‍💫', label: 'ACK!! GACK!!', color: '#F2D08B' };
+const TUNG_EMOTE_STALK = { id: 'tungStalk', glyph: '🪵', label: 'TUNG… TUNG…', color: '#C89B6C' };
+const TUNG_EMOTE_BONK = { id: 'tungBonk', glyph: '💥', label: 'BONK!!', color: '#F7B482' };
+const TUNG_EMOTE_YELL = { id: 'tungYell', glyph: '🪵', label: 'TUNG TUNG TUNG SAHUR!!', color: '#DFBE88' };
 
 const SPECIAL_EMOTES = {
   sword: { id: 'sword', glyph: '⚔️', label: 'SKÅL!', color: '#E4B2A8' },
@@ -1474,7 +1508,9 @@ export class VisitorModule {
       | 'playShowdownCrackle'
       | 'playShowdownFire'
       | 'playShowdownExplosion'
-      | 'playShowdownHit',
+      | 'playShowdownHit'
+      | 'playTungBatBonk'
+      | 'playTungChant',
   ): void {
     const a = this.audioModule as unknown as Record<string, (() => void) | undefined> | null;
     a?.[method]?.();
@@ -1524,7 +1560,7 @@ export class VisitorModule {
       this.store.notify('All legendary guests are already here!', 'info');
       return false;
     }
-    const chosen = fresh[Math.floor(Math.random() * fresh.length)];
+    const chosen = pickWeightedSpecialDef(fresh);
     if (!chosen) return false;
     const spawned = this.invite(chosen.id);
     if (!spawned) return false;
@@ -2034,7 +2070,9 @@ export class VisitorModule {
           ? 'wick_seek'
           : def.id === 'homer'
             ? 'homer_eat'
-            : 'none',
+            : def.id === 'tung_tung_sahur'
+              ? 'tung_hunt'
+              : 'none',
       specialTimer: initSpecialTimer,
       specialActionTimer: isRickPortalArrival ? 1.6 : 0,
       specialTargetId: null,
@@ -2049,6 +2087,10 @@ export class VisitorModule {
       ragdollSpin: 0,
       strangledById: null,
       strangledTimer: 0,
+      tungHitsRemaining: def.id === 'tung_tung_sahur' ? 2 + (Math.random() < 0.5 ? 1 : 0) : 0,
+      tungBonkedIds: new Set<string>(),
+      tungHuntTimeout: def.id === 'tung_tung_sahur' ? 12.0 : 0,
+      tungChantPlayed: false,
       stuckAnchorX: startX,
       stuckAnchorZ: startZ,
       prolongedStuckTimer: 0,
@@ -2347,7 +2389,9 @@ export class VisitorModule {
           ? 0.62
           : v.def.id === 'rocky'
             ? 0.68
-            : 1.18;
+            : v.def.id === 'tung_tung_sahur'
+              ? 1.22
+              : 1.18;
       const yaw = held ? v.mesh.root.rotation.y : v.rotY;
       const at = held ? v.mesh.root.position : { x: v.worldX, y: v.worldY, z: v.worldZ };
       return {
@@ -4086,7 +4130,7 @@ export class VisitorModule {
         if (activeSpecials < 2 && this.active.length < 10 && this.horrorLegendarySlot?.() !== true) {
           const freshSpecials = specialDefs.filter((d) => !activeIds.has(d.id));
           if (freshSpecials.length > 0) {
-            const chosenSpecial = freshSpecials[Math.floor(Math.random() * freshSpecials.length)];
+            const chosenSpecial = pickWeightedSpecialDef(freshSpecials);
             if (chosenSpecial) {
               this.spawnVisitorInternal(chosenSpecial.id, true);
             }
@@ -10585,6 +10629,169 @@ export class VisitorModule {
         }
       }
       return { handled: false, changed };
+    }
+
+    // ---- 7. TUNG TUNG TUNG SAHUR: Ultra-rare log cryptid -> bonk 2-3 guests -> yell -> leave! ----
+    if (v.def.id === 'tung_tung_sahur') {
+      if (v.phase === 'arriving_transport' || v.phase === 'entering' || v.leavingPopTimer > 0) {
+        return { handled: false, changed };
+      }
+
+      const beginTungYell = () => {
+        v.specialState = 'tung_yell';
+        v.specialTargetId = null;
+        v.specialActionTimer = 2.6;
+        v.tungChantPlayed = true;
+        v.pose = 'tung_yell';
+        v.velX = 0;
+        v.velZ = 0;
+        v.smoothVelX = 0;
+        v.smoothVelZ = 0;
+        v.activity = 'Yelling TUNG TUNG TUNG SAHUR!!';
+        v.thought = 'TUNG TUNG TUNG SAHUR!!';
+        v.lastEmote = TUNG_EMOTE_YELL.glyph;
+        v.mesh.speechBubble.showEmote(TUNG_EMOTE_YELL, 'delighted', 3.0, 1.2);
+        this.playSpecialSfxSafe('playTungChant');
+      };
+
+      if (v.specialState === 'tung_yell') {
+        if (!v.tungChantPlayed) {
+          v.tungChantPlayed = true;
+          this.playSpecialSfxSafe('playTungChant');
+        }
+        v.specialActionTimer -= dt;
+        v.pose = 'tung_yell';
+        v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+        v.mesh.root.rotation.y = v.rotY;
+        v.mesh.updateAnimation(dt, 'tung_yell', v.def.walkSpeed);
+        if (v.specialActionTimer <= 0) {
+          v.specialState = 'none';
+          v.specialTargetId = null;
+          v.dismissedVoluntarily = true;
+          this.beginLeaving(v, 'Slipping away into the night');
+          v.thought = '…tung.';
+          return { handled: true, changed: true };
+        }
+        return { handled: true, changed };
+      }
+
+      if (v.specialState === 'tung_swing') {
+        v.specialActionTimer -= dt;
+        v.pose = 'bat_swing';
+        v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+        v.mesh.root.rotation.y = v.rotY;
+        v.mesh.updateAnimation(dt, 'bat_swing', v.def.walkSpeed);
+        if (v.specialActionTimer <= 0) {
+          if (v.tungHitsRemaining <= 0 || v.tungHuntTimeout <= 0) {
+            beginTungYell();
+          } else {
+            v.specialState = 'tung_hunt';
+            v.specialTargetId = null;
+          }
+          return { handled: true, changed: true };
+        }
+        return { handled: true, changed };
+      }
+
+      // Default inside state: 'tung_hunt'
+      v.specialState = 'tung_hunt';
+      v.tungHuntTimeout -= dt;
+
+      let bestTarget: ActiveVisitorRuntime | null = null;
+      let bestDist = Infinity;
+      if (v.tungHitsRemaining > 0 && v.tungHuntTimeout > 0) {
+        for (const o of this.active) {
+          if (o.instanceId === v.instanceId) continue;
+          if (v.tungBonkedIds.has(o.instanceId)) continue;
+          if (
+            o.seatAnchor !== null ||
+            o.phase === 'arriving_transport' ||
+            o.phase === 'entering' ||
+            o.phase === 'leaving' ||
+            o.phase === 'waiting_pickup' ||
+            o.leavingPopTimer > 0 ||
+            o.ragdollTimer > 0 ||
+            o.bathroomStage === 'on_toilet' ||
+            o.strangledById !== null ||
+            o.specialState === 'gojo_line1' ||
+            o.specialState === 'gojo_line2' ||
+            o.specialState === 'gojo_line3'
+          ) {
+            continue;
+          }
+          if (this.isTargetBehindLockedBathroom(v, o, state)) continue;
+          const d = Math.hypot(o.worldX - v.worldX, o.worldZ - v.worldZ);
+          if (d < bestDist) {
+            bestDist = d;
+            bestTarget = o;
+          }
+        }
+      }
+
+      if (!bestTarget || v.tungHitsRemaining <= 0 || v.tungHuntTimeout <= 0) {
+        beginTungYell();
+        return { handled: true, changed: true };
+      }
+
+      if (v.specialTargetId !== bestTarget.instanceId) {
+        v.specialTargetId = bestTarget.instanceId;
+        v.activity = `Stalking ${bestTarget.persona.name} with a bat!`;
+        v.thought = 'TUNG… TUNG…';
+        v.lastEmote = TUNG_EMOTE_STALK.glyph;
+        v.mesh.speechBubble.showEmote(TUNG_EMOTE_STALK, 'neutral', 2.8, 0.8);
+        changed = true;
+      }
+
+      const dx = bestTarget.worldX - v.worldX;
+      const dz = bestTarget.worldZ - v.worldZ;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= 0.95) {
+        v.rotY = Math.atan2(dx, dz);
+        v.targetYaw = v.rotY;
+        v.mesh.root.rotation.y = v.rotY;
+        v.specialState = 'tung_swing';
+        v.specialActionTimer = 0.55;
+        v.pose = 'bat_swing';
+        v.tungBonkedIds.add(bestTarget.instanceId);
+        v.tungHitsRemaining -= 1;
+        this.setVisitorCoffee(bestTarget, false);
+        this.playSpecialSfxSafe('playTungBatBonk');
+        this.launchVisitorRagdoll(bestTarget, v.worldX, v.worldZ);
+        bestTarget.activity = 'BONKED by Tung Tung Tung Sahur!!';
+        bestTarget.thought = 'BONK!! WHAT WAS THAT WOODEN THING?! 💥';
+        bestTarget.lastEmote = TUNG_EMOTE_BONK.glyph;
+        bestTarget.mesh.speechBubble.showEmote(TUNG_EMOTE_BONK, 'bored', 2.8, 0.9);
+        v.activity = `BONKING ${bestTarget.persona.name}!!`;
+        v.thought = 'TUNG!! BONK!!';
+        v.lastEmote = TUNG_EMOTE_BONK.glyph;
+        v.mesh.speechBubble.showEmote(TUNG_EMOTE_BONK, 'delighted', 2.4, 0.8);
+        return { handled: true, changed: true };
+      }
+
+      const huntSpeed = v.def.walkSpeed * 1.45;
+      const step = Math.min(huntSpeed * dt, dist);
+      const safe = resolveSafeMovement(
+        this.navGrid,
+        v.worldX,
+        v.worldZ,
+        v.worldX + (dx / dist) * step,
+        v.worldZ + (dz / dist) * step,
+        false,
+        VISITOR_WALL_MARGIN,
+        this.getLockedDoorEdgesForActor(v.instanceId, v.currentTile),
+      );
+      v.worldX = safe.wx;
+      v.worldZ = safe.wz;
+      const fx = Math.floor(v.worldX + state.gridWidth / 2);
+      const fz = Math.floor(v.worldZ + state.gridDepth / 2);
+      if (inGridBounds(fx, fz, state.gridWidth, state.gridDepth)) {
+        v.currentTile = { x: fx, z: fz };
+      }
+      v.rotY = dampAngle(v.rotY, Math.atan2(dx, dz), 12, dt);
+      v.mesh.root.rotation.y = v.rotY;
+      v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+      v.mesh.updateAnimation(dt, 'walk', huntSpeed);
+      return { handled: true, changed };
     }
 
     return { handled: false, changed };
