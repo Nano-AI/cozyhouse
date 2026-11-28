@@ -15,6 +15,8 @@ export interface BiomeRoute {
   lotEdgeTile: GridCoord;
   /** Friendly status label shown while transport is bringing the visitor in. */
   arrivalLabel: string;
+  /** Optional friendly status label shown while visitor departs along the route. */
+  departureLabel?: string;
 }
 
 interface ActiveVehicleTrip {
@@ -271,6 +273,33 @@ export class ArrivalTransportManager {
           ],
           lotEdgeTile: { x: centerTileX, z: 0 },
           arrivalLabel: 'Strolling up the country lane',
+        };
+      }
+
+      case 'backrooms': {
+        // Mono-yellow Level 0 corridor leading straight down into the North (-Z) lot edge
+        const farZ = -(halfD + 7.5);
+        const midZ = -(halfD + 3.6);
+        const nearZ = -(halfD + 1.15);
+        const entryZ = -(halfD - 0.5);
+        const stopPoint: WorldPoint = { wx: 0, wz: farZ };
+        return {
+          kind: 'trail',
+          stopPoint,
+          approachWaypoints: [
+            { wx: 0, wz: midZ },
+            { wx: 0, wz: nearZ },
+            { wx: 0, wz: entryZ },
+          ],
+          exitWaypoints: [
+            { wx: 0, wz: entryZ },
+            { wx: 0, wz: nearZ },
+            { wx: 0, wz: midZ },
+            stopPoint,
+          ],
+          lotEdgeTile: { x: centerTileX, z: 0 },
+          arrivalLabel: 'Wandering out of the corridors',
+          departureLabel: 'Slipping back into the corridors',
         };
       }
 

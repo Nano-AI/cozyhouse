@@ -194,6 +194,7 @@ export class AudioModule {
     },
   });
   private activeWeather: WeatherDef | null = null;
+  private activeSceneryViewId = 'suburbs';
 
   private readonly muteListeners = new Set<(muted: boolean) => void>();
   private readonly volumeListeners = new Set<(volume: number) => void>();
@@ -391,9 +392,12 @@ export class AudioModule {
   attachStore(store: HouseStore): () => void {
     const initialState = store.getState();
     let lastWeatherId = initialState.weatherId;
+    this.activeSceneryViewId = initialState.sceneryViewId;
     const initialWeather = store.data.weathersById.get(lastWeatherId);
     if (initialWeather) {
       this.setWeatherAmbience(initialWeather);
+    } else if (this.activeSceneryViewId === 'backrooms') {
+      this.syncWeatherAmbience();
     }
     this.musicPlayer.setTheme(resolveMusicTheme(initialState, store.data));
 
@@ -418,12 +422,21 @@ export class AudioModule {
       }
       // Note: 'timeOfDay' stays quiet/ambient without spurious placement SFX.
 
+      const sceneryChanged = state.sceneryViewId !== this.activeSceneryViewId;
+      if (sceneryChanged) {
+        this.activeSceneryViewId = state.sceneryViewId;
+      }
+
       if (state.weatherId !== lastWeatherId) {
         lastWeatherId = state.weatherId;
         const nextWeather = store.data.weathersById.get(state.weatherId);
         if (nextWeather) {
           this.setWeatherAmbience(nextWeather);
+        } else if (sceneryChanged) {
+          this.syncWeatherAmbience();
         }
+      } else if (sceneryChanged) {
+        this.syncWeatherAmbience();
       }
 
       if (MUSIC_RELEVANT_REASONS.has(reason)) {
@@ -596,9 +609,16 @@ export class AudioModule {
     if (this.disposed) return;
 
     this.ensureContextAndResume();
-    if (!this.ctx || !this.weatherGain || this.ctx.state !== 'running') return;
+    this.syncWeatherAmbience();
+  }
 
-    this.weatherAmbience.setWeather(this.ctx, this.weatherGain, weather);
+  private syncWeatherAmbience(): void {
+    if (this.disposed || !this.ctx || !this.weatherGain || this.ctx.state !== 'running') return;
+    if (this.activeSceneryViewId === 'backrooms') {
+      this.weatherAmbience.setBackroomsHum(this.ctx, this.weatherGain, true);
+    } else {
+      this.weatherAmbience.setBackroomsHum(this.ctx, this.weatherGain, false, this.activeWeather);
+    }
   }
 
   dispose(): void {
@@ -855,9 +875,7 @@ export class AudioModule {
     this.applyWeatherGain();
     this.applyChatterGain();
 
-    if (this.activeWeather) {
-      this.weatherAmbience.setWeather(this.ctx, this.weatherGain, this.activeWeather);
-    }
+    this.syncWeatherAmbience();
 
     this.flushPendingCallbacks();
   }

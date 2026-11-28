@@ -23,7 +23,9 @@ export type SpecialPose =
   | 'collapse'
   | 'conjure'
   | 'gather'
-  | 'release';
+  | 'release'
+  | 'strangle'
+  | 'strangled';
 
 export interface SpecialCharacterRig {
   root: THREE.Group;
@@ -1266,6 +1268,67 @@ function createHumanoidRigController(
           break;
         }
 
+        case 'strangle': {
+          animPhase += safeDt * 28;
+          const tremble = Math.sin(animPhase);
+          const shakeX = Math.cos(animPhase * 0.85) * 0.12;
+          const shakeY = tremble * 0.18;
+
+          // Wide angry planted stance leaning furiously forward
+          parts.bodyPivot.position.y = Math.abs(tremble) * 0.018;
+          parts.leftLegPivot.rotation.set(-0.16, 0.12, 0.14);
+          parts.rightLegPivot.rotation.set(0.18, -0.12, -0.14);
+          parts.leftKneePivot.rotation.set(0.22, 0, 0);
+          parts.rightKneePivot.rotation.set(0.18, 0, 0);
+
+          parts.torsoPivot.rotation.set(0.24 + tremble * 0.04, tremble * 0.09, tremble * 0.06);
+          // Both arms thrust straight forward at neck height shaking violently!
+          aimArm(
+            parts.leftArmPivot,
+            parts.leftElbowPivot,
+            [-0.14 + shakeX, 0.18 + shakeY, 0.96],
+            [0.16 + shakeX, 0.12 + shakeY, 0.96],
+          );
+          aimArm(
+            parts.rightArmPivot,
+            parts.rightElbowPivot,
+            [0.14 + shakeX, 0.18 - shakeY, 0.96],
+            [-0.16 + shakeX, 0.12 - shakeY, 0.96],
+          );
+          parts.headPivot.rotation.set(
+            -0.16 + tremble * 0.1,
+            Math.cos(animPhase * 0.92) * 0.14,
+            tremble * 0.12,
+          );
+          break;
+        }
+
+        case 'strangled': {
+          animPhase += safeDt * 28;
+          const shake = Math.sin(animPhase);
+          const fastKick = Math.sin(animPhase * 1.15);
+
+          // Classic Bart-being-strangled mid-air rattle & wildly kicking legs!
+          parts.bodyPivot.position.y = 0.14 + shake * 0.035;
+          parts.bodyPivot.rotation.set(0.06 + shake * 0.08, shake * 0.12, -shake * 0.12);
+          parts.leftLegPivot.rotation.set(-0.28 + fastKick * 0.62, 0, 0.14);
+          parts.rightLegPivot.rotation.set(-0.28 - fastKick * 0.62, 0, -0.14);
+          parts.leftKneePivot.rotation.set(0.52 + Math.max(0, -fastKick) * 0.65, 0, 0);
+          parts.rightKneePivot.rotation.set(0.52 + Math.max(0, fastKick) * 0.65, 0, 0);
+
+          parts.torsoPivot.rotation.set(-0.08 + shake * 0.14, -shake * 0.18, shake * 0.14);
+          parts.leftArmPivot.rotation.set(-1.6 + shake * 0.52, 0.24, 0.42 + fastKick * 0.3);
+          parts.rightArmPivot.rotation.set(-1.6 - shake * 0.52, -0.24, -0.42 - fastKick * 0.3);
+          parts.leftElbowPivot.rotation.set(-0.85 + Math.abs(shake) * 0.45, 0, 0);
+          parts.rightElbowPivot.rotation.set(-0.85 + Math.abs(fastKick) * 0.45, 0, 0);
+          parts.headPivot.rotation.set(
+            -0.22 + shake * 0.32,
+            Math.cos(animPhase * 0.9) * 0.42,
+            -shake * 0.28,
+          );
+          break;
+        }
+
         case 'squeak': {
           const pop = Math.abs(Math.sin(safeElapsed * 10)) * 0.12 + squeakPulse * 0.08;
           parts.bodyPivot.position.y = pop;
@@ -1820,6 +1883,20 @@ function buildSqueakyChickenRig(): SpecialCharacterRig {
           leftWingPivot.rotation.set(0, 0, 0.95 + w * 0.35);
           rightWingPivot.rotation.set(0, 0, -0.95 + w * 0.35);
           neckPivot.rotation.set(-0.2, 0, -w * 0.25);
+          break;
+        }
+
+        case 'strangled': {
+          const shake = Math.sin(safeElapsed * 28);
+          const kick = Math.sin(safeElapsed * 32);
+          bodyPivot.position.y = 0.14 + shake * 0.035;
+          bodyPivot.rotation.set(0.08 + shake * 0.1, shake * 0.14, -shake * 0.14);
+          leftLegPivot.rotation.set(-0.25 + kick * 0.65, 0, 0.14);
+          rightLegPivot.rotation.set(-0.25 - kick * 0.65, 0, -0.14);
+          leftWingPivot.rotation.set(0, 0, 1.15 + shake * 0.48);
+          rightWingPivot.rotation.set(0, 0, -1.15 - shake * 0.48);
+          neckPivot.rotation.set(-0.24 + shake * 0.22, 0, -shake * 0.3);
+          headPivot.rotation.set(-0.22 + shake * 0.26, Math.cos(safeElapsed * 25) * 0.35, shake * 0.2);
           break;
         }
 
@@ -2845,6 +2922,19 @@ function buildRockyRig(): SpecialCharacterRig {
           for (let i = 0; i < 5; i++) {
             legs[i].hipPivot.rotation.set(0.32 + Math.sin(safeElapsed * 2 + i) * 0.12, 0, 0);
             legs[i].kneePivot.rotation.set(-0.18, 0, 0);
+          }
+          break;
+        }
+
+        case 'strangled': {
+          const shake = Math.sin(safeElapsed * 28);
+          bodyPivot.position.y = 0.14 + shake * 0.035;
+          bodyPivot.rotation.set(shake * 0.12, shake * 0.16, -shake * 0.14);
+          carapaceGroup.rotation.set(-0.16 + shake * 0.16, Math.cos(safeElapsed * 24) * 0.24, shake * 0.14);
+          for (let i = 0; i < 5; i++) {
+            const kick = Math.sin(safeElapsed * 30 + i * 1.4);
+            legs[i].hipPivot.rotation.set(-0.55 + kick * 0.58, kick * 0.24, 0);
+            legs[i].kneePivot.rotation.set(0.45 + Math.abs(kick) * 0.45, 0, 0);
           }
           break;
         }

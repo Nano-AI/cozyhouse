@@ -72,6 +72,7 @@ export interface StoreEventMap {
   staffChanged: { staff: HiredStaff[] };
   cheatsChanged: { inviteCheatsEnabled: boolean; konamiUnlocked: boolean };
   guestLogChanged: { entries: Record<string, GuestLogEntry>; newlyDiscoveredId?: string };
+  chaosModeChanged: { enabled: boolean };
   itemInteracted: { item: PlacedItem };
   toast: { message: string; tone?: 'info' | 'success' | 'error' };
 }
@@ -186,6 +187,33 @@ function writeStoredGuestLog(entries: Record<string, GuestLogEntry>): void {
   }
 }
 
+const CHAOS_MODE_STORAGE_KEY = 'cozyhouse:chaosMode';
+const LEGACY_PEACEFUL_KEY = 'cozyhouse:peaceful';
+
+function readStoredChaosMode(): boolean {
+  try {
+    if (typeof localStorage === 'undefined') return true;
+    const rawChaos = localStorage.getItem(CHAOS_MODE_STORAGE_KEY);
+    if (rawChaos === 'off') return false;
+    if (rawChaos === 'on') return true;
+    const rawPeaceful = localStorage.getItem(LEGACY_PEACEFUL_KEY);
+    if (rawPeaceful === 'on') return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+function writeStoredChaosMode(enabled: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(CHAOS_MODE_STORAGE_KEY, enabled ? 'on' : 'off');
+    localStorage.setItem(LEGACY_PEACEFUL_KEY, enabled ? 'off' : 'on');
+  } catch {
+    // Ignore storage errors (private browsing / headless environments)
+  }
+}
+
 export const STAFF_ROLE_ACCENTS: Record<StaffRole, string> = {
   barista: '#D98F72',
   dj: '#9F90E0',
@@ -284,6 +312,7 @@ export class HouseStore {
   private konamiUnlocked = readStoredKonamiUnlocked();
   private inviteCheatsEnabled = IS_DEV || this.konamiUnlocked;
   private guestLog: Record<string, GuestLogEntry> = readStoredGuestLog();
+  private chaosMode = readStoredChaosMode();
   private selectedUids: string[] = [];
   private mode: InteractionMode = 'select';
   private placementItemId: string | null = null;
@@ -309,6 +338,7 @@ export class HouseStore {
     staffChanged: new Set(),
     cheatsChanged: new Set(),
     guestLogChanged: new Set(),
+    chaosModeChanged: new Set(),
     itemInteracted: new Set(),
     toast: new Set(),
   };
@@ -542,6 +572,18 @@ export class HouseStore {
     this.guestLog = {};
     writeStoredGuestLog(this.guestLog);
     this.emit('guestLogChanged', { entries: {} });
+  }
+
+  isChaosMode(): boolean {
+    return this.chaosMode;
+  }
+
+  setChaosMode(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.chaosMode === next) return;
+    this.chaosMode = next;
+    writeStoredChaosMode(this.chaosMode);
+    this.emit('chaosModeChanged', { enabled: this.chaosMode });
   }
 
   getDoorPolicy(): HouseDoorPolicy {

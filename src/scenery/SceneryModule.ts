@@ -12,6 +12,7 @@ import {
 import {
   type CloudTransitionPhase,
   type CloudTransitionSwarmHandle,
+  computeNightGlowFactor,
   createCloudTransitionSwarm,
   resolveTimeHour,
 } from './SkyDome';
@@ -30,6 +31,13 @@ const COL_SUNSET_FOG = new THREE.Color('#C48086');
 const COL_DUSK_FOG = new THREE.Color('#393A62');
 const COL_NIGHT_FOG = new THREE.Color('#1D2847');
 const WHITE_TINT = new THREE.Color('#FFFFFF');
+const COL_BACKROOMS_DAY_FOG = new THREE.Color('#C4B97E');
+const COL_BACKROOMS_NIGHT_FOG = new THREE.Color('#7E7548');
+const COL_BACKROOMS_DAY_SUN = new THREE.Color('#F8F2CE');
+const COL_BACKROOMS_NIGHT_SUN = new THREE.Color('#DDD29B');
+const COL_BACKROOMS_DAY_AMB = new THREE.Color('#EFE8BC');
+const COL_BACKROOMS_NIGHT_AMB = new THREE.Color('#C8BC85');
+const BACKROOMS_MIN_FOG_DENSITY = 0.0155;
 
 /**
  * Module boundary for window views, weather (`data/scenery.json`), continuous 24h Time
@@ -47,9 +55,11 @@ export class SceneryModule {
   private readonly workingFogTint = new THREE.Color();
   private readonly cameraForward = new THREE.Vector3();
 
-  // Reusable scratch atmosphere objects during lightning flashes (zero per-frame alloc)
+  // Reusable scratch atmosphere objects (zero per-frame alloc)
   private readonly scratchFlashedView: SceneryViewDef;
   private readonly scratchFlashedWeather: WeatherDef;
+  private readonly scratchBackroomsView: SceneryViewDef;
+  private readonly scratchBackroomsWeather: WeatherDef;
 
   private backdrop: BackdropHandle | null = null;
   private yardLife: YardLifeHandle | null = null;
@@ -73,6 +83,8 @@ export class SceneryModule {
 
     this.scratchFlashedView = { ...this.data.scenery.views[0] };
     this.scratchFlashedWeather = { ...this.data.scenery.weathers[0] };
+    this.scratchBackroomsView = { ...this.data.scenery.views[0] };
+    this.scratchBackroomsWeather = { ...this.data.scenery.weathers[0] };
 
     this.cloudTransition = createCloudTransitionSwarm(
       this.getActiveWeather(),
@@ -153,7 +165,7 @@ export class SceneryModule {
     this.currentGridWidth = state.gridWidth;
     this.currentGridDepth = state.gridDepth;
 
-    this.sceneManager.gridVisual.setYardVisible(view.id !== 'city');
+    this.sceneManager.gridVisual.setYardVisible(view.id !== 'city' && view.id !== 'backrooms');
 
     if (viewChanged || sizeChanged || !this.backdrop) {
       if (this.backdrop) {
@@ -170,9 +182,9 @@ export class SceneryModule {
         timeHour,
       );
       this.sceneManager.scene.add(this.backdrop.root);
-      const cam = this.sceneManager.isoCamera.camera;
-      cam.getWorldDirection(this.cameraForward);
-      this.backdrop.update(this.elapsed, 0, weather, cam.position, this.cameraForward);
+      const activeCam = this.sceneManager.getActiveCamera?.() ?? this.sceneManager.isoCamera.camera;
+      activeCam.getWorldDirection(this.cameraForward);
+      this.backdrop.update(this.elapsed, 0, weather, activeCam.position, this.cameraForward);
     } else if (weatherChanged || timeChanged) {
       this.backdrop.applyWeatherTint(view, weather, timeOfDay, timeHour);
       if (timeChanged) {
@@ -181,7 +193,7 @@ export class SceneryModule {
     }
 
     this.backdrop.setLightning(0);
-    this.cloudTransition.applyThemeTint(weather, timeOfDay, timeHour);
+    this.cloudTransition.applyThemeTint(weather, timeOfDay, timeHour, view.id);
     const effectiveFogHex = this.applyAtmosphereAndFog(view, weather, timeOfDay, timeHour);
 
     if (viewChanged || weatherChanged || sizeChanged) {
@@ -223,6 +235,14 @@ export class SceneryModule {
   }
 
   private computeTimedFogHex(view: SceneryViewDef, hour: number): string {
+    if (view.id === 'backrooms') {
+      const nightMood = computeNightGlowFactor(hour);
+      this.workingFogColor
+        .copy(COL_BACKROOMS_DAY_FOG)
+        .lerp(COL_BACKROOMS_NIGHT_FOG, nightMood * 0.42);
+      return `#${this.workingFogColor.getHexString()}`;
+    }
+
     const h = ((hour % 24) + 24) % 24;
     this.workingFogColor.set(view.fogColor);
 
@@ -260,6 +280,54 @@ export class SceneryModule {
     timeOfDay: TimeOfDay,
     timeHour: number,
   ): string {
+    if (view.id === 'backrooms') {
+      const nightMood = computeNightGlowFactor(timeHour);
+      const timedFogHex = this.computeTimedFogHex(view, timeHour);
+
+      Object.assign(this.scratchBackroomsView, view);
+      this.scratchBackroomsView.fogColor = timedFogHex;
+      this.workingColor.copy(COL_BACKROOMS_DAY_SUN).lerp(COL_BACKROOMS_NIGHT_SUN, nightMood * 0.42);
+      this.scratchBackroomsView.sunColor = `#${this.workingColor.getHexString()}`;
+      this.workingFogTint.copy(COL_BACKROOMS_DAY_AMB).lerp(COL_BACKROOMS_NIGHT_AMB, nightMood * 0.42);
+      this.scratchBackroomsView.ambientColor = `#${this.workingFogTint.getHexString()}`;
+      this.scratchBackroomsView.sunIntensity = view.sunIntensity * (1 - nightMood * 0.24);
+      this.scratchBackroomsView.ambientIntensity = view.ambientIntensity * (1 - nightMood * 0.2);
+
+      Object.assign(this.scratchBackroomsWeather, weather);
+      this.scratchBackroomsWeather.skyTint = '#FFFCEB';
+      this.scratchBackroomsWeather.lightMultiplier = 0.86 + 0.14 * weather.lightMultiplier;
+
+      // Stay lit like an enclosed indoor fluorescent maze even at night (just moodier/dimmer, never blue!)
+      this.sceneManager.applyAtmosphere(
+        this.scratchBackroomsView,
+        this.scratchBackroomsWeather,
+        'day',
+        13.5,
+      );
+
+      this.baseSkyColor.set(timedFogHex);
+      if (this.sceneManager.scene.background instanceof THREE.Color) {
+        this.sceneManager.scene.background.copy(this.baseSkyColor);
+      } else {
+        this.sceneManager.scene.background = this.baseSkyColor.clone();
+      }
+
+      const liminalDensity = Math.max(
+        BACKROOMS_MIN_FOG_DENSITY,
+        Math.min(0.02, weather.fogDensity),
+      );
+      if (this.sceneManager.scene.fog instanceof THREE.FogExp2) {
+        this.sceneManager.scene.fog.color.copy(this.baseSkyColor);
+        this.sceneManager.scene.fog.density = liminalDensity;
+      } else {
+        this.sceneManager.scene.fog = new THREE.FogExp2(
+          this.baseSkyColor.getHex(),
+          liminalDensity,
+        );
+      }
+      return timedFogHex;
+    }
+
     this.sceneManager.applyAtmosphere(view, weather, timeOfDay, timeHour);
 
     const timedFogHex = this.computeTimedFogHex(view, timeHour);
@@ -331,10 +399,10 @@ export class SceneryModule {
   update(dt: number): void {
     this.elapsed += dt;
     const weather = this.getActiveWeather();
-    const cam = this.sceneManager.isoCamera.camera;
+    const activeCam = this.sceneManager.getActiveCamera?.() ?? this.sceneManager.isoCamera.camera;
     if (this.backdrop) {
-      cam.getWorldDirection(this.cameraForward);
-      this.backdrop.update(this.elapsed, dt, weather, cam.position, this.cameraForward);
+      activeCam.getWorldDirection(this.cameraForward);
+      this.backdrop.update(this.elapsed, dt, weather, activeCam.position, this.cameraForward);
     }
     if (this.yardLife) {
       this.yardLife.update(this.elapsed, dt, weather, this.getActiveTimeHour());
@@ -343,7 +411,7 @@ export class SceneryModule {
       this.cloudTransition.updateTransition(
         this.transitionPhase,
         this.transitionT,
-        cam,
+        this.sceneManager.isoCamera.camera,
         this.elapsed,
       );
     }

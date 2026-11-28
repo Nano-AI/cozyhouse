@@ -6,7 +6,7 @@ import {
   type PlacedItem,
   type RotationQuarter,
 } from '../data/schemas';
-import { CEILING_HEIGHT } from '../engine/GridSystem';
+import { CEILING_HEIGHT, canonicalWallEdgeKey } from '../engine/GridSystem';
 import {
   DEFAULT_GRID_DEPTH,
   DEFAULT_GRID_WIDTH,
@@ -74,6 +74,14 @@ export const HOUSE_PRESETS: HousePresetDef[] = [
     sceneryViewId: 'mountains',
     weatherId: 'snow',
     timeHour: 19.0,
+  },
+  {
+    id: 'backrooms_level0',
+    name: 'Level 0',
+    icon: 'loc_backrooms',
+    sceneryViewId: 'backrooms',
+    weatherId: 'fog',
+    timeHour: 14.0,
   },
 ];
 
@@ -733,6 +741,533 @@ function buildMountainCabinPreset(preset: HousePresetDef, data: GameDataBundle):
   ]);
 }
 
+interface BackroomsCornerPlan {
+  id: 'NW' | 'NE' | 'SW' | 'SE';
+  bathTiles: Array<[number, number]>;
+  bathWalls: Array<{ x: number; z: number; rot: RotationQuarter; isDoorCandidate?: boolean }>;
+  toilet: { x: number; z: number; rot: RotationQuarter };
+  sink: { x: number; z: number; rot: RotationQuarter };
+  bathMat: { x: number; z: number };
+  bathEntry: { x: number; z: number };
+  towelWallSide: 'north' | 'south';
+  towelWallX: number;
+  coffeeCounter: { x: number; z: number; rot: RotationQuarter; tiles: Array<[number, number]> };
+  espressoPos: { x: number; z: number };
+  cupPos: { x: number; z: number };
+  coffeeApproach: Array<[number, number]>;
+}
+
+function buildBackroomsPreset(preset: HousePresetDef, data: GameDataBundle): HouseState {
+  const minX = 3;
+  const maxX = 12;
+  const minZ = 4;
+  const maxZ = 11;
+  const tileKey = (x: number, z: number) => `${x},${z}`;
+
+  const randInt = (lo: number, hi: number): number =>
+    lo + Math.floor(Math.random() * (hi - lo + 1));
+
+  const shuffle = <T>(arr: T[]): T[] => {
+    const out = [...arr];
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  };
+
+  // 4 distinct corner layouts on the 10x8 room (minX=3..12, minZ=4..11) with North entrance at (7..8, 4)
+  const cornerPlans: BackroomsCornerPlan[] = [
+    {
+      id: 'NW',
+      bathTiles: [[3, 4], [4, 4], [3, 5], [4, 5]],
+      bathWalls: [
+        { x: 3, z: 5, rot: 2 },
+        { x: 4, z: 5, rot: 2, isDoorCandidate: true },
+        { x: 4, z: 4, rot: 1 },
+        { x: 4, z: 5, rot: 1, isDoorCandidate: true },
+      ],
+      toilet: { x: 3, z: 4, rot: 3 },
+      sink: { x: 3, z: 5, rot: 3 },
+      bathMat: { x: 4, z: 4 },
+      bathEntry: { x: 4, z: 5 },
+      towelWallSide: 'north',
+      towelWallX: 4,
+      coffeeCounter: { x: 3, z: 4, rot: 3, tiles: [[3, 4], [3, 5]] },
+      espressoPos: { x: 3, z: 4 },
+      cupPos: { x: 3, z: 5 },
+      coffeeApproach: [[4, 4], [4, 5]],
+    },
+    {
+      id: 'NE',
+      bathTiles: [[11, 4], [12, 4], [11, 5], [12, 5]],
+      bathWalls: [
+        { x: 11, z: 5, rot: 2, isDoorCandidate: true },
+        { x: 12, z: 5, rot: 2 },
+        { x: 11, z: 4, rot: 3 },
+        { x: 11, z: 5, rot: 3, isDoorCandidate: true },
+      ],
+      toilet: { x: 12, z: 4, rot: 1 },
+      sink: { x: 12, z: 5, rot: 1 },
+      bathMat: { x: 11, z: 4 },
+      bathEntry: { x: 11, z: 5 },
+      towelWallSide: 'north',
+      towelWallX: 11,
+      coffeeCounter: { x: 12, z: 4, rot: 1, tiles: [[12, 4], [12, 5]] },
+      espressoPos: { x: 12, z: 4 },
+      cupPos: { x: 12, z: 5 },
+      coffeeApproach: [[11, 4], [11, 5]],
+    },
+    {
+      id: 'SW',
+      bathTiles: [[3, 10], [4, 10], [3, 11], [4, 11]],
+      bathWalls: [
+        { x: 3, z: 10, rot: 0 },
+        { x: 4, z: 10, rot: 0, isDoorCandidate: true },
+        { x: 4, z: 10, rot: 1, isDoorCandidate: true },
+        { x: 4, z: 11, rot: 1 },
+      ],
+      toilet: { x: 3, z: 11, rot: 3 },
+      sink: { x: 3, z: 10, rot: 3 },
+      bathMat: { x: 4, z: 11 },
+      bathEntry: { x: 4, z: 10 },
+      towelWallSide: 'south',
+      towelWallX: 4,
+      coffeeCounter: { x: 3, z: 9, rot: 3, tiles: [[3, 9], [3, 10]] },
+      espressoPos: { x: 3, z: 9 },
+      cupPos: { x: 3, z: 10 },
+      coffeeApproach: [[4, 9], [4, 10]],
+    },
+    {
+      id: 'SE',
+      bathTiles: [[11, 10], [12, 10], [11, 11], [12, 11]],
+      bathWalls: [
+        { x: 11, z: 10, rot: 0, isDoorCandidate: true },
+        { x: 12, z: 10, rot: 0 },
+        { x: 11, z: 10, rot: 3, isDoorCandidate: true },
+        { x: 11, z: 11, rot: 3 },
+      ],
+      toilet: { x: 12, z: 11, rot: 1 },
+      sink: { x: 12, z: 10, rot: 1 },
+      bathMat: { x: 11, z: 11 },
+      bathEntry: { x: 11, z: 10 },
+      towelWallSide: 'south',
+      towelWallX: 11,
+      coffeeCounter: { x: 12, z: 9, rot: 1, tiles: [[12, 9], [12, 10]] },
+      espressoPos: { x: 12, z: 9 },
+      cupPos: { x: 12, z: 10 },
+      coffeeApproach: [[11, 9], [11, 10]],
+    },
+  ];
+
+  const pickedCorners = shuffle(cornerPlans);
+  const bathCorner = pickedCorners[0];
+  const coffeeCorner = pickedCorners[1];
+  const bathTileSet = new Set(bathCorner.bathTiles.map(([x, z]) => tileKey(x, z)));
+  const coffeeTileSet = new Set(coffeeCorner.coffeeCounter.tiles.map(([x, z]) => tileKey(x, z)));
+  const coffeeApproachSet = new Set(coffeeCorner.coffeeApproach.map(([x, z]) => tileKey(x, z)));
+
+  const wallStyleChoice = Math.random() < 0.72 ? 'wall_wainscot' : 'wall_plain';
+  const wallVariantChoice = wallStyleChoice === 'wall_wainscot' ? 'cream_oak' : 'cream';
+  const yellowWall = { itemId: wallStyleChoice, variantId: wallVariantChoice };
+
+  const b = createRoomBuilder(
+    'backrooms',
+    data,
+    { minX, maxX, minZ, maxZ },
+    (x, z) =>
+      bathTileSet.has(tileKey(x, z))
+        ? { itemId: 'floor_tile', variantId: 'cream' }
+        : { itemId: 'floor_stone', variantId: 'sandstone' },
+    {
+      north: (x) =>
+        x === 7 || x === 8 ? { itemId: 'door_wood', variantId: 'honey' } : yellowWall,
+      south: () => yellowWall,
+      west: () => yellowWall,
+      east: () => yellowWall,
+    },
+  );
+
+  // Track occupied and protected canonical wall edges so interior partitions never overlap or seal doorways
+  const occupiedEdges = new Set<string>();
+  const protectedEdges = new Set<string>();
+  const solidWallEdges = new Set<string>();
+
+  for (let x = minX; x <= maxX; x++) {
+    occupiedEdges.add(canonicalWallEdgeKey(x, minZ, 0));
+    occupiedEdges.add(canonicalWallEdgeKey(x, maxZ, 2));
+  }
+  for (let z = minZ; z <= maxZ; z++) {
+    occupiedEdges.add(canonicalWallEdgeKey(minX, z, 3));
+    occupiedEdges.add(canonicalWallEdgeKey(maxX, z, 1));
+  }
+
+  // Keep North double-door vestibule open (tiles (7..8, 4..5))
+  protectedEdges.add(canonicalWallEdgeKey(7, 4, 1));
+  protectedEdges.add(canonicalWallEdgeKey(7, 4, 2));
+  protectedEdges.add(canonicalWallEdgeKey(8, 4, 2));
+  protectedEdges.add(canonicalWallEdgeKey(7, 5, 1));
+
+  // Protect edges inside bathroom & between coffee counter and its front approach tiles
+  const stepDelta: Record<RotationQuarter, [number, number]> = {
+    0: [0, -1],
+    1: [1, 0],
+    2: [0, 1],
+    3: [-1, 0],
+  };
+
+  for (const [bx, bz] of bathCorner.bathTiles) {
+    for (const rot of [0, 1, 2, 3] as RotationQuarter[]) {
+      const [dx, dz] = stepDelta[rot];
+      if (bathTileSet.has(tileKey(bx + dx, bz + dz))) {
+        protectedEdges.add(canonicalWallEdgeKey(bx, bz, rot));
+      }
+    }
+  }
+  for (const [cx, cz] of coffeeCorner.coffeeCounter.tiles) {
+    for (const rot of [0, 1, 2, 3] as RotationQuarter[]) {
+      const [dx, dz] = stepDelta[rot];
+      const nk = tileKey(cx + dx, cz + dz);
+      if (coffeeTileSet.has(nk) || coffeeApproachSet.has(nk)) {
+        protectedEdges.add(canonicalWallEdgeKey(cx, cz, rot));
+      }
+    }
+  }
+
+  // Place partitioned 2x2 walkable bathroom with randomly chosen door face
+  const doorCandidates = bathCorner.bathWalls.filter((w) => w.isDoorCandidate);
+  const chosenBathDoor = doorCandidates[Math.floor(Math.random() * doorCandidates.length)];
+  const [bdx, bdz] = stepDelta[chosenBathDoor.rot];
+  const bathDoorOutside: [number, number] = [chosenBathDoor.x + bdx, chosenBathDoor.z + bdz];
+
+  for (const w of bathCorner.bathWalls) {
+    const key = canonicalWallEdgeKey(w.x, w.z, w.rot);
+    occupiedEdges.add(key);
+    if (w === chosenBathDoor) {
+      b.place('door_wood', w.x, w.z, w.rot, 'honey');
+    } else {
+      b.place('wall_plain', w.x, w.z, w.rot, 'cream');
+      solidWallEdges.add(key);
+    }
+  }
+  b.place('toilet_cozy', bathCorner.toilet.x, bathCorner.toilet.z, bathCorner.toilet.rot, 'porcelain');
+  b.place('bathroom_sink', bathCorner.sink.x, bathCorner.sink.z, bathCorner.sink.rot, 'oak');
+  b.place('bath_mat', bathCorner.bathMat.x, bathCorner.bathMat.z, 0, 'cream');
+  const towelHostWall =
+    bathCorner.towelWallSide === 'north'
+      ? b.northWalls.get(bathCorner.towelWallX)
+      : b.southWalls.get(bathCorner.towelWallX);
+  b.mountWall(towelHostWall, 'towel_rack', 'peach_cream');
+
+  // Place surreal lone coffee corner in a different corner
+  const counterUid = b.place(
+    'cafe_counter',
+    coffeeCorner.coffeeCounter.x,
+    coffeeCorner.coffeeCounter.z,
+    coffeeCorner.coffeeCounter.rot,
+    'latte',
+  );
+  const espressoUid = b.placeSurface(
+    counterUid,
+    'espresso_machine',
+    coffeeCorner.espressoPos.x,
+    coffeeCorner.espressoPos.z,
+    coffeeCorner.coffeeCounter.rot,
+    'cream',
+    true,
+  );
+  b.placeSurface(
+    counterUid,
+    'cup_stack',
+    coffeeCorner.cupPos.x,
+    coffeeCorner.cupPos.z,
+    coffeeCorner.coffeeCounter.rot,
+    'cream',
+  );
+
+  // Generate random asymmetrical Level 0 interior corridor partitions, stubs, and archways
+  interface InteriorEdgeSpec {
+    key: string;
+    x: number;
+    z: number;
+    rot: RotationQuarter;
+    kind: 'wall' | 'arch';
+  }
+  const interiorEdges = new Map<string, InteriorEdgeSpec>();
+
+  const tryAddInteriorEdge = (
+    x: number,
+    z: number,
+    rot: RotationQuarter,
+    kind: 'wall' | 'arch',
+  ): boolean => {
+    const [dx, dz] = stepDelta[rot];
+    const nx = x + dx;
+    const nz = z + dz;
+    if (
+      x < minX ||
+      x > maxX ||
+      z < minZ ||
+      z > maxZ ||
+      nx < minX ||
+      nx > maxX ||
+      nz < minZ ||
+      nz > maxZ
+    ) {
+      return false;
+    }
+    const key = canonicalWallEdgeKey(x, z, rot);
+    if (occupiedEdges.has(key) || protectedEdges.has(key)) {
+      return false;
+    }
+    occupiedEdges.add(key);
+    interiorEdges.set(key, { key, x, z, rot, kind });
+    if (kind === 'wall') {
+      solidWallEdges.add(key);
+    }
+    return true;
+  };
+
+  // 5..8 asymmetrical corridor partition runs (length 2..4)
+  const runCount = randInt(5, 8);
+  for (let r = 0; r < runCount; r++) {
+    const horizontal = Math.random() < 0.52;
+    const len = randInt(2, 4);
+    if (horizontal) {
+      const z = randInt(minZ, maxZ - 1); // South edge of row z separates row z and row z+1
+      const startX = randInt(minX, maxX - len + 1);
+      const archIdx = Math.random() < 0.55 ? randInt(0, len - 1) : -1;
+      for (let i = 0; i < len; i++) {
+        tryAddInteriorEdge(startX + i, z, 2, i === archIdx ? 'arch' : 'wall');
+      }
+    } else {
+      const x = randInt(minX, maxX - 1); // East edge of col x separates col x and col x+1
+      const startZ = randInt(minZ, maxZ - len + 1);
+      const archIdx = Math.random() < 0.55 ? randInt(0, len - 1) : -1;
+      for (let i = 0; i < len; i++) {
+        tryAddInteriorEdge(x, startZ + i, 1, i === archIdx ? 'arch' : 'wall');
+      }
+    }
+  }
+
+  // 3..5 unexpected 1-tile liminal stub dividers protruding into hallways
+  const stubCount = randInt(3, 5);
+  for (let s = 0; s < stubCount; s++) {
+    const horizontal = Math.random() < 0.5;
+    if (horizontal) {
+      tryAddInteriorEdge(randInt(minX, maxX), randInt(minZ, maxZ - 1), 2, 'wall');
+    } else {
+      tryAddInteriorEdge(randInt(minX, maxX - 1), randInt(minZ, maxZ), 1, 'wall');
+    }
+  }
+
+  // Solid floor obstacles (toilet, sink, coffee counter)
+  const blockedFloorTiles = new Set<string>([
+    tileKey(bathCorner.toilet.x, bathCorner.toilet.z),
+    tileKey(bathCorner.sink.x, bathCorner.sink.z),
+    ...coffeeCorner.coffeeCounter.tiles.map(([x, z]) => tileKey(x, z)),
+  ]);
+
+  const computeReachable = (extraBlocked?: Set<string>): Set<string> => {
+    const startKey = tileKey(7, 4);
+    const visited = new Set<string>([startKey]);
+    const queue: Array<[number, number]> = [[7, 4]];
+    while (queue.length > 0) {
+      const [cx, cz] = queue.shift()!;
+      for (const rot of [0, 1, 2, 3] as RotationQuarter[]) {
+        const [dx, dz] = stepDelta[rot];
+        const nx = cx + dx;
+        const nz = cz + dz;
+        if (nx < minX || nx > maxX || nz < minZ || nz > maxZ) continue;
+        const nk = tileKey(nx, nz);
+        if (visited.has(nk) || blockedFloorTiles.has(nk) || extraBlocked?.has(nk)) continue;
+        const edgeKey = canonicalWallEdgeKey(cx, cz, rot);
+        if (solidWallEdges.has(edgeKey)) continue;
+        visited.add(nk);
+        queue.push([nx, nz]);
+      }
+    }
+    return visited;
+  };
+
+  // Inline BFS connectivity guarantee: punch a wall_arch through any interior wall sealing off
+  // the bathroom, coffee corner, or any isolated pocket of the maze.
+  for (let guard = 0; guard < 40; guard++) {
+    const reachable = computeReachable();
+    let sealedEdgeKey: string | null = null;
+
+    // Prioritize breaking walls separating reachable tiles from unreachable tiles
+    const candidates = shuffle(Array.from(interiorEdges.values()).filter((e) => e.kind === 'wall'));
+    for (const edge of candidates) {
+      const [dx, dz] = stepDelta[edge.rot];
+      const k1 = tileKey(edge.x, edge.z);
+      const k2 = tileKey(edge.x + dx, edge.z + dz);
+      if (blockedFloorTiles.has(k1) || blockedFloorTiles.has(k2)) continue;
+      if (reachable.has(k1) !== reachable.has(k2)) {
+        sealedEdgeKey = edge.key;
+        break;
+      }
+    }
+
+    if (!sealedEdgeKey) break;
+    const edgeSpec = interiorEdges.get(sealedEdgeKey)!;
+    edgeSpec.kind = 'arch';
+    solidWallEdges.delete(sealedEdgeKey);
+  }
+
+  // Emit finalized interior partition walls & archways
+  const solidInteriorWallUids: string[] = [];
+  for (const edge of interiorEdges.values()) {
+    if (edge.kind === 'arch') {
+      b.place('wall_arch', edge.x, edge.z, edge.rot, 'plaster');
+    } else {
+      const uid = b.place(wallStyleChoice, edge.x, edge.z, edge.rot, wallVariantChoice);
+      solidInteriorWallUids.push(uid);
+    }
+  }
+
+  // Mount 1..2 eerie mustard wall clocks on solid interior partitions
+  const clockWalls = shuffle(solidInteriorWallUids).slice(0, randInt(1, 2));
+  for (const clockWallUid of clockWalls) {
+    b.mountWall(clockWallUid, 'wall_clock', 'mustard');
+  }
+
+  // Required tiles that must stay reachable and unblocked when scattering solitary liminal props
+  const reservedPropTiles = new Set<string>([
+    ...blockedFloorTiles,
+    ...bathTileSet,
+    ...coffeeApproachSet,
+    tileKey(7, 4),
+    tileKey(8, 4),
+    tileKey(7, 5),
+    tileKey(8, 5),
+    tileKey(bathDoorOutside[0], bathDoorOutside[1]),
+  ]);
+
+  const requiredReachableKeys = [
+    tileKey(8, 4),
+    tileKey(bathDoorOutside[0], bathDoorOutside[1]),
+    tileKey(bathCorner.bathEntry.x, bathCorner.bathEntry.z),
+    tileKey(bathCorner.bathMat.x, bathCorner.bathMat.z),
+    ...coffeeCorner.coffeeApproach.map(([x, z]) => tileKey(x, z)),
+  ];
+
+  const isEdgeBlocked = (x: number, z: number, rot: RotationQuarter): boolean => {
+    const [dx, dz] = stepDelta[rot];
+    const nx = x + dx;
+    const nz = z + dz;
+    if (nx < minX || nx > maxX || nz < minZ || nz > maxZ) return true;
+    return solidWallEdges.has(canonicalWallEdgeKey(x, z, rot));
+  };
+
+  const openTiles: Array<{ x: number; z: number; adjacentWalls: RotationQuarter[] }> = [];
+  for (let x = minX; x <= maxX; x++) {
+    for (let z = minZ; z <= maxZ; z++) {
+      if (reservedPropTiles.has(tileKey(x, z))) continue;
+      const adjacentWalls = ([0, 1, 2, 3] as RotationQuarter[]).filter((rot) =>
+        isEdgeBlocked(x, z, rot),
+      );
+      openTiles.push({ x, z, adjacentWalls });
+    }
+  }
+
+  const pickSafePropTile = (
+    preferDeadEnd: boolean,
+  ): { x: number; z: number; adjacentWalls: RotationQuarter[] } | null => {
+    const ordered = shuffle(openTiles).sort((a, bTile) =>
+      preferDeadEnd ? bTile.adjacentWalls.length - a.adjacentWalls.length : 0,
+    );
+    for (const cand of ordered) {
+      const k = tileKey(cand.x, cand.z);
+      if (blockedFloorTiles.has(k) || reservedPropTiles.has(k)) continue;
+      const testReach = computeReachable(new Set([k]));
+      if (requiredReachableKeys.every((req) => testReach.has(req))) {
+        blockedFloorTiles.add(k);
+        reservedPropTiles.add(k);
+        return cand;
+      }
+    }
+    return null;
+  };
+
+  // Scatter solitary eerie liminal furniture in dead-ends & alcoves
+  const chairSpot = pickSafePropTile(true);
+  if (chairSpot) {
+    // Awkwardly face a nearby wall/corner
+    const wallRot = chairSpot.adjacentWalls[0] ?? (randInt(0, 3) as RotationQuarter);
+    const faceWallRot = (((wallRot + 2) % 4) as RotationQuarter);
+    b.place('chair_office', chairSpot.x, chairSpot.z, faceWallRot, 'oat');
+  }
+
+  const lampSpot = pickSafePropTile(true);
+  if (lampSpot) {
+    b.place('lamp_floor_arc', lampSpot.x, lampSpot.z, randInt(0, 3) as RotationQuarter, 'brass', true);
+  }
+
+  const armchairSpot = pickSafePropTile(false);
+  if (armchairSpot) {
+    b.place('armchair_plush', armchairSpot.x, armchairSpot.z, randInt(0, 3) as RotationQuarter, 'ochre');
+  }
+
+  // Optional damp oat runner along a random open 3-tile corridor outside the bathroom
+  const runnerCandidates: Array<{ x: number; z: number; rot: RotationQuarter }> = [];
+  for (let x = minX; x <= maxX; x++) {
+    for (let z = minZ; z <= maxZ - 2; z++) {
+      if (
+        !bathTileSet.has(tileKey(x, z)) &&
+        !bathTileSet.has(tileKey(x, z + 1)) &&
+        !bathTileSet.has(tileKey(x, z + 2)) &&
+        !solidWallEdges.has(canonicalWallEdgeKey(x, z, 2)) &&
+        !solidWallEdges.has(canonicalWallEdgeKey(x, z + 1, 2))
+      ) {
+        runnerCandidates.push({ x, z, rot: 0 });
+      }
+    }
+  }
+  if (runnerCandidates.length > 0) {
+    const runner = runnerCandidates[Math.floor(Math.random() * runnerCandidates.length)];
+    b.place('rug_runner', runner.x, runner.z, runner.rot, 'oat');
+  }
+
+  // Irregular overhead pale fluorescent-style pendant lamps
+  const ceilingUsed = new Set<string>();
+  const addCeilingLight = (x: number, z: number) => {
+    const k = tileKey(x, z);
+    if (ceilingUsed.has(k)) return;
+    ceilingUsed.add(k);
+    b.placeCeiling('lamp_pendant', x, z, 0, 'rice', true);
+  };
+  addCeilingLight(bathCorner.bathEntry.x, bathCorner.bathEntry.z);
+  addCeilingLight(coffeeCorner.coffeeApproach[0][0], coffeeCorner.coffeeApproach[0][1]);
+  const lightCells = shuffle(
+    Array.from({ length: (maxX - minX + 1) * (maxZ - minZ + 1) }, (_, idx) => {
+      const w = maxX - minX + 1;
+      return [minX + (idx % w), minZ + Math.floor(idx / w)] as [number, number];
+    }),
+  );
+  let extraLights = randInt(4, 6);
+  for (const [lx, lz] of lightCells) {
+    if (extraLights <= 0) break;
+    // Keep a pleasant irregular spacing (>= 2 tiles apart)
+    let tooClose = false;
+    for (const used of ceilingUsed) {
+      const [ux, uz] = used.split(',').map(Number);
+      if (Math.hypot(ux - lx, uz - lz) < 2.2) {
+        tooClose = true;
+        break;
+      }
+    }
+    if (!tooClose) {
+      addCeilingLight(lx, lz);
+      extraLights -= 1;
+    }
+  }
+
+  return b.buildState(preset, [
+    makePresetStaff('staff_backrooms_barista', 'barista', espressoUid, 0),
+  ]);
+}
+
 export function createPresetHouse(presetId: string, data: GameDataBundle): HouseState {
   const preset = HOUSE_PRESETS.find((p) => p.id === presetId) ?? HOUSE_PRESETS[0];
 
@@ -747,6 +1282,8 @@ export function createPresetHouse(presetId: string, data: GameDataBundle): House
       return buildBeachLoftPreset(preset, data);
     case 'mountain_cabin':
       return buildMountainCabinPreset(preset, data);
+    case 'backrooms_level0':
+      return buildBackroomsPreset(preset, data);
     case 'cafe':
     default: {
       const starter = createStarterHouse(data);

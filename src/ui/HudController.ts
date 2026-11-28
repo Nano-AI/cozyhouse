@@ -67,10 +67,51 @@ type StaffPositionStore = HouseStore & {
 /** Input the game must not see during a cutscene (pointerup/cancel pass, so no drag gets stuck). */
 const CINEMA_BLOCKED_EVENTS = ['pointerdown', 'pointermove', 'click', 'dblclick', 'contextmenu', 'wheel', 'keydown', 'keyup'] as const;
 
+type HudCameraViewMode = 'isometric' | 'visitor_pov' | 'angel_pov';
+interface HudPovPose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  seated?: boolean;
+  bobPhase?: number;
+  speed?: number;
+}
+interface HudPovCandidate {
+  id: string;
+  name: string;
+  kind: 'visitor' | 'staff';
+  icon: string;
+  color: string;
+  isSpecial?: boolean;
+  visitorId?: string;
+  variantIndex?: number;
+}
+type PovSceneManager = SceneManager & {
+  getCameraViewMode?: () => HudCameraViewMode;
+  getPovTargetId?: () => string | null;
+  enterVisitorPov?: (
+    targetId: string,
+    poseProvider: () => HudPovPose | null,
+    onExit?: () => void,
+  ) => void;
+  enterAngelPov?: () => void;
+  exitPovMode?: () => void;
+  onCameraViewModeChange?: (
+    cb: (mode: HudCameraViewMode, targetId: string | null) => void,
+  ) => () => void;
+};
+type PovVisitorModule = VisitorModule & {
+  getPovPoseForPerson?: (id: string) => HudPovPose | null;
+  setPovHiddenPerson?: (id: string | null) => void;
+  getPovCandidates?: () => HudPovCandidate[];
+};
+
 type PopoverKind =
   | 'room'
   | 'atmosphere'
   | 'walls'
+  | 'view'
   | 'visitors'
   | 'help'
   | 'menu'
@@ -558,6 +599,7 @@ export class HudController {
   private catalogRenderGen = 0;
   private previewObserver: IntersectionObserver | null = null;
   private unsubscribes: Array<() => void> = [];
+  private tutorialCleanup: (() => void) | null = null;
 
   // Location, caption & cooldown timers
   private locSwapTimer: number | null = null;
@@ -580,11 +622,15 @@ export class HudController {
 
   private liveModeBtnEl!: HTMLButtonElement;
   private buildModeBtnEl!: HTMLButtonElement;
+  private modeSwitchEl!: HTMLDivElement;
   private undoRedoGroupEl!: HTMLDivElement;
   private undoBtn!: HTMLButtonElement;
   private redoBtn!: HTMLButtonElement;
   private wallViewBtnEl!: HTMLButtonElement;
   private wallViewIconSlotEl!: HTMLSpanElement;
+  private viewBtnEl!: HTMLButtonElement;
+  private viewIconSlotEl!: HTMLSpanElement;
+  private povBannerEl!: HTMLDivElement;
   private cinematicBtnEl!: HTMLButtonElement;
   private cinematicExitBtnEl!: HTMLButtonElement;
 
@@ -635,6 +681,7 @@ export class HudController {
   private roomPopoverEl!: HTMLDivElement;
   private atmospherePopoverEl!: HTMLDivElement;
   private wallsPopoverEl!: HTMLDivElement;
+  private viewPopoverEl!: HTMLDivElement;
   private visitorsPopoverEl!: HTMLDivElement;
   private helpPopoverEl!: HTMLDivElement;
   private menuPopoverEl!: HTMLDivElement;
@@ -867,6 +914,11 @@ export class HudController {
         if (this.activePopover === 'visitors') this.renderVisitorsPopover();
         if (this.activePopover === 'cheats') this.renderCheatsPopover();
       }),
+      this.store.on('chaosModeChanged', () => {
+        if (this.activePopover === 'menu') this.renderMenuPopover();
+        if (this.activePopover === 'visitors') this.renderVisitorsPopover();
+        if (this.activePopover === 'cheats') this.renderCheatsPopover();
+      }),
       this.store.on('toast', ({ message, tone }) => this.showToast(message, tone)),
     );
 
@@ -877,6 +929,12 @@ export class HudController {
           this.visitorModule.onStaffChange(() => {
             if (this.activePopover === 'visitors') {
               this.renderVisitorsPopover();
+            }
+            if (this.activePopover === 'view') {
+              this.renderViewPopover();
+            }
+            if (this.getCameraViewMode() === 'visitor_pov') {
+              this.renderPovBanner();
             }
           }),
         );
@@ -913,6 +971,26 @@ export class HudController {
         this.sceneManager.onShaderChange(() => this.syncShaderButtonsLive()),
       );
     }
+    // After a cutscene pulled the player out of POV, put them back (silently skip if that guest left)
+    this.sceneManager.onPovRestore = (mode, targetId) => {
+      if (mode === 'angel_pov') this.enterAngelPovMode();
+      else if (targetId && this.visitorModule?.getPovPoseForPerson(targetId)) this.enterPersonPovMode(targetId);
+    };
+    const povSm = this.sceneManager as PovSceneManager;
+    if (povSm.onCameraViewModeChange) {
+      this.unsubscribes.push(
+        povSm.onCameraViewModeChange((mode) => {
+          if (mode !== 'visitor_pov') {
+            (this.visitorModule as PovVisitorModule | undefined)?.setPovHiddenPerson?.(null);
+          }
+          this.syncViewButton();
+          this.renderPovBanner();
+          if (this.activePopover === 'view') {
+            this.renderViewPopover();
+          }
+        }),
+      );
+    }
 
     const onDocPointerDown = (event: PointerEvent) => {
       if (!this.activePopover) return;
@@ -922,6 +1000,7 @@ export class HudController {
         this.roomPopoverEl,
         this.atmospherePopoverEl,
         this.wallsPopoverEl,
+        this.viewPopoverEl,
         this.visitorsPopoverEl,
         this.helpPopoverEl,
         this.menuPopoverEl,
@@ -930,6 +1009,7 @@ export class HudController {
         this.roomBtnEl,
         this.atmosphereBtnEl,
         this.wallViewBtnEl,
+        this.viewBtnEl,
         this.visitorsBtnEl,
         this.helpBtnEl,
         this.menuBtnEl,
@@ -945,6 +1025,10 @@ export class HudController {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (this.getCameraViewMode() !== 'isometric') {
+          this.exitPovModeCleanly();
+          return;
+        }
         const scriptedVm = this.visitorModule as SpecialVisitorModule | undefined;
         if (scriptedVm?.isMonologueActive?.()) {
           scriptedVm.skipActiveMonologue?.();
@@ -1018,7 +1102,8 @@ export class HudController {
         if (
           this.store.isEditMode() ||
           this.polaroidModal.isOpen() ||
-          this.sceneManager.isoCamera.isCinematicMode()
+          this.sceneManager.isoCamera.isCinematicMode() ||
+          this.getCameraViewMode() !== 'isometric'
         ) {
           return;
         }
@@ -1071,6 +1156,8 @@ export class HudController {
   }
 
   dispose(): void {
+    this.tutorialCleanup?.();
+    this.tutorialCleanup = null;
     this.cancelMovingStaff();
     this.clearSelectedVisitor();
     this.clearLocationTimers();
@@ -1246,9 +1333,18 @@ export class HudController {
     const firstBtn = addChoice('New House', 'An empty room to build from scratch', 'room_home', () => this.startNewHouseWithTransition(), true);
     for (const preset of HOUSE_PRESETS) {
       const view = this.store.data.viewsById.get(preset.sceneryViewId);
-      addChoice(preset.name, view ? `Furnished · ${view.name}` : 'Furnished', getRoomStorybookIconName(preset.icon), () =>
-        this.switchPresetWithTransition(preset.id),
+      const isBackrooms =
+        preset.sceneryViewId === 'backrooms' || preset.id === 'backrooms_level0';
+      const choiceBtn = addChoice(
+        preset.name,
+        view ? `Furnished · ${view.name}` : 'Furnished',
+        getRoomStorybookIconName(preset.icon),
+        () => this.switchPresetWithTransition(preset.id),
       );
+      if (isBackrooms) {
+        choiceBtn.classList.add('is-backrooms');
+        choiceBtn.title = 'Level 0 · Something arrives when 5+ guests gather';
+      }
     }
 
     const close = document.createElement('button');
@@ -1265,6 +1361,359 @@ export class HudController {
     window.addEventListener('keydown', onKey, true);
     this.root.appendChild(backdrop);
     firstBtn.focus();
+  }
+
+  isTutorialActive(): boolean {
+    return this.tutorialCleanup !== null;
+  }
+
+  startTutorial(onFinish?: () => void): void {
+    this.tutorialCleanup?.();
+
+    // Ensure a clean Live-mode isometric view so every top-bar & bottom HUD target is visible
+    if (this.getCameraViewMode() !== 'isometric') {
+      this.exitPovModeCleanly();
+    }
+    if (this.sceneManager.isoCamera.isCinematicMode()) {
+      this.setCinematicMode(false);
+    }
+    this.setActivePopover(null);
+    this.clearSelectedVisitor();
+    if (this.store.isEditMode()) {
+      this.store.setEditMode(false);
+    }
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    interface TutorialStep {
+      icon: StorybookIconName;
+      title: string;
+      bodyHtml: string;
+      getTargets: () => Array<HTMLElement | null | undefined>;
+      preferredAnchor?: 'below' | 'above';
+    }
+
+    const steps: TutorialStep[] = [
+      {
+        icon: 'room_home',
+        title: 'Live & Build Modes',
+        bodyHtml:
+          'Switch between <strong>Live</strong> (watch guests hang out &amp; interact with items) and <strong>Build</strong> (place walls, floors, and 150+ cozy items).',
+        getTargets: () => [this.modeSwitchEl],
+      },
+      {
+        icon: 'time_day',
+        title: 'Atmosphere & Audio',
+        bodyHtml:
+          'Pick your <strong>Scenery</strong> (Suburbs, City, Beach, Backrooms…), <strong>Weather</strong>, <strong>Time of Day</strong>, <strong>Shaders</strong>, and <strong>Music / Weather / Chat</strong> volume.',
+        getTargets: () => [this.atmosphereBtnEl],
+      },
+      {
+        icon: 'camera_pov',
+        title: 'Walls & Camera POV',
+        bodyHtml:
+          'Dial <strong>Wall Opacity</strong> &amp; cutaway mode, or open <strong>Camera View</strong> to see through any guest’s <strong>POV</strong> or fly around in <strong>Angel’s POV</strong>.',
+        getTargets: () => [this.wallViewBtnEl, this.viewBtnEl],
+      },
+      {
+        icon: 'staff_bot',
+        title: 'Visitors, Staff & Door Policy',
+        bodyHtml:
+          'Manage <strong>Guests</strong>, hire <strong>Cozy Bots</strong> or human staff, track rare visitors in the <strong>Log Book</strong>, and set your door to <strong>Open / Full / Closed</strong>.',
+        getTargets: () => [this.houseOpenBtnEl, this.visitorsBtnEl],
+      },
+      {
+        icon: 'time_running',
+        title: 'Sim Speed & Controls',
+        bodyHtml:
+          'Pause or speed up life (<code>1×</code>–<code>5×</code>), drag to pan, scroll to zoom, and press <strong>Q / E</strong> to rotate. Open <strong>(i)</strong> anytime for shortcuts or to replay this tour.',
+        getTargets: () => [this.simSpeedPillEl, this.helpBtnEl],
+        preferredAnchor: 'above',
+      },
+      {
+        icon: 'polaroid',
+        title: 'Presets, Menu & Sharing',
+        bodyHtml:
+          'Try handcrafted <strong>House Presets</strong>, snap a <strong>Polaroid Card</strong>, copy a share link, or save <code>.house</code> files. Make yourself at home!',
+        getTargets: () => [this.menuBtnEl],
+      },
+    ];
+
+    const layer = document.createElement('div');
+    layer.className = 'tutorial-layer';
+    layer.setAttribute('role', 'dialog');
+    layer.setAttribute('aria-modal', 'true');
+    layer.setAttribute('aria-label', 'Cozyhouse quick tour');
+
+    const scrim = document.createElement('div');
+    scrim.className = 'tutorial-scrim';
+    layer.appendChild(scrim);
+
+    const spotlightsHost = document.createElement('div');
+    spotlightsHost.className = 'tutorial-spotlights';
+    spotlightsHost.setAttribute('aria-hidden', 'true');
+    layer.appendChild(spotlightsHost);
+
+    const card = document.createElement('div');
+    card.className = 'tutorial-card';
+    layer.appendChild(card);
+
+    let stepIdx = 0;
+    let closed = false;
+
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('resize', reposition);
+      layer.remove();
+      if (this.tutorialCleanup === cleanup) {
+        this.tutorialCleanup = null;
+      }
+      previouslyFocused?.focus?.();
+    };
+    this.tutorialCleanup = cleanup;
+
+    const completeTour = () => {
+      try {
+        localStorage.setItem('cozyhouse:tutorialDone', '1');
+      } catch {
+        // Ignore storage restrictions
+      }
+      cleanup();
+      onFinish?.();
+    };
+
+    const computeHighlightRects = (
+      els: Array<HTMLElement | null | undefined>,
+    ): { rings: DOMRect[]; anchor: DOMRect | null } => {
+      const valid: DOMRect[] = [];
+      for (const el of els) {
+        if (!el || !el.isConnected) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          valid.push(r);
+        }
+      }
+      if (valid.length === 0) {
+        return { rings: [], anchor: null };
+      }
+      if (valid.length === 1) {
+        return { rings: valid, anchor: valid[0] };
+      }
+      // Merge adjacent targets (e.g. Walls + View, Door + Visitors) into one clean union ring;
+      // keep distant targets (e.g. bottom-right Sim Speed + top-right Info) as crisp dual rings!
+      const minLeft = Math.min(...valid.map((r) => r.left));
+      const minTop = Math.min(...valid.map((r) => r.top));
+      const maxRight = Math.max(...valid.map((r) => r.right));
+      const maxBottom = Math.max(...valid.map((r) => r.bottom));
+      const verticalSpan = maxBottom - minTop;
+      const horizontalSpan = maxRight - minLeft;
+      if (verticalSpan <= 72 && horizontalSpan <= 360) {
+        const union = new DOMRect(minLeft, minTop, maxRight - minLeft, maxBottom - minTop);
+        return { rings: [union], anchor: union };
+      }
+      return { rings: valid, anchor: valid[0] };
+    };
+
+    const reposition = () => {
+      if (closed) return;
+      const step = steps[stepIdx];
+      const { rings, anchor } = computeHighlightRects(step.getTargets());
+
+      spotlightsHost.innerHTML = '';
+      const pad = 6;
+      for (const rect of rings) {
+        const ring = document.createElement('div');
+        ring.className = 'tutorial-spotlight';
+        ring.style.left = `${Math.round(rect.left - pad)}px`;
+        ring.style.top = `${Math.round(rect.top - pad)}px`;
+        ring.style.width = `${Math.round(rect.width + pad * 2)}px`;
+        ring.style.height = `${Math.round(rect.height + pad * 2)}px`;
+        spotlightsHost.appendChild(ring);
+      }
+
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const margin = 14;
+      const gap = 14;
+      const measured = card.getBoundingClientRect();
+      const cardW = measured.width > 0 ? measured.width : Math.min(332, vw - margin * 2);
+      const cardH = measured.height > 0 ? measured.height : 206;
+
+      let left: number;
+      let top: number;
+      if (!anchor) {
+        left = (vw - cardW) / 2;
+        top = (vh - cardH) / 2;
+      } else {
+        left = anchor.left + anchor.width / 2 - cardW / 2;
+        const belowTop = anchor.bottom + pad + gap;
+        const aboveTop = anchor.top - pad - gap - cardH;
+        if (step.preferredAnchor === 'above') {
+          top = aboveTop >= margin ? aboveTop : belowTop;
+        } else {
+          top = belowTop + cardH <= vh - margin ? belowTop : aboveTop;
+        }
+      }
+
+      left = Math.max(margin, Math.min(vw - cardW - margin, left));
+      top = Math.max(margin, Math.min(vh - cardH - margin, top));
+      card.style.left = `${Math.round(left)}px`;
+      card.style.top = `${Math.round(top)}px`;
+    };
+
+    const renderStep = () => {
+      const step = steps[stepIdx];
+      const isFirst = stepIdx === 0;
+      const isLast = stepIdx === steps.length - 1;
+
+      card.innerHTML = '';
+
+      const head = document.createElement('div');
+      head.className = 'tutorial-card-head';
+
+      const titleGroup = document.createElement('div');
+      titleGroup.className = 'tutorial-title-group';
+      titleGroup.appendChild(createStorybookIconEl(step.icon, 24));
+      const h3 = document.createElement('h3');
+      h3.className = 'tutorial-title';
+      h3.textContent = step.title;
+      titleGroup.appendChild(h3);
+
+      const stepPill = document.createElement('span');
+      stepPill.className = 'tutorial-step-pill tabular-num';
+      stepPill.textContent = `${stepIdx + 1} / ${steps.length}`;
+
+      head.append(titleGroup, stepPill);
+
+      const body = document.createElement('p');
+      body.className = 'tutorial-body';
+      body.innerHTML = step.bodyHtml;
+
+      const dots = document.createElement('div');
+      dots.className = 'tutorial-dots';
+      dots.setAttribute('aria-label', `Step ${stepIdx + 1} of ${steps.length}`);
+      steps.forEach((s, i) => {
+        const dot = document.createElement('button');
+        dot.type = 'button';
+        dot.className =
+          i === stepIdx
+            ? 'tutorial-dot active'
+            : i < stepIdx
+              ? 'tutorial-dot done'
+              : 'tutorial-dot';
+        dot.setAttribute('aria-label', `Go to step ${i + 1}: ${s.title}`);
+        dot.addEventListener('click', () => {
+          if (i === stepIdx) return;
+          this.audioModule?.playUiClick();
+          stepIdx = i;
+          renderStep();
+        });
+        dots.appendChild(dot);
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'tutorial-actions';
+
+      const skipBtn = document.createElement('button');
+      skipBtn.type = 'button';
+      skipBtn.className = 'btn ghost btn-xs tutorial-skip-btn';
+      skipBtn.textContent = 'Skip';
+      skipBtn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        completeTour();
+      });
+
+      const navGroup = document.createElement('div');
+      navGroup.className = 'tutorial-nav-group';
+
+      if (!isFirst) {
+        const backBtn = document.createElement('button');
+        backBtn.type = 'button';
+        backBtn.className = 'btn btn-xs';
+        backBtn.textContent = 'Back';
+        backBtn.addEventListener('click', () => {
+          this.audioModule?.playUiClick();
+          stepIdx = Math.max(0, stepIdx - 1);
+          renderStep();
+        });
+        navGroup.appendChild(backBtn);
+      }
+
+      const nextBtn = document.createElement('button');
+      nextBtn.type = 'button';
+      nextBtn.className = 'btn primary btn-xs tutorial-next-btn';
+      nextBtn.textContent = isLast ? 'Let’s Play!' : 'Next →';
+      nextBtn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        if (isLast) {
+          completeTour();
+        } else {
+          stepIdx += 1;
+          renderStep();
+        }
+      });
+      navGroup.appendChild(nextBtn);
+
+      actions.append(skipBtn, navGroup);
+      card.append(head, body, dots, actions);
+
+      reposition();
+      window.requestAnimationFrame(reposition);
+      nextBtn.focus();
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (closed) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.audioModule?.playUiClick();
+        completeTour();
+        return;
+      }
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.audioModule?.playUiClick();
+        if (stepIdx >= steps.length - 1) {
+          completeTour();
+        } else {
+          stepIdx += 1;
+          renderStep();
+        }
+        return;
+      }
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (stepIdx > 0) {
+          this.audioModule?.playUiClick();
+          stepIdx -= 1;
+          renderStep();
+        }
+        return;
+      }
+      if (event.key === 'Enter') {
+        const activeTag = (document.activeElement as HTMLElement | null)?.tagName;
+        if (activeTag === 'BUTTON') return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.audioModule?.playUiClick();
+        if (stepIdx >= steps.length - 1) {
+          completeTour();
+        } else {
+          stepIdx += 1;
+          renderStep();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('resize', reposition);
+    this.root.appendChild(layer);
+    renderStep();
   }
 
   private switchPresetWithTransition(presetId: string): void {
@@ -1302,6 +1751,9 @@ export class HudController {
     }
     if (this.activePopover === 'walls') {
       this.positionWallsPopover();
+    }
+    if (this.activePopover === 'view') {
+      this.positionViewPopover();
     }
   }
 
@@ -1395,6 +1847,7 @@ export class HudController {
     modeSwitch.className = 'mode-switch';
     modeSwitch.setAttribute('role', 'group');
     modeSwitch.setAttribute('aria-label', 'Game mode');
+    this.modeSwitchEl = modeSwitch;
 
     this.liveModeBtnEl = document.createElement('button');
     this.liveModeBtnEl.type = 'button';
@@ -1552,6 +2005,27 @@ export class HudController {
       this.togglePopover('walls');
     });
 
+    this.viewBtnEl = document.createElement('button');
+    this.viewBtnEl.type = 'button';
+    this.viewBtnEl.className = 'icon-btn view-pov-btn has-caret';
+    this.viewBtnEl.dataset.tooltip = 'Camera View · View from a guest or Angel’s POV';
+    this.viewBtnEl.setAttribute('aria-label', 'Camera View — View from a guest or Angel’s POV');
+    this.viewBtnEl.setAttribute('aria-haspopup', 'dialog');
+    this.viewBtnEl.setAttribute('aria-expanded', 'false');
+    this.viewIconSlotEl = document.createElement('span');
+    this.viewIconSlotEl.className = 'wall-icon-slot';
+    this.viewIconSlotEl.appendChild(createStorybookIconEl('camera_pov', 22));
+    this.viewIconSlotEl.dataset.icon = 'camera_pov';
+    const viewCaret = document.createElement('span');
+    viewCaret.className = 'btn-caret';
+    viewCaret.textContent = '▾';
+    viewCaret.setAttribute('aria-hidden', 'true');
+    this.viewBtnEl.append(this.viewIconSlotEl, viewCaret);
+    this.viewBtnEl.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.togglePopover('view');
+    });
+
     this.cinematicBtnEl = this.makeBtn(
       '',
       () => {
@@ -1576,6 +2050,7 @@ export class HudController {
       zoomInBtn,
       resetViewBtn,
       this.wallViewBtnEl,
+      this.viewBtnEl,
       this.cinematicBtnEl,
     );
 
@@ -1835,6 +2310,16 @@ export class HudController {
     this.wallsPopoverEl.className = 'hud-popover walls-popover hidden';
     this.root.appendChild(this.wallsPopoverEl);
 
+    this.viewPopoverEl = document.createElement('div');
+    this.viewPopoverEl.className = 'hud-popover view-popover hidden';
+    this.root.appendChild(this.viewPopoverEl);
+
+    this.povBannerEl = document.createElement('div');
+    this.povBannerEl.className = 'pov-hud-banner hidden';
+    this.povBannerEl.setAttribute('role', 'status');
+    this.povBannerEl.setAttribute('aria-live', 'polite');
+    this.root.appendChild(this.povBannerEl);
+
     this.visitorsPopoverEl = document.createElement('div');
     this.visitorsPopoverEl.className = 'hud-popover visitors-popover hidden';
     this.root.appendChild(this.visitorsPopoverEl);
@@ -2084,6 +2569,7 @@ export class HudController {
     this.roomPopoverEl.classList.toggle('hidden', kind !== 'room');
     this.atmospherePopoverEl.classList.toggle('hidden', kind !== 'atmosphere');
     this.wallsPopoverEl.classList.toggle('hidden', kind !== 'walls');
+    this.viewPopoverEl.classList.toggle('hidden', kind !== 'view');
     this.visitorsPopoverEl.classList.toggle('hidden', kind !== 'visitors');
     this.helpPopoverEl.classList.toggle('hidden', kind !== 'help');
     this.menuPopoverEl.classList.toggle('hidden', kind !== 'menu');
@@ -2097,12 +2583,17 @@ export class HudController {
     this.menuBtnEl.classList.toggle('active-trigger', kind === 'menu');
     this.lotSizeBtnEl.classList.toggle('active-tool', kind === 'lot');
     this.syncWallViewButton();
+    this.syncViewButton();
 
     if (kind === 'room') this.renderRoomPopover();
     if (kind === 'atmosphere') this.renderAtmospherePopover();
     if (kind === 'walls') {
       this.renderWallsPopover();
       this.positionWallsPopover();
+    }
+    if (kind === 'view') {
+      this.renderViewPopover();
+      this.positionViewPopover();
     }
     if (kind === 'visitors') this.renderVisitorsPopover();
     if (kind === 'help') this.renderHelpPopover();
@@ -3580,17 +4071,23 @@ export class HudController {
     // 2. Weather Storybook Slider (5 illustrated icons only!)
     this.atmospherePopoverEl.appendChild(this.buildStorybookWeatherSlider(activeWeather.id));
 
-    // 3. Location Icon Row (6 illustrated pastel+ink icons only!)
+    // 3. Location Icon Row (7 illustrated pastel+ink icons!)
     const locRow = document.createElement('div');
     locRow.className = 'sb-location-row';
     for (const view of this.store.data.scenery.views) {
       const isSelected = view.id === activeView.id;
+      const isBackrooms = view.id === 'backrooms';
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = isSelected ? 'sb-loc-btn active' : 'sb-loc-btn';
-      btn.title = `${view.name} — ${view.description}`;
+      if (isBackrooms) {
+        btn.classList.add('is-backrooms');
+        btn.title = 'Level 0 · Something arrives when 5+ guests gather';
+      } else {
+        btn.title = `${view.name} — ${view.description}`;
+      }
       btn.setAttribute('aria-label', view.name);
-      btn.appendChild(createStorybookIconEl(getLocationStorybookIconName(view.id), 26));
+      btn.appendChild(createStorybookIconEl(getLocationStorybookIconName(view.id), 24));
       btn.addEventListener('click', () => {
         this.audioModule?.playUiClick();
         this.switchLocationWithTransition(view.id);
@@ -4316,6 +4813,362 @@ export class HudController {
     this.wallViewBtnEl.classList.toggle('wall-solid-state', mode === 'solid');
   }
 
+  private getCameraViewMode(): HudCameraViewMode {
+    return (this.sceneManager as PovSceneManager).getCameraViewMode?.() ?? 'isometric';
+  }
+
+  private getPovTargetId(): string | null {
+    return (this.sceneManager as PovSceneManager).getPovTargetId?.() ?? null;
+  }
+
+  private getPovCandidates(): HudPovCandidate[] {
+    return (this.visitorModule as PovVisitorModule | undefined)?.getPovCandidates?.() ?? [];
+  }
+
+  private enterPersonPovMode(id: string): void {
+    const povSm = this.sceneManager as PovSceneManager;
+    const povVm = this.visitorModule as PovVisitorModule | undefined;
+    if (!povSm.enterVisitorPov || !povVm?.getPovPoseForPerson) return;
+    if (!povVm.getPovPoseForPerson(id)) {
+      this.store.notify('That person is no longer available for POV.', 'info');
+      return;
+    }
+    this.setActivePopover(null);
+    this.clearSelectedVisitor();
+    povVm.setPovHiddenPerson?.(id);
+    povSm.enterVisitorPov(
+      id,
+      () => povVm.getPovPoseForPerson?.(id) ?? null,
+      () => {
+        povVm.setPovHiddenPerson?.(null);
+      },
+    );
+  }
+
+  private enterAngelPovMode(): void {
+    const povSm = this.sceneManager as PovSceneManager;
+    const povVm = this.visitorModule as PovVisitorModule | undefined;
+    if (!povSm.enterAngelPov) return;
+    this.setActivePopover(null);
+    this.clearSelectedVisitor();
+    povVm?.setPovHiddenPerson?.(null);
+    povSm.enterAngelPov();
+  }
+
+  private exitPovModeCleanly(): void {
+    const povSm = this.sceneManager as PovSceneManager;
+    const povVm = this.visitorModule as PovVisitorModule | undefined;
+    povVm?.setPovHiddenPerson?.(null);
+    povSm.exitPovMode?.();
+  }
+
+  private syncViewButton(): void {
+    if (!this.viewBtnEl || !this.viewIconSlotEl) return;
+    const mode = this.getCameraViewMode();
+    const isOpen = this.activePopover === 'view';
+    const inPov = mode !== 'isometric';
+    const iconName: StorybookIconName = mode === 'angel_pov' ? 'angel_pov' : 'camera_pov';
+    if (this.viewIconSlotEl.dataset.icon !== iconName) {
+      this.viewIconSlotEl.dataset.icon = iconName;
+      this.viewIconSlotEl.innerHTML = '';
+      this.viewIconSlotEl.appendChild(createStorybookIconEl(iconName, 22));
+    }
+    this.viewBtnEl.dataset.tooltip =
+      mode === 'angel_pov'
+        ? 'Angel’s POV active · Click to switch view'
+        : mode === 'visitor_pov'
+          ? 'First-Person POV active · Click to switch view'
+          : 'Camera View · View from a guest or Angel’s POV';
+    this.viewBtnEl.removeAttribute('title');
+    this.viewBtnEl.setAttribute('aria-expanded', String(isOpen));
+    this.viewBtnEl.classList.toggle('active-trigger', isOpen || inPov);
+    this.viewBtnEl.classList.toggle('in-pov', inPov);
+  }
+
+  private positionViewPopover(): void {
+    if (!this.viewPopoverEl || !this.viewBtnEl) return;
+    const btnRect = this.viewBtnEl.getBoundingClientRect();
+    const popWidth = 286;
+    const centeredLeft = btnRect.left + btnRect.width / 2 - popWidth / 2;
+    const clampedLeft = Math.max(14, Math.min(window.innerWidth - popWidth - 14, centeredLeft));
+    this.viewPopoverEl.style.left = `${Math.round(clampedLeft)}px`;
+  }
+
+  private renderViewPopover(): void {
+    const prevScroll =
+      (this.viewPopoverEl.querySelector('.pov-person-list') as HTMLElement | null)?.scrollTop ?? 0;
+    this.viewPopoverEl.innerHTML = '';
+
+    const mode = this.getCameraViewMode();
+    const targetId = this.getPovTargetId();
+
+    const header = document.createElement('div');
+    header.className = 'popover-header';
+    const h4 = document.createElement('h4');
+    h4.textContent = 'Camera View';
+    const closeBtn = this.makeBtn('×', () => this.setActivePopover(null));
+    closeBtn.className = 'btn icon-close';
+    header.append(h4, closeBtn);
+    this.viewPopoverEl.appendChild(header);
+
+    const modeList = document.createElement('div');
+    modeList.className = 'pov-mode-list';
+    modeList.setAttribute('role', 'menu');
+    modeList.setAttribute('aria-label', 'Camera view modes');
+
+    const makeModeCard = (
+      iconName: StorybookIconName,
+      titleText: string,
+      subtitleText: string,
+      isActive: boolean,
+      onClick: () => void,
+    ): HTMLButtonElement => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = isActive ? 'pov-mode-btn active' : 'pov-mode-btn';
+      btn.setAttribute('role', 'menuitemradio');
+      btn.setAttribute('aria-checked', String(isActive));
+
+      btn.appendChild(createStorybookIconEl(iconName, 24));
+
+      const textWrap = document.createElement('span');
+      textWrap.className = 'pov-mode-text';
+      const titleEl = document.createElement('span');
+      titleEl.className = 'pov-mode-title';
+      titleEl.textContent = titleText;
+      const subEl = document.createElement('span');
+      subEl.className = 'pov-mode-sub';
+      subEl.textContent = subtitleText;
+      textWrap.append(titleEl, subEl);
+      btn.appendChild(textWrap);
+
+      if (isActive) {
+        btn.appendChild(createIconEl('check', 15));
+      }
+
+      btn.addEventListener('click', () => {
+        this.audioModule?.playUiClick();
+        onClick();
+      });
+      return btn;
+    };
+
+    modeList.append(
+      makeModeCard(
+        'wall_auto',
+        'Isometric',
+        'Default architectural view',
+        mode === 'isometric',
+        () => {
+          this.exitPovModeCleanly();
+          this.setActivePopover(null);
+        },
+      ),
+      makeModeCard(
+        'angel_pov',
+        '🪽 Angel’s POV',
+        'Free-fly around the house · Bounded',
+        mode === 'angel_pov',
+        () => {
+          this.enterAngelPovMode();
+        },
+      ),
+    );
+    this.viewPopoverEl.appendChild(modeList);
+
+    const viewFromLabel = document.createElement('div');
+    viewFromLabel.className = 'popover-section-label';
+    viewFromLabel.textContent = 'View From';
+    this.viewPopoverEl.appendChild(viewFromLabel);
+
+    const candidates = this.getPovCandidates();
+    if (candidates.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'pov-empty-note';
+      empty.textContent =
+        'No guests or staff in the house yet. Keep your door Open or invite someone to see through their eyes!';
+      this.viewPopoverEl.appendChild(empty);
+      return;
+    }
+
+    const list = document.createElement('div');
+    list.className = 'pov-person-list';
+
+    for (const cand of candidates) {
+      const isViewing = mode === 'visitor_pov' && targetId === cand.id;
+      const row = document.createElement('div');
+      row.className = isViewing ? 'pov-person-row viewing' : 'pov-person-row';
+
+      let avatarEl: HTMLElement;
+      if (cand.kind === 'visitor' && cand.visitorId) {
+        const def = this.store.data.visitorsById.get(cand.visitorId);
+        avatarEl = this.createVisitorPortrait(
+          def,
+          cand.variantIndex ?? 0,
+          cand.color,
+          cand.visitorId,
+        );
+      } else {
+        const staffAvatar = document.createElement('div');
+        staffAvatar.className = 'pov-staff-avatar';
+        staffAvatar.style.background = `color-mix(in srgb, ${cand.color || '#E8BFA8'} 38%, #FCF9F2)`;
+        if (cand.icon === '🤖') {
+          staffAvatar.appendChild(createStorybookIconEl('staff_bot', 22));
+        } else {
+          staffAvatar.textContent = cand.icon || '🧑‍🍳';
+        }
+        avatarEl = staffAvatar;
+      }
+
+      const info = document.createElement('div');
+      info.className = 'pov-person-info';
+      const nameRow = document.createElement('div');
+      nameRow.className = 'pov-person-name';
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'pov-person-name-text';
+      nameSpan.textContent = cand.name;
+      nameRow.appendChild(nameSpan);
+
+      if (cand.isSpecial) {
+        const star = document.createElement('span');
+        star.className = 'special-sparkle-badge';
+        star.textContent = '✦';
+        nameRow.appendChild(star);
+      }
+      if (cand.kind === 'staff') {
+        const staffPill = document.createElement('span');
+        staffPill.className = 'pov-staff-pill';
+        staffPill.textContent = 'Staff';
+        nameRow.appendChild(staffPill);
+      }
+      info.appendChild(nameRow);
+
+      if (isViewing) {
+        const viewingPill = document.createElement('span');
+        viewingPill.className = 'pov-viewing-pill';
+        viewingPill.textContent = 'Viewing';
+        row.append(avatarEl, info, viewingPill);
+      } else {
+        const povBtn = this.makeBtn(
+          'POV',
+          () => {
+            this.audioModule?.playUiClick();
+            this.enterPersonPovMode(cand.id);
+          },
+          'primary',
+        );
+        povBtn.className = 'btn primary btn-xs';
+        povBtn.setAttribute('aria-label', `View from ${cand.name}'s POV`);
+        row.append(avatarEl, info, povBtn);
+      }
+
+      list.appendChild(row);
+    }
+
+    this.viewPopoverEl.appendChild(list);
+    if (prevScroll > 0) {
+      list.scrollTop = prevScroll;
+    }
+  }
+
+  private renderPovBanner(): void {
+    if (!this.povBannerEl) return;
+    const mode = this.getCameraViewMode();
+    if (mode === 'isometric') {
+      this.povBannerEl.classList.add('hidden');
+      this.povBannerEl.innerHTML = '';
+      return;
+    }
+
+    this.povBannerEl.classList.remove('hidden');
+    this.povBannerEl.innerHTML = '';
+
+    if (mode === 'visitor_pov') {
+      const targetId = this.getPovTargetId();
+      const candidates = this.getPovCandidates();
+      const currentIdx = candidates.findIndex((c) => c.id === targetId);
+      const currentCand = currentIdx >= 0 ? candidates[currentIdx] : null;
+      const fallbackSnap = targetId
+        ? this.visitorModule?.getActiveVisitorById(targetId)
+        : undefined;
+      const personName =
+        currentCand?.name ?? fallbackSnap?.name ?? fallbackSnap?.archetypeName ?? 'Guest';
+
+      const title = document.createElement('span');
+      title.className = 'pov-banner-title';
+      title.textContent = `👁 ${personName}`;
+      this.povBannerEl.appendChild(title);
+
+      if (candidates.length > 1) {
+        const cycleWrap = document.createElement('div');
+        cycleWrap.className = 'pov-cycle-group';
+        const stepCandidate = (delta: number) => {
+          const liveCands = this.getPovCandidates();
+          if (liveCands.length === 0) return;
+          const idx = liveCands.findIndex((c) => c.id === this.getPovTargetId());
+          const base = idx >= 0 ? idx : 0;
+          const next = liveCands[(base + delta + liveCands.length) % liveCands.length];
+          if (next) this.enterPersonPovMode(next.id);
+        };
+
+        const prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'btn btn-xs pov-cycle-btn';
+        prevBtn.textContent = '‹';
+        prevBtn.title = 'Previous person POV';
+        prevBtn.setAttribute('aria-label', 'Previous person POV');
+        prevBtn.addEventListener('click', () => {
+          this.audioModule?.playUiClick();
+          stepCandidate(-1);
+        });
+
+        const nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'btn btn-xs pov-cycle-btn';
+        nextBtn.textContent = '›';
+        nextBtn.title = 'Next person POV';
+        nextBtn.setAttribute('aria-label', 'Next person POV');
+        nextBtn.addEventListener('click', () => {
+          this.audioModule?.playUiClick();
+          stepCandidate(1);
+        });
+
+        cycleWrap.append(prevBtn, nextBtn);
+        this.povBannerEl.appendChild(cycleWrap);
+      }
+
+      const hint = document.createElement('span');
+      hint.className = 'pov-banner-hint';
+      hint.textContent = 'Drag to look · R center';
+      this.povBannerEl.appendChild(hint);
+    } else {
+      const title = document.createElement('span');
+      title.className = 'pov-banner-title';
+      title.textContent = '🪽 Angel’s POV';
+
+      const hint = document.createElement('span');
+      hint.className = 'pov-banner-hint';
+      hint.textContent = 'WASD Fly · Space/Shift Alt · Drag Look';
+
+      this.povBannerEl.append(title, hint);
+    }
+
+    const exitBtn = document.createElement('button');
+    exitBtn.type = 'button';
+    exitBtn.className = 'btn primary btn-xs pov-exit-btn';
+    const exitLbl = document.createElement('span');
+    exitLbl.textContent = 'Exit POV';
+    const escKbd = document.createElement('kbd');
+    escKbd.className = 'pov-esc-kbd';
+    escKbd.textContent = 'Esc';
+    exitBtn.append(exitLbl, escKbd);
+    exitBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.exitPovModeCleanly();
+    });
+    this.povBannerEl.appendChild(exitBtn);
+  }
+
   private renderLotPopover(): void {
     const state = this.store.getState();
     this.ensureValidGroupDefaults();
@@ -4619,10 +5472,14 @@ export class HudController {
     });
     presetsGrid.appendChild(newHouseCard);
     for (const preset of HOUSE_PRESETS) {
+      const isBackrooms =
+        preset.sceneryViewId === 'backrooms' || preset.id === 'backrooms_level0';
       const card = document.createElement('button');
       card.type = 'button';
-      card.className = 'preset-house-card';
-      card.title = `Load ${preset.name}`;
+      card.className = isBackrooms ? 'preset-house-card is-backrooms' : 'preset-house-card';
+      card.title = isBackrooms
+        ? 'Level 0 · Something arrives when 5+ guests gather'
+        : `Load ${preset.name}`;
       card.appendChild(createStorybookIconEl(getRoomStorybookIconName(preset.icon), 21));
       const nameEl = document.createElement('span');
       nameEl.className = 'preset-house-name';
@@ -4639,7 +5496,7 @@ export class HudController {
     if (this.audioModule) {
       this.menuPopoverEl.appendChild(this.buildAudioMixPanel(true));
     }
-    this.menuPopoverEl.appendChild(buildPeacefulModeRow()); // [horror-events hook]
+    this.menuPopoverEl.appendChild(buildPeacefulModeRow(this.store)); // [horror-events hook]
 
     const shareLabel = document.createElement('div');
     shareLabel.className = 'popover-section-label';
@@ -4927,6 +5784,32 @@ export class HudController {
     closeBtn.className = 'btn icon-close';
     header.append(titleWrap, closeBtn);
     this.cheatsPopoverEl.appendChild(header);
+
+    if (canUse && !this.store.isChaosMode()) {
+      const chillBanner = document.createElement('div');
+      chillBanner.className = 'chill-mode-banner cheats-chill-banner';
+
+      const chillText = document.createElement('div');
+      chillText.className = 'chill-mode-text';
+      const chillDesc = document.createElement('div');
+      chillDesc.className = 'chill-mode-sub';
+      chillDesc.textContent =
+        'Chaos Mode is off — enable Chaos Mode to summon Legendary Guests.';
+      chillText.appendChild(chillDesc);
+
+      const turnOnBtn = this.makeBtn(
+        'Turn On Chaos Mode',
+        () => {
+          this.audioModule?.playUiClick();
+          this.store.setChaosMode(true);
+        },
+        'primary',
+      );
+      turnOnBtn.className = 'btn primary btn-xs chill-enable-btn';
+
+      chillBanner.append(chillText, turnOnBtn);
+      this.cheatsPopoverEl.appendChild(chillBanner);
+    }
 
     const sectionLabel = document.createElement('div');
     sectionLabel.className = 'popover-section-label';
@@ -5279,6 +6162,17 @@ export class HudController {
     }
     this.helpPopoverEl.appendChild(tipsRow);
 
+    const tourBtn = document.createElement('button');
+    tourBtn.type = 'button';
+    tourBtn.className = 'help-tour-btn';
+    tourBtn.textContent = '✨ Replay Quick Tour';
+    tourBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.setActivePopover(null);
+      this.startTutorial();
+    });
+    this.helpPopoverEl.appendChild(tourBtn);
+
     const ghLink = document.createElement('a');
     ghLink.className = 'help-github-btn';
     ghLink.href = 'https://github.com/Nano-AI/cozyhouse';
@@ -5289,6 +6183,17 @@ export class HudController {
     ghSpan.textContent = 'View on GitHub';
     ghLink.appendChild(ghSpan);
     this.helpPopoverEl.appendChild(ghLink);
+
+    const liLink = document.createElement('a');
+    liLink.className = 'help-github-btn';
+    liLink.href = 'https://www.linkedin.com/in/adityanb';
+    liLink.target = '_blank';
+    liLink.rel = 'noopener noreferrer';
+    liLink.appendChild(createIconEl('linkedin', 16));
+    const liSpan = document.createElement('span');
+    liSpan.textContent = 'Add me on LinkedIn';
+    liLink.appendChild(liSpan);
+    this.helpPopoverEl.appendChild(liLink);
   }
 
   private buildVariantSwatches(
@@ -5682,6 +6587,20 @@ export class HudController {
     moodRow.append(emoji, moodLabel, barTrack);
     meta.append(nameEl, subEl, moodRow);
 
+    const headActions = document.createElement('div');
+    headActions.className = 'vp-head-actions';
+
+    const povBtn = document.createElement('button');
+    povBtn.type = 'button';
+    povBtn.className = 'btn btn-xs vp-pov-btn';
+    povBtn.textContent = '👁 POV';
+    povBtn.title = `View from ${personalName}'s first-person POV`;
+    povBtn.setAttribute('aria-label', `View from ${personalName}'s POV`);
+    povBtn.addEventListener('click', () => {
+      this.audioModule?.playUiClick();
+      this.enterPersonPovMode(snap.instanceId);
+    });
+
     const closeBtn = this.makeBtn('×', () => {
       this.audioModule?.playUiClick();
       this.clearSelectedVisitor();
@@ -5689,7 +6608,8 @@ export class HudController {
     closeBtn.className = 'btn icon-close';
     closeBtn.setAttribute('aria-label', 'Close visitor profile');
 
-    head.append(portrait, meta, closeBtn);
+    headActions.append(povBtn, closeBtn);
+    head.append(portrait, meta, headActions);
     this.visitorProfileCardEl.appendChild(head);
 
     // Hobbies & Interests section (full untruncated personality + Likes/Dislikes)
@@ -6111,60 +7031,89 @@ export class HudController {
     this.randomInviteBtnEl = null;
     this.randomCooldownBadgeEl = null;
 
+    const chaosOn = this.store.isChaosMode();
     const inviteList = document.createElement('div');
     inviteList.className = 'invite-visitors-list';
 
-    const randomCard = document.createElement('div');
-    randomCard.className = 'invite-visitor-card invite-random-card';
-    randomCard.title = 'Invite a surprise legendary special guest!';
+    if (chaosOn) {
+      const randomCard = document.createElement('div');
+      randomCard.className = 'invite-visitor-card invite-random-card';
+      randomCard.title = 'Invite a surprise legendary special guest!';
 
-    const mysteryBox = document.createElement('div');
-    mysteryBox.className = 'invite-random-avatar';
-    mysteryBox.textContent = '🎲';
-    mysteryBox.setAttribute('aria-hidden', 'true');
+      const mysteryBox = document.createElement('div');
+      mysteryBox.className = 'invite-random-avatar';
+      mysteryBox.textContent = '🎲';
+      mysteryBox.setAttribute('aria-hidden', 'true');
 
-    const randomBody = document.createElement('div');
-    randomBody.className = 'invite-visitor-body';
-    const randomName = document.createElement('div');
-    randomName.className = 'invite-visitor-name';
-    randomName.textContent = 'Random Character';
-    const randomSub = document.createElement('div');
-    randomSub.className = 'invite-visitor-sub';
-    randomSub.textContent = 'Invite a surprise legendary guest!';
-    randomBody.append(randomName, randomSub);
+      const randomBody = document.createElement('div');
+      randomBody.className = 'invite-visitor-body';
+      const randomName = document.createElement('div');
+      randomName.className = 'invite-visitor-name';
+      randomName.textContent = 'Random Character';
+      const randomSub = document.createElement('div');
+      randomSub.className = 'invite-visitor-sub';
+      randomSub.textContent = 'Invite a surprise legendary guest!';
+      randomBody.append(randomName, randomSub);
 
-    const randomInviteBtn = this.makeBtn(
-      'Invite',
-      () => {
-        this.audioModule?.playUiClick();
-        const specialVm = this.visitorModule as SpecialVisitorModule | undefined;
-        if (specialVm?.inviteRandomSpecialCharacter) {
-          specialVm.inviteRandomSpecialCharacter();
-        } else {
-          const specials = this.store.data.visitors.visitors.filter(
-            (v) => (v as SpecialVisitorDef).special,
-          );
-          const pool = specials.length > 0 ? specials : this.store.data.visitors.visitors;
-          const pick = pool[Math.floor(Math.random() * pool.length)];
-          if (pick) this.visitorModule?.invite(pick.id);
-        }
-        this.syncRandomInviteCooldown();
-      },
-      'primary',
-    );
-    randomInviteBtn.className = 'btn primary btn-xs random-invite-btn';
+      const randomInviteBtn = this.makeBtn(
+        'Invite',
+        () => {
+          this.audioModule?.playUiClick();
+          const specialVm = this.visitorModule as SpecialVisitorModule | undefined;
+          if (specialVm?.inviteRandomSpecialCharacter) {
+            specialVm.inviteRandomSpecialCharacter();
+          } else {
+            const specials = this.store.data.visitors.visitors.filter(
+              (v) => (v as SpecialVisitorDef).special,
+            );
+            const pool = specials.length > 0 ? specials : this.store.data.visitors.visitors;
+            const pick = pool[Math.floor(Math.random() * pool.length)];
+            if (pick) this.visitorModule?.invite(pick.id);
+          }
+          this.syncRandomInviteCooldown();
+        },
+        'primary',
+      );
+      randomInviteBtn.className = 'btn primary btn-xs random-invite-btn';
 
-    const cooldownBadge = document.createElement('span');
-    cooldownBadge.className = 'random-cooldown-badge tabular-num hidden';
-    cooldownBadge.hidden = true;
-    cooldownBadge.setAttribute('aria-live', 'off');
+      const cooldownBadge = document.createElement('span');
+      cooldownBadge.className = 'random-cooldown-badge tabular-num hidden';
+      cooldownBadge.hidden = true;
+      cooldownBadge.setAttribute('aria-live', 'off');
 
-    this.randomInviteBtnEl = randomInviteBtn;
-    this.randomCooldownBadgeEl = cooldownBadge;
-    this.syncRandomInviteCooldown();
+      this.randomInviteBtnEl = randomInviteBtn;
+      this.randomCooldownBadgeEl = cooldownBadge;
+      this.syncRandomInviteCooldown();
 
-    randomCard.append(mysteryBox, randomBody, randomInviteBtn, cooldownBadge);
-    inviteList.appendChild(randomCard);
+      randomCard.append(mysteryBox, randomBody, randomInviteBtn, cooldownBadge);
+      inviteList.appendChild(randomCard);
+    } else {
+      const chillBanner = document.createElement('div');
+      chillBanner.className = 'chill-mode-banner';
+
+      const chillText = document.createElement('div');
+      chillText.className = 'chill-mode-text';
+      const chillTitle = document.createElement('div');
+      chillTitle.className = 'chill-mode-title';
+      chillTitle.textContent = '🌿 Chill Mode (Chaos Off)';
+      const chillSub = document.createElement('div');
+      chillSub.className = 'chill-mode-sub';
+      chillSub.textContent = 'Legendary guests & spooky events are paused';
+      chillText.append(chillTitle, chillSub);
+
+      const enableBtn = this.makeBtn(
+        'Enable Chaos',
+        () => {
+          this.audioModule?.playUiClick();
+          this.store.setChaosMode(true);
+        },
+        'primary',
+      );
+      enableBtn.className = 'btn primary btn-xs chill-enable-btn';
+
+      chillBanner.append(chillText, enableBtn);
+      inviteList.appendChild(chillBanner);
+    }
 
     const regularVisitors = this.store.data.visitors.visitors.filter(
       (v) => !(v as SpecialVisitorDef).special,
@@ -6206,7 +7155,7 @@ export class HudController {
     }
     this.visitorsPopoverEl.appendChild(inviteList);
 
-    if (this.store.isInviteCheatsEnabled()) {
+    if (chaosOn && this.store.isInviteCheatsEnabled()) {
       const specialVisitors = this.store.data.visitors.visitors.filter((v) =>
         Boolean((v as SpecialVisitorDef).special),
       );
@@ -7118,6 +8067,12 @@ export class HudController {
     }
     if (this.activePopover === 'cheats') {
       this.renderCheatsPopover();
+    }
+    if (this.activePopover === 'view') {
+      this.renderViewPopover();
+    }
+    if (this.getCameraViewMode() === 'visitor_pov') {
+      this.renderPovBanner();
     }
     if (this.selectedVisitorId) {
       this.renderVisitorProfileCard();

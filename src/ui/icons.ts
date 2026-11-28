@@ -42,6 +42,7 @@ export type IconName =
   | 'back'
   | 'info'
   | 'github'
+  | 'linkedin'
   | 'mouse'
   | 'trackpad'
   | 'keyboard';
@@ -59,13 +60,14 @@ export type StorybookIconName =
   | 'weather_fog'
   | 'weather_thunderstorm'
   | 'weather_snow'
-  // Locations (6)
+  // Locations (7)
   | 'loc_suburbs'
   | 'loc_city'
   | 'loc_beach'
   | 'loc_forest'
   | 'loc_mountains'
   | 'loc_countryside'
+  | 'loc_backrooms'
   // Lights & Music (4)
   | 'bulb_on'
   | 'bulb_off'
@@ -75,6 +77,9 @@ export type StorybookIconName =
   | 'wall_auto'
   | 'wall_translucent'
   | 'wall_solid'
+  // Camera POV Modes (2)
+  | 'camera_pov'
+  | 'angel_pov'
   // Share Studio & Staff (2)
   | 'polaroid'
   | 'staff_bot'
@@ -169,6 +174,8 @@ const ICON_PATHS: Record<IconName, string> = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 16.2v-4.7"/><circle cx="12" cy="8.1" r="1.05" fill="currentColor" stroke="none"/>',
   github:
     '<path fill="currentColor" stroke="none" d="M12 2.2A9.8 9.8 0 0 0 8.9 21.3c.5.1.7-.2.7-.5v-1.9c-2.7.6-3.3-1.2-3.3-1.2-.4-1.1-1.1-1.4-1.1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.2-.2-4.5-1.1-4.5-4.9 0-1.1.4-2 1-2.7-.1-.2-.4-1.2.1-2.6 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 4.9 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.6.6.7 1 1.6 1 2.7 0 3.8-2.3 4.7-4.5 4.9.4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5A9.8 9.8 0 0 0 12 2.2z"/>',
+  linkedin:
+    '<rect x="3" y="3" width="18" height="18" rx="3.2" fill="currentColor" stroke="none"/><path stroke="var(--surface-elev, #fff)" stroke-width="2.2" d="M8 10.5v6M8 7.4v.1M11.6 16.5v-6M11.6 13.2c0-1.6 1-2.8 2.4-2.8s2.2 1 2.2 2.6v3.5"/>',
   mouse: '<rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path d="M12 7v3.2"/>',
   trackpad:
     '<rect x="3" y="4.5" width="18" height="15" rx="2.6"/><path d="M3 15.2h18M12 15.2v4.3M9.5 10.6 12 8.2l2.5 2.4"/>',
@@ -276,6 +283,17 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <path d="M8.8 18.4v-4.2h3.2v4.2M8.8 14.2l3.2 4.2" stroke="${INK}" stroke-width="1.4" stroke-linecap="round"/>
     <circle cx="18.2" cy="7.4" r="2.2" fill="#FFD966" stroke="${INK}" stroke-width="1.5"/>
   `,
+  loc_backrooms: `
+    <polygon points="3.5,3.8 20.5,3.8 15.8,8.4 8.2,8.4" fill="#DFD295"/>
+    <polygon points="3.5,3.8 8.2,8.4 8.2,16 3.5,20.2" fill="#EAD98A"/>
+    <polygon points="20.5,3.8 15.8,8.4 15.8,16 20.5,20.2" fill="#D6C472"/>
+    <polygon points="3.5,20.2 8.2,16 15.8,16 20.5,20.2" fill="#C4B879"/>
+    <rect x="8.2" y="8.4" width="7.6" height="7.6" fill="#C9B96E" stroke="${INK}" stroke-width="1.4" stroke-linejoin="round"/>
+    <polygon points="9.2,5.1 14.8,5.1 13.9,7.1 10.1,7.1" fill="#FFFBE0" stroke="${INK}" stroke-width="1.15" stroke-linejoin="round"/>
+    <rect x="10.3" y="10.4" width="3.4" height="5.6" rx="0.4" fill="#3D342B" stroke="${INK}" stroke-width="1.35"/>
+    <path d="M3.5 3.8l4.7 4.6M20.5 3.8l-4.7 4.6M3.5 20.2l4.7-4.2M20.5 20.2l-4.7-4.2" stroke="${INK}" stroke-width="1.4" stroke-linecap="round"/>
+    <rect x="3.5" y="3.8" width="17" height="16.4" rx="1.6" fill="none" stroke="${INK}" stroke-width="1.75"/>
+  `,
 
   // ── Lights & Music Switches (4) ──
   bulb_on: `
@@ -320,6 +338,22 @@ const STORYBOOK_SHAPES: Record<StorybookIconName, string> = {
     <polygon points="4,8 12,12 12,20.5 4,16.5" fill="#E69A83" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
     <polygon points="12,12 20,8 20,16.5 12,20.5" fill="#D47E66" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
     <path d="M4,12.2 12,16.2 20,12.2M8,10v4.2M16,14v4.2" fill="none" stroke="${INK}" stroke-width="1.35" stroke-linecap="round"/>
+  `,
+
+  // ── Camera POV Modes (2) ──
+  camera_pov: `
+    <path d="M3.5 7.5V5.2a1.7 1.7 0 0 1 1.7-1.7h2.3M16.5 3.5h2.3a1.7 1.7 0 0 1 1.7 1.7v2.3M20.5 16.5v2.3a1.7 1.7 0 0 1-1.7 1.7h-2.3M7.5 20.5H5.2a1.7 1.7 0 0 1-1.7-1.7v-2.3" fill="none" stroke="${INK}" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M4.6 12c1.8-3.2 4.4-4.8 7.4-4.8s5.6 1.6 7.4 4.8c-1.8 3.2-4.4 4.8-7.4 4.8S6.4 15.2 4.6 12z" fill="#FCF3E3" stroke="${INK}" stroke-width="1.75" stroke-linejoin="round"/>
+    <circle cx="12" cy="12" r="3.1" fill="#88C4EB" stroke="${INK}" stroke-width="1.5"/>
+    <circle cx="12" cy="12" r="1.35" fill="${INK}"/>
+    <circle cx="10.9" cy="10.9" r="0.85" fill="#FFFDF8"/>
+  `,
+  angel_pov: `
+    <ellipse cx="12" cy="6.2" rx="4.4" ry="1.75" fill="#FFE382" stroke="${INK}" stroke-width="1.65"/>
+    <path d="M11 12.6C8.6 10.1 5.2 9.4 3.2 10.8c.4 1.9 1.6 3.1 3.1 3.5-1 .6-1.4 1.7-1 2.7 1.7.4 3.7-.3 5.2-1.8" fill="#FFF8EC" stroke="${INK}" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M13 12.6c2.4-2.5 5.8-3.2 7.8-1.8-.4 1.9-1.6 3.1-3.1 3.5 1 .6 1.4 1.7 1 2.7-1.7.4-3.7-.3-5.2-1.8" fill="#F4E8D1" stroke="${INK}" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="12" cy="14.2" r="2.7" fill="#A9D8F5" stroke="${INK}" stroke-width="1.65"/>
+    <circle cx="11.2" cy="13.4" r="0.85" fill="#FFFDF8"/>
   `,
 
   // ── Share Polaroid Camera & Cozy Bot (2) ──
@@ -542,6 +576,10 @@ export function getRoomStorybookIconName(roomId: string): StorybookIconName {
     case 'cabin':
     case 'room_cabin':
       return 'room_cabin';
+    case 'backrooms':
+    case 'backrooms_level0':
+    case 'loc_backrooms':
+      return 'loc_backrooms';
     case 'home':
     case 'room_home':
     case 'cozy_room':
@@ -592,6 +630,8 @@ export function getLocationStorybookIconName(viewId: string): StorybookIconName 
       return 'loc_mountains';
     case 'countryside':
       return 'loc_countryside';
+    case 'backrooms':
+      return 'loc_backrooms';
     default:
       return 'loc_suburbs';
   }

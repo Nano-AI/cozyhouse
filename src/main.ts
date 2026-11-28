@@ -231,8 +231,10 @@ async function bootstrap(): Promise<void> {
     sceneryModule,
   });
 
-  // Very first visit (no saved house, not opening a share link): offer New House or a preset.
+  // Very first visit (no saved house, not opening a share link): offer New House or a preset,
+  // then launch the quick interactive spotlight tour once the chooser closes.
   const WELCOMED_KEY = 'cozyhouse:welcomed';
+  const TUTORIAL_KEY = 'cozyhouse:tutorialDone';
   let welcomed = true;
   try {
     welcomed = localStorage.getItem(WELCOMED_KEY) === '1';
@@ -241,10 +243,20 @@ async function bootstrap(): Promise<void> {
   }
   if (!welcomed && !savedState && !sharedHouse) {
     hud.showWelcomeChooser(() => {
+      let tutorialDone = false;
       try {
         localStorage.setItem(WELCOMED_KEY, '1');
+        tutorialDone = localStorage.getItem(TUTORIAL_KEY) === '1';
       } catch {
         // Ignore storage errors
+      }
+      if (!tutorialDone && hud) {
+        const hudRef = hud;
+        window.setTimeout(() => {
+          if (!hudRef.isTutorialActive()) {
+            hudRef.startTutorial();
+          }
+        }, 700);
       }
     });
   }

@@ -53,6 +53,57 @@ export class WeatherAmbience {
     this.activeBed = bed;
   }
 
+  /**
+   * Enables or disables the Level 0 Backrooms 60 Hz fluorescent tube hum bed.
+   * When enabled, smoothly crossfades out any outdoor weather bed; when disabled,
+   * crossfades back to `fallbackWeather` if provided or smoothly fades to silence.
+   */
+  setBackroomsHum(
+    ctx: AudioContext,
+    dest: AudioNode,
+    enabled: boolean,
+    fallbackWeather?: WeatherDef | null,
+  ): void {
+    if (!enabled) {
+      if (fallbackWeather) {
+        this.setWeather(ctx, dest, fallbackWeather);
+        return;
+      }
+      if (this.activeBed && this.activeBed.weatherId === 'backrooms') {
+        this.fadeOutAndStopBed(this.activeBed, ctx.currentTime);
+        this.activeBed = null;
+      }
+      return;
+    }
+
+    if (this.activeBed && this.activeBed.weatherId === 'backrooms' && !this.activeBed.disposed) {
+      return;
+    }
+
+    const now = ctx.currentTime;
+    if (this.activeBed) {
+      this.fadeOutAndStopBed(this.activeBed, now);
+      this.activeBed = null;
+    }
+
+    const bedGain = ctx.createGain();
+    bedGain.gain.setValueAtTime(0.0001, now);
+    bedGain.gain.setTargetAtTime(1, now, 0.4);
+    bedGain.connect(dest);
+
+    const bed: ActiveBed = {
+      weatherId: 'backrooms',
+      bedGain,
+      sources: [],
+      nodes: [bedGain],
+      timers: new Set<number>(),
+      disposed: false,
+    };
+
+    this.buildBackroomsHumBed(ctx, bed);
+    this.activeBed = bed;
+  }
+
   dispose(): void {
     for (const timer of this.cleanupTimers) {
       window.clearTimeout(timer);
@@ -151,6 +202,9 @@ export class WeatherAmbience {
         break;
       case 'thunderstorm':
         this.buildRainBed(ctx, bed, true);
+        break;
+      case 'backrooms':
+        this.buildBackroomsHumBed(ctx, bed);
         break;
       default:
         if (weather.particleType === 'rain') {
@@ -462,5 +516,85 @@ export class WeatherAmbience {
     };
 
     this.scheduleBedTimer(bed, scheduleSwell, 2000 + Math.random() * 1600);
+  }
+
+  private buildBackroomsHumBed(ctx: AudioContext, bed: ActiveBed): void {
+    const now = ctx.currentTime;
+
+    // Tastefully quiet fluorescent ballast bus (~0.055 peak into weatherGain)
+    const humBus = ctx.createGain();
+    humBus.gain.setValueAtTime(1.0, now);
+    humBus.connect(bed.bedGain);
+
+    // Gentle slow ballast volume flutter
+    const flutterLfo = ctx.createOscillator();
+    const flutterGain = ctx.createGain();
+    flutterLfo.type = 'sine';
+    flutterLfo.frequency.setValueAtTime(0.24, now);
+    flutterGain.gain.setValueAtTime(0.07, now);
+    flutterLfo.connect(flutterGain);
+    flutterGain.connect(humBus.gain);
+    flutterLfo.start(now);
+
+    bed.sources.push(flutterLfo);
+    bed.nodes.push(humBus, flutterGain);
+
+    // 1. Quiet 60 Hz AC mains fundamental (sine)
+    const hum60 = ctx.createOscillator();
+    const g60 = ctx.createGain();
+    hum60.type = 'sine';
+    hum60.frequency.setValueAtTime(60, now);
+    g60.gain.setValueAtTime(0.032, now);
+    hum60.connect(g60);
+    g60.connect(humBus);
+    hum60.start(now);
+
+    // 2. Soft 120 Hz fluorescent ballast harmonic (lowpass-smoothed triangle)
+    const hum120 = ctx.createOscillator();
+    const lp120 = ctx.createBiquadFilter();
+    const g120 = ctx.createGain();
+    hum120.type = 'triangle';
+    hum120.frequency.setValueAtTime(120, now);
+    lp120.type = 'lowpass';
+    lp120.frequency.setValueAtTime(420, now);
+    g120.gain.setValueAtTime(0.02, now);
+    hum120.connect(lp120);
+    lp120.connect(g120);
+    g120.connect(humBus);
+    hum120.start(now);
+
+    // 3. Subtle 180 Hz warm resonance trace so laptop speakers feel the hum clearly
+    const hum180 = ctx.createOscillator();
+    const g180 = ctx.createGain();
+    hum180.type = 'sine';
+    hum180.frequency.setValueAtTime(180, now);
+    g180.gain.setValueAtTime(0.006, now);
+    hum180.connect(g180);
+    g180.connect(humBus);
+    hum180.start(now);
+
+    bed.sources.push(hum60, hum120, hum180);
+    bed.nodes.push(g60, lp120, g120, g180);
+
+    // 4. Very faint bandpass-filtered electrical hiss (~2400 Hz)
+    this.addNoiseLoop(ctx, bed, 'pink', 'bandpass', 2400, 2.5, 0.008, 0.19, 0.002);
+
+    // 5. Rare subtle aging-ballast micro-flicker dip (atmospheric, never startling)
+    const scheduleFlicker = () => {
+      if (bed.disposed) return;
+      if (ctx.state === 'running') {
+        const t = ctx.currentTime;
+        try {
+          humBus.gain.setValueAtTime(1.0, t);
+          humBus.gain.linearRampToValueAtTime(0.84, t + 0.035);
+          humBus.gain.linearRampToValueAtTime(1.04, t + 0.085);
+          humBus.gain.linearRampToValueAtTime(1.0, t + 0.16);
+        } catch {
+          // Ignore if context is closing
+        }
+      }
+      this.scheduleBedTimer(bed, scheduleFlicker, 8500 + Math.random() * 8000);
+    };
+    this.scheduleBedTimer(bed, scheduleFlicker, 5000 + Math.random() * 5000);
   }
 }

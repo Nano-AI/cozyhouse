@@ -94,7 +94,23 @@ const LOWER_HAZE_BY_VIEW: Record<string, string> = {
   forest: '#C6DAC9',
   countryside: '#E4E2CA',
   suburbs: '#DFDFD6',
+  backrooms: '#C4BA84',
 };
+
+export const CLOUD_BIOME_TINT: Record<string, string> = {
+  suburbs: '#FAFBFD',
+  city: '#F4F6FA',
+  beach: '#FFFDF6',
+  forest: '#F4F8F4',
+  mountains: '#F5F8FD',
+  countryside: '#FCF9EE',
+  backrooms: '#C4BA84',
+};
+
+const COL_BACKROOMS_TOP = new THREE.Color('#B8AE78');
+const COL_BACKROOMS_MID = new THREE.Color('#BEB47B');
+const COL_BACKROOMS_HORIZON = new THREE.Color('#C4BA84');
+const COL_BACKROOMS_NIGHT = new THREE.Color('#7B7349');
 
 export function resolveTimeHour(timeOfDay: TimeOfDay = 'day', timeHour?: number): number {
   if (typeof timeHour === 'number' && Number.isFinite(timeHour)) {
@@ -404,6 +420,28 @@ export function createSkyDome(
     hourParam?: number,
   ) => {
     const h = resolveTimeHour(tod, hourParam);
+
+    // Enclosed Level 0 Backrooms: uniform humid mono-yellow ceiling/fog backdrop with zero sky/sun/moon/stars
+    if (v.id === 'backrooms') {
+      const nightWeight = computeStarNightFactor(h);
+      const dimMix = nightWeight * 0.28;
+      topTmp.copy(COL_BACKROOMS_TOP).lerp(COL_BACKROOMS_NIGHT, dimMix);
+      midTmp.copy(COL_BACKROOMS_MID).lerp(COL_BACKROOMS_NIGHT, dimMix);
+      horTmp.copy(COL_BACKROOMS_HORIZON).lerp(COL_BACKROOMS_NIGHT, dimMix);
+      lowTmp.copy(COL_BACKROOMS_MID).lerp(COL_BACKROOMS_NIGHT, dimMix);
+
+      skyUniforms.uTopColor.value.copy(topTmp);
+      skyUniforms.uMidColor.value.copy(midTmp);
+      skyUniforms.uHorizonColor.value.copy(horTmp);
+      skyUniforms.uLowerColor.value.copy(lowTmp);
+      skyUniforms.uCelestialStrength.value = 0;
+
+      baseStarAlpha = 0;
+      starUniforms.uAlpha.value = 0;
+      starPoints.visible = false;
+      return;
+    }
+
     const { a, b, t } = findKeyframeSegment(h);
 
     viewTop.set(v.skyTop);
@@ -534,7 +572,12 @@ interface LinearCloud {
 
 export interface LinearCloudFieldHandle {
   group: THREE.Group;
-  applyThemeTint(weather: WeatherDef, timeOfDay?: TimeOfDay, timeHour?: number): void;
+  applyThemeTint(
+    weather: WeatherDef,
+    timeOfDay?: TimeOfDay,
+    timeHour?: number,
+    viewId?: string,
+  ): void;
   update(
     elapsed: number,
     dt: number,
@@ -564,6 +607,7 @@ export function createLinearCloudField(
   weather: WeatherDef,
   timeOfDay: TimeOfDay = 'day',
   timeHour?: number,
+  viewId?: string,
 ): LinearCloudFieldHandle {
   const group = new THREE.Group();
   group.name = 'LinearCloudField';
@@ -673,8 +717,23 @@ export function createLinearCloudField(
 
   const baseColor = new THREE.Color();
   const keyTint = new THREE.Color();
+  let activeViewId = viewId;
 
-  const applyThemeTint = (w: WeatherDef, tod: TimeOfDay = 'day', hourParam?: number) => {
+  const applyThemeTint = (
+    w: WeatherDef,
+    tod: TimeOfDay = 'day',
+    hourParam?: number,
+    nextViewId?: string,
+  ) => {
+    if (nextViewId !== undefined) {
+      activeViewId = nextViewId;
+    }
+    if (activeViewId === 'backrooms') {
+      group.visible = false;
+      return;
+    }
+    group.visible = true;
+
     const h = resolveTimeHour(tod, hourParam);
     const { a, b, t } = findKeyframeSegment(h);
     const nightWeight = computeStarNightFactor(h);
@@ -705,12 +764,13 @@ export function createLinearCloudField(
       : 0.25 + nightWeight * 0.13;
   };
 
-  applyThemeTint(weather, timeOfDay, timeHour);
+  applyThemeTint(weather, timeOfDay, timeHour, viewId);
 
   return {
     group,
     applyThemeTint,
     update(elapsed, dt, activeWeather, cameraPos, cameraForward) {
+      if (!group.visible) return;
       const baseSpeed = 1.15 + activeWeather.windStrength * 3.4;
       const arr = instancedClouds.instanceMatrix.array as Float32Array;
       let idx = 0;
@@ -781,6 +841,7 @@ export function createLinearCloudField(
       instancedClouds.instanceMatrix.needsUpdate = true;
     },
     dispose() {
+      instancedClouds.dispose();
       puffGeo.dispose();
       cloudMat.dispose();
     },
@@ -791,7 +852,12 @@ export type CloudTransitionPhase = 'idle' | 'in' | 'hold' | 'out';
 
 export interface CloudTransitionSwarmHandle {
   group: THREE.Group;
-  applyThemeTint(weather: WeatherDef, timeOfDay?: TimeOfDay, timeHour?: number): void;
+  applyThemeTint(
+    weather: WeatherDef,
+    timeOfDay?: TimeOfDay,
+    timeHour?: number,
+    viewId?: string,
+  ): void;
   updateTransition(
     phase: CloudTransitionPhase,
     t: number,
@@ -1003,12 +1069,26 @@ export function createCloudTransitionSwarm(
   const camForwardScratch = new THREE.Vector3();
   const tintBase = new THREE.Color();
   const tintKey = new THREE.Color();
+  const tintBiome = new THREE.Color();
   const tintWhite = new THREE.Color('#FAFBFD');
 
-  const applyThemeTint = (w: WeatherDef, tod: TimeOfDay = 'day', hourParam?: number) => {
+  const applyThemeTint = (
+    w: WeatherDef,
+    tod: TimeOfDay = 'day',
+    hourParam?: number,
+    viewId?: string,
+  ) => {
     const h = resolveTimeHour(tod, hourParam);
     const { a, b, t } = findKeyframeSegment(h);
     const nightWeight = computeStarNightFactor(h);
+
+    if (viewId === 'backrooms') {
+      tintBase.set(CLOUD_BIOME_TINT.backrooms).lerp(COL_BACKROOMS_NIGHT, nightWeight * 0.22);
+      cloudMat.color.copy(tintBase);
+      cloudMat.emissive.copy(tintBase);
+      cloudMat.emissiveIntensity = 0.28 + nightWeight * 0.12;
+      return;
+    }
 
     if (w.lightning) {
       tintBase.set('#B4C0D2');
@@ -1020,6 +1100,11 @@ export function createCloudTransitionSwarm(
       tintBase.set('#F4F8FD');
     } else {
       tintBase.set('#FAFBFD');
+    }
+
+    if (viewId && CLOUD_BIOME_TINT[viewId]) {
+      tintBiome.set(CLOUD_BIOME_TINT[viewId]);
+      tintBase.lerp(tintBiome, 0.2);
     }
 
     tintKey.copy(a.cloudTint).lerp(b.cloudTint, t);
@@ -1131,6 +1216,7 @@ export function createCloudTransitionSwarm(
       instanced.instanceMatrix.needsUpdate = true;
     },
     dispose() {
+      instanced.dispose();
       puffGeo.dispose();
       cloudMat.dispose();
     },

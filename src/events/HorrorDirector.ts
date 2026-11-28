@@ -36,23 +36,40 @@ import { DustBurst, countTriangles, createLastGuestRig, getLastGuestPortrait, ty
  */
 
 const PEACEFUL_KEY = 'cozyhouse:peaceful';
+const CHAOS_KEY = 'cozyhouse:chaosMode';
 /** He comes on his own at most once per play session (dev invites ignore this). */
 const MET_KEY = 'cozyhouse:lastGuestMet';
 const LAST_GUEST_WEATHERS = new Set(['rain', 'thunderstorm', 'fog']);
 const KILL_RADIUS = 1.75;
-const APPROACH_SPEED = 0.85;
+const APPROACH_SPEED = 1.5;
+/** Keys a POV/angel watcher still gets during the event (SceneManager's look/fly controls). */
+const POV_KEYS = new Set([
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyC', 'KeyR',
+  'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight',
+]);
 /** He outpaces everyone: guests stumble along at GUEST_FLEE_SPEED. */
-const HUNT_SPEED = 1.35;
+const HUNT_SPEED = 1.8;
 const GUEST_FLEE_SPEED = 1.15;
 /** He only comes to a full house: more than this many guests. */
 const MIN_GUESTS_EXCLUSIVE = 5;
+/** Backrooms Level 0: guaranteed repeatable entity trigger thresholds (any time/weather). */
+const BACKROOMS_MIN_GUESTS = 5;
+const BACKROOMS_TRIGGER_DELAY_S = 10;
+const BACKROOMS_REPEAT_COOLDOWN_S = 45;
 const ARRIVALS_COOLDOWN_SIM = 25;
 const STAFF_RETURN_S = 4;
 const MUSIC_RETURN_S = 8;
 const DOOR_LOCK_TIP = 'Something is still here';
 
 export function isPeacefulMode(): boolean {
+  const storeOff = instance?.isStoreChaosModeOff();
+  if (storeOff !== undefined) {
+    return storeOff;
+  }
   try {
+    const chaos = localStorage.getItem(CHAOS_KEY);
+    if (chaos === 'off') return true;
+    if (chaos === 'on') return false;
     return localStorage.getItem(PEACEFUL_KEY) === 'on';
   } catch {
     return false;
@@ -62,9 +79,11 @@ export function isPeacefulMode(): boolean {
 function setPeacefulMode(on: boolean): void {
   try {
     localStorage.setItem(PEACEFUL_KEY, on ? 'on' : 'off');
+    localStorage.setItem(CHAOS_KEY, on ? 'off' : 'on');
   } catch {
     // storage blocked: setting just won't persist
   }
+  instance?.syncStoreChaosMode(!on);
 }
 
 /** Set when Gojo beats him: the next rainy night without Gojo, he comes back for certain. */
@@ -404,6 +423,7 @@ class Stage {
   private readonly fxLayer: HTMLDivElement;
   private readonly blocker: HTMLDivElement;
   private readonly skipBtn: HTMLButtonElement;
+  private readonly watchHintEl: HTMLDivElement;
   private readonly vignetteEl: HTMLDivElement;
   private readonly grainEl: HTMLDivElement;
   private readonly flashEl: HTMLDivElement;
@@ -507,7 +527,18 @@ class Stage {
     // Transparent input blocker, only once the camera finds him (see focus())
     this.blocker = div('position:fixed;inset:0;z-index:2147482000;pointer-events:auto;cursor:default;');
     this.blocker.setAttribute('data-horror-overlay', '');
-    this.blocker.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
+    this.blocker.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+        if (sm.getCameraViewMode() !== 'isometric') sm.renderer.domElement.dispatchEvent(new WheelEvent('wheel', e));
+      },
+      { passive: false },
+    );
+    // POV/angel watchers keep their drag-look (move/up already reach the window listeners)
+    this.blocker.addEventListener('pointerdown', (e) => {
+      if (sm.getCameraViewMode() !== 'isometric') sm.renderer.domElement.dispatchEvent(new PointerEvent('pointerdown', e));
+    });
     const skip = document.createElement('button');
     skip.type = 'button';
     skip.textContent = 'Skip  ›';
@@ -519,9 +550,28 @@ class Stage {
       onSkip();
     });
     this.skipBtn = skip;
+    this.watchHintEl = div(
+      'position:fixed;z-index:2147482600;right:112px;bottom:74px;color:rgba(233,226,210,0.6);font:500 11px/1 system-ui,sans-serif;letter-spacing:0.06em;pointer-events:none;',
+    );
+    this.watchHintEl.textContent = 'Tab · watch a guest';
     document.body.appendChild(skip); // skippable from the very first step of his walk-up
     // Block editor shortcuts (undo, delete…) once focused, so the house can't change; Esc skips
     this.onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.watchNext(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (sm.getCameraViewMode() !== 'isometric') {
+        // Esc first drops a POV watcher back to the cutscene camera; look/fly keys still work
+        if (e.key === 'Escape') {
+          e.stopImmediatePropagation();
+          sm.exitPovMode();
+          return;
+        }
+        if (POV_KEYS.has(e.code) && !e.metaKey && !e.ctrlKey) return;
+      }
       e.stopImmediatePropagation();
       if (e.key === 'Escape') this.onSkip();
     };
@@ -531,6 +581,20 @@ class Stage {
    * The cutscene proper starts when the camera finds him near the house: until then the player can
    * still pan, click and build. From here: camera follow, title card, dimmed HUD, input blocked, Skip.
    */
+  /** Tab/Shift+Tab: look through the next (or previous) guest still standing. */
+  private watchNext(dir: 1 | -1): void {
+    const { sceneManager: sm, visitorModule: vm } = this.deps;
+    const alive = this.victims.filter(
+      (v) => !v.removed && v.mode !== 'vanish' && v.mode !== 'gone' && vm.getPovPoseForPerson(v.h.id),
+    );
+    if (alive.length === 0) return;
+    const cur = alive.findIndex((v) => v.h.id === sm.getPovTargetId());
+    const i = cur < 0 ? (dir > 0 ? 0 : alive.length - 1) : (cur + dir + alive.length) % alive.length;
+    const id = alive[i].h.id;
+    vm.setPovHiddenPerson(id); // also un-hides whoever we were watching before
+    sm.enterVisitorPov(id, () => vm.getPovPoseForPerson(id), () => vm.setPovHiddenPerson(null));
+  }
+
   focus(): void {
     if (this.focused) return;
     this.focused = true;
@@ -544,6 +608,7 @@ class Stage {
     this.follow.x = tgt.x;
     this.follow.z = tgt.z;
     sm.setCameraFollowProvider(() => ({ x: this.follow.x, z: this.follow.z }));
+    document.body.appendChild(this.watchHintEl);
     if (this.hudEl) {
       this.origHud = [this.hudEl.style.opacity, this.hudEl.style.transition];
       const listOpen = Boolean(this.hudEl.querySelector('.visitors-popover:not(.hidden)'));
@@ -577,7 +642,8 @@ class Stage {
   /** Adds visitors/staff that are visibly on the lot (in-transit arrivals join when they step out). */
   pollVictims(): void {
     for (const h of this.deps.visitorModule.horrorVictims()) {
-      if (this.known.has(h.id) || h.inTransit || !h.root.visible || !h.root.parent) continue;
+      const watched = h.id === this.deps.sceneManager.getPovTargetId();
+      if (this.known.has(h.id) || h.inTransit || (!h.root.visible && !watched) || !h.root.parent) continue;
       this.known.add(h.id);
       h.root.scale.setScalar(1);
       this.victims.push({
@@ -898,6 +964,7 @@ class Stage {
     this.fxLayer.remove();
     this.blocker.remove();
     this.skipBtn.remove();
+    this.watchHintEl.remove();
     this.doorTipEl.remove();
     window.removeEventListener('keydown', this.onKey, true);
     window.removeEventListener('pointermove', this.onPointer);
@@ -1089,6 +1156,8 @@ class LastGuestScript {
 
   private startVanish(v: Victim): void {
     if (v.mode === 'vanish' || v.removed) return;
+    const sm = this.s.deps.sceneManager;
+    if (sm.getPovTargetId() === v.h.id) sm.exitPovMode(); // un-hides them before the vanish snapshots
     const k = this.killed++;
     v.mode = 'vanish';
     v.t = 0;
@@ -1739,7 +1808,9 @@ class LastGuestScript {
         lookCam = true;
       }
     }
-    const camPos = cam.camera.position;
+    // whichever camera the player is watching through: he turns to that (angel/POV included)
+    const view = s.deps.sceneManager.getActiveCamera();
+    const camPos = view.position;
     let yawTarget = 0;
     let rollTarget = 0.2;
     const staring = this.phase === 'stare' || this.phase === 'silence';
@@ -1768,7 +1839,11 @@ class LastGuestScript {
       sit: this.sit,
       seatY: this.seat?.y ?? 0,
       // once seated: the photo faces the screen squarely, whatever that does to his neck
-      faceDir: staring ? cam.camera.getWorldDirection(new THREE.Vector3()).negate() : undefined,
+      faceDir: staring
+        ? view === cam.camera
+          ? cam.camera.getWorldDirection(new THREE.Vector3()).negate()
+          : new THREE.Vector3(camPos.x - this.he.x, camPos.y - 1.3, camPos.z - this.he.z).normalize()
+        : undefined,
       reach: this.reach,
       headYaw: this.headYaw,
       headRoll: this.headRoll,
@@ -1780,6 +1855,8 @@ class LastGuestScript {
 
     // escalation → colour drain, vignette, grain, sway, light, rain, dirge wear
     const ending = this.phase === 'toSeat' || this.phase === 'sit' || this.phase === 'flowers' || staring;
+    // a guest's-eye view would miss the finale: hand over to the cutscene camera (angel stays)
+    if (ending && s.deps.sceneManager.getCameraViewMode() === 'visitor_pov') s.deps.sceneManager.exitPovMode();
     const e = ending ? Math.min(0.55, this.escalation()) : this.escalation();
     s.esc.sat = 1 - 0.88 * this.escalation();
     s.esc.con = 1 + 0.2 * e;
@@ -1859,6 +1936,9 @@ export class HorrorDirector {
   private pending = false;
   private aftermath: { t: number; staffAt: number; musicAt: number; staffDone: boolean; musicDone: boolean } | null = null;
   private curtain: { el: HTMLDivElement; o: number; target: number; rate: number; onBlack: (() => void) | null } | null = null;
+  private backroomsWatchTimer = 0;
+  private backroomsCooldown = 0;
+  private backroomsForeshadowPlayed = false;
 
   constructor(private readonly deps: Deps) {
     instance = this;
@@ -1889,6 +1969,20 @@ export class HorrorDirector {
   /** True while the event is playing or about to (for mutual exclusion with other cutscenes). */
   isActive(): boolean {
     return this.run !== null || this.pending;
+  }
+
+  /** Internal helper so `isPeacefulMode()` stays aligned with mounted `HouseStore.isChaosMode()`. */
+  isStoreChaosModeOff(): boolean | undefined {
+    const s = this.deps.store as unknown as { isChaosMode?: () => boolean };
+    return typeof s.isChaosMode === 'function' ? !s.isChaosMode() : undefined;
+  }
+
+  /** Internal helper so legacy `setPeacefulMode()` updates mounted `HouseStore.setChaosMode()`. */
+  syncStoreChaosMode(enabled: boolean): void {
+    const s = this.deps.store as unknown as { setChaosMode?: (on: boolean) => void };
+    if (typeof s.setChaosMode === 'function') {
+      s.setChaosMode(enabled);
+    }
   }
 
   /** Starts The Last Guest now, any weather or hour (dev list, tests). */
@@ -1952,6 +2046,62 @@ export class HorrorDirector {
     this.pending = true; // starts next frame
   }
 
+  /** Queues arrival WITHOUT setting MET_KEY so The Last Guest can arrive repeatedly in Backrooms. */
+  private arriveRepeatably(): void {
+    this.pending = true; // starts next frame
+  }
+
+  /** Backrooms Level 0: guaranteed repeatable arrival once 5+ guests gather, any hour or weather. */
+  private tickBackrooms(dt: number): void {
+    if (this.deps.store.getState().sceneryViewId !== 'backrooms') {
+      this.backroomsWatchTimer = 0;
+      this.backroomsForeshadowPlayed = false;
+      return;
+    }
+    if (
+      isPeacefulMode() ||
+      this.run ||
+      this.pending ||
+      this.aftermath ||
+      this.curtain ||
+      this.deps.visitorModule.isShowdownActive()
+    ) {
+      this.backroomsWatchTimer = 0;
+      this.backroomsForeshadowPlayed = false;
+      return;
+    }
+    if (this.deps.store.getSimSpeed() === 0) {
+      return;
+    }
+    if (this.backroomsCooldown > 0) {
+      this.backroomsCooldown = Math.max(0, this.backroomsCooldown - dt);
+      return;
+    }
+    if (this.deps.visitorModule.getActiveVisitors().length < BACKROOMS_MIN_GUESTS) {
+      this.backroomsWatchTimer = 0;
+      this.backroomsForeshadowPlayed = false;
+      return;
+    }
+
+    this.backroomsWatchTimer += dt;
+    if (this.backroomsWatchTimer >= 2.5 && !this.backroomsForeshadowPlayed) {
+      this.backroomsForeshadowPlayed = true;
+      const out = this.deps.audioModule.getEventAudioOutput();
+      if (out && out.ctx.state === 'running') {
+        const quiet = out.ctx.createGain();
+        quiet.gain.value = 0.35;
+        quiet.connect(out.master);
+        playCreak(out.ctx, quiet);
+      }
+    }
+    if (this.backroomsWatchTimer >= BACKROOMS_TRIGGER_DELAY_S) {
+      this.backroomsWatchTimer = 0;
+      this.backroomsForeshadowPlayed = false;
+      this.backroomsCooldown = BACKROOMS_REPEAT_COOLDOWN_S;
+      this.arriveRepeatably();
+    }
+  }
+
   debugInfo(): ReturnType<LastGuestScript['debugInfo']> | null {
     return this.run ? this.run.script.debugInfo() : null;
   }
@@ -1986,6 +2136,7 @@ export class HorrorDirector {
     } else {
       this.tickAftermath(dt);
       this.tickGrudge();
+      this.tickBackrooms(dt);
     }
     this.tickCurtain(dt);
   }
@@ -1993,6 +2144,11 @@ export class HorrorDirector {
   private finish(run: Run, skipped: boolean): void {
     if (this.run !== run) return;
     this.run = null;
+    if (this.deps.store.getState().sceneryViewId === 'backrooms') {
+      this.backroomsCooldown = BACKROOMS_REPEAT_COOLDOWN_S;
+      this.backroomsWatchTimer = 0;
+      this.backroomsForeshadowPlayed = false;
+    }
     if (run.banished) {
       // the survivors stay: hand them back to the sim right where they stand
       for (const v of run.script.survivors()) {
@@ -2074,39 +2230,57 @@ export class HorrorDirector {
 // HUD builders (called from small hook lines in HudController)
 // ---------------------------------------------------------------------------
 
-/** Menu setting: "Peaceful Mode" switch (localStorage `cozyhouse:peaceful`, default off) with a hint. */
-export function buildPeacefulModeRow(): HTMLElement {
+/** Menu setting: "Chaos Mode" switch (default ON — legendary guests & spooky surprises; OFF = chill mode). */
+export function buildPeacefulModeRow(store?: HouseStore): HTMLElement {
+  const storeWithChaos = store as
+    | (HouseStore & { isChaosMode?: () => boolean; setChaosMode?: (enabled: boolean) => void })
+    | undefined;
+  const getChaosOn = (): boolean =>
+    typeof storeWithChaos?.isChaosMode === 'function'
+      ? storeWithChaos.isChaosMode()
+      : !isPeacefulMode();
+
   const wrap = document.createElement('div');
   wrap.style.marginTop = '8px';
   const row = document.createElement('div');
   row.className = 'toggle-setting-row';
   const label = document.createElement('span');
   label.className = 'toggle-setting-label';
-  label.textContent = 'Peaceful Mode';
+  label.textContent = 'Chaos Mode';
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.setAttribute('role', 'switch');
-  btn.setAttribute('aria-label', 'Peaceful Mode');
+  btn.setAttribute('aria-label', 'Chaos Mode');
   const knob = document.createElement('span');
   knob.className = 'sb-toggle-knob';
   btn.appendChild(knob);
+  const hint = document.createElement('div');
+  hint.style.cssText = 'font-size:11px;font-style:italic;opacity:0.65;margin:4px 4px 0;';
+
   const sync = () => {
-    const on = isPeacefulMode();
+    const on = getChaosOn();
     btn.className = on ? 'sb-toggle-switch on' : 'sb-toggle-switch';
     btn.setAttribute('aria-checked', String(on));
+    hint.textContent = on
+      ? 'Legendary guests & spooky surprises active'
+      : 'Chill mode — cozy regular guests only';
   };
   btn.addEventListener('click', () => {
-    setPeacefulMode(!isPeacefulMode());
+    const next = !getChaosOn();
+    if (typeof storeWithChaos?.setChaosMode === 'function') {
+      storeWithChaos.setChaosMode(next);
+    } else {
+      setPeacefulMode(!next);
+    }
     sync();
   });
   sync();
   row.append(label, btn);
-  const hint = document.createElement('div');
-  hint.textContent = 'For when it comes during the night';
-  hint.style.cssText = 'font-size:11px;font-style:italic;opacity:0.65;margin:4px 4px 0;';
   wrap.append(row, hint);
   return wrap;
 }
+
+export const buildChaosModeRow = buildPeacefulModeRow;
 
 /** DEV · Legendary Guests card (same markup as the others); Invite starts the event immediately. */
 export function buildLastGuestDevCard(): HTMLElement {

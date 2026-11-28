@@ -191,6 +191,34 @@ const BACKDROP_PHOTO_ROOT_NAMES = [
 
 export type TickHook = (simDt: number, realDt: number) => void;
 
+export type CameraViewMode = 'isometric' | 'visitor_pov' | 'angel_pov';
+
+export interface PovPose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  seated?: boolean;
+  bobPhase?: number;
+  speed?: number;
+}
+
+export interface AngelBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+}
+
+const VISITOR_FREELOOK_MAX_YAW = (115 * Math.PI) / 180;
+const VISITOR_FREELOOK_MIN_PITCH = (-45 * Math.PI) / 180;
+const VISITOR_FREELOOK_MAX_PITCH = (55 * Math.PI) / 180;
+const ANGEL_MAX_PITCH = (82 * Math.PI) / 180;
+const ANGEL_FLY_SPEED = 5.6;
+const ANGEL_VERTICAL_SPEED = 4.2;
+
 const MERGEABLE_BED_IDS = new Set(['bed_cozy', 'bed_daybed', 'bed_canopy']);
 
 const LIGHT_EMITTER_IDS = new Set([
@@ -516,9 +544,36 @@ export class SceneManager {
   private cloudTransition: ActiveCloudTransition | null = null;
 
   // Visitor camera focus/follow & 3D canvas visitor picking
+  readonly povCamera: THREE.PerspectiveCamera;
+  private cameraViewMode: CameraViewMode = 'isometric';
+  private povTargetId: string | null = null;
+  private povPoseProvider: (() => PovPose | null) | null = null;
+  private povOnExit: (() => void) | null = null;
+  private cameraViewModeListeners = new Set<(mode: CameraViewMode, targetId: string | null) => void>();
+  private povFreelookYaw = 0;
+  private povFreelookPitch = 0;
+  private povRecentering = false;
+  private povSmoothedYaw = 0;
+  private povBobPhase = 0;
+  private angelYaw = 0;
+  private angelPitch = -0.35;
+  private readonly angelVelocity = new THREE.Vector3();
+  private readonly povForwardScratch = new THREE.Vector3();
+  private readonly povRightScratch = new THREE.Vector3();
+  private readonly povDesiredVelScratch = new THREE.Vector3();
+  private readonly povUpAxis = new THREE.Vector3(0, 1, 0);
+  private povDragging = false;
+  private povDragPointerId: number | null = null;
+  private povLastDragX = 0;
+  private povLastDragY = 0;
+  private povHeldKeys = new Set<string>();
   private cameraFollowProvider: (() => { x: number; z: number } | null) | null = null;
   private cameraFollowCancelCb: (() => void) | null = null;
   private cameraLockProvider: (() => { x: number; z: number } | null) | null = null;
+  /** The POV a cutscene lock pulled the player out of; handed back when the lock is released. */
+  private povBeforeLock: { mode: CameraViewMode; targetId: string | null } | null = null;
+  /** Set by the HUD (it owns the hidden-person bookkeeping) to re-enter a POV after a cutscene. */
+  onPovRestore: ((mode: CameraViewMode, targetId: string | null) => void) | null = null;
   private cutsceneOverlaysHidden = false;
   private cameraFollowClearedListeners = new Set<() => void>();
   private unsubManualPan: (() => void) | null = null;
@@ -531,6 +586,31 @@ export class SceneManager {
 
   get camera(): THREE.OrthographicCamera {
     return this.isoCamera.camera;
+  }
+
+  getActiveCamera(): THREE.Camera {
+    return this.cameraViewMode === 'isometric' ? this.isoCamera.camera : this.povCamera;
+  }
+
+  getCameraViewMode(): CameraViewMode {
+    return this.cameraViewMode;
+  }
+
+  getPovTargetId(): string | null {
+    return this.povTargetId;
+  }
+
+  onCameraViewModeChange(
+    listener: (mode: CameraViewMode, targetId: string | null) => void,
+  ): () => void {
+    this.cameraViewModeListeners.add(listener);
+    return () => this.cameraViewModeListeners.delete(listener);
+  }
+
+  private emitCameraViewModeChange(): void {
+    for (const listener of this.cameraViewModeListeners) {
+      listener(this.cameraViewMode, this.povTargetId);
+    }
   }
 
   /**
@@ -587,6 +667,13 @@ export class SceneManager {
     this.shaderPipeline.resize(width, height, pr);
 
     this.isoCamera = new IsometricCamera(width, height, onCameraQuarterChange);
+    this.povCamera = new THREE.PerspectiveCamera(
+      68,
+      Math.max(0.1, width / Math.max(1, height)),
+      0.08,
+      160,
+    );
+    this.povCamera.rotation.order = 'YXZ';
     this.unsubManualPan = this.isoCamera.onManualPan(() => {
       this.cameraLockProvider = null;
       if (!this.cameraFollowProvider) return;
@@ -671,6 +758,9 @@ export class SceneManager {
     store.on('houseChanged', ({ state, reason }) => this.syncFromState(state, reason));
     store.on('selectionChanged', ({ selectedUids }) => this.updateSelectionHighlights(selectedUids));
     store.on('editModeChanged', ({ editMode }) => {
+      if (editMode && this.cameraViewMode !== 'isometric') {
+        this.exitPovMode();
+      }
       this.syncGridVisibility();
       if (!editMode) {
         this.setHoverOutlineUid(null);
@@ -680,7 +770,7 @@ export class SceneManager {
     });
     store.on('gridVisibilityChanged', () => this.syncGridVisibility());
     store.on('wallViewChanged', () => {
-      this.ceilingRoot.visible = this.store.isCeilingVisible() && this.enclosedCellCount > 0;
+      this.syncCeilingVisibility();
       this.wallsTransitioning = true;
       this.updateWallTranslucency(0, false);
     });
@@ -698,6 +788,7 @@ export class SceneManager {
       }
     });
 
+    this.bindPovInputEvents();
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
     this.resizeObserver.observe(container);
 
@@ -1170,7 +1261,433 @@ export class SceneManager {
    * the moment the lock is released. A manual pan breaks the lock, like any follow.
    */
   setCameraLockProvider(provider: (() => { x: number; z: number } | null) | null): void {
+    if (provider && this.cameraViewMode !== 'isometric') {
+      this.povBeforeLock = { mode: this.cameraViewMode, targetId: this.povTargetId };
+      this.exitPovMode();
+    }
     this.cameraLockProvider = provider;
+    if (!provider && this.povBeforeLock) {
+      const prev = this.povBeforeLock;
+      this.povBeforeLock = null;
+      if (this.cameraViewMode === 'isometric' && !this.store.isEditMode()) {
+        this.onPovRestore?.(prev.mode, prev.targetId);
+      }
+    }
+  }
+
+  getAngelBounds(): AngelBounds {
+    const state = this.store.getState();
+    const halfW = state.gridWidth / 2;
+    const halfD = state.gridDepth / 2;
+    const isBackrooms = state.sceneryViewId === 'backrooms';
+    const margin = isBackrooms ? 14 : 9;
+    return {
+      minX: -(halfW + margin),
+      maxX: halfW + margin,
+      minY: 0.48,
+      maxY: isBackrooms ? 2.55 : 12.5,
+      minZ: -(halfD + margin),
+      maxZ: halfD + margin,
+    };
+  }
+
+  enterVisitorPov(
+    targetId: string,
+    poseProvider: () => PovPose | null,
+    onExit?: () => void,
+  ): void {
+    if (this.store.isEditMode()) {
+      this.store.setEditMode(false);
+    }
+    this.cameraViewMode = 'visitor_pov';
+    this.povTargetId = targetId;
+    this.povPoseProvider = poseProvider;
+    this.povOnExit = onExit ?? null;
+    this.povFreelookYaw = 0;
+    this.povFreelookPitch = 0;
+    this.povRecentering = false;
+    this.povBobPhase = 0;
+    this.povDragging = false;
+    this.povDragPointerId = null;
+    this.povHeldKeys.clear();
+    this.angelVelocity.set(0, 0, 0);
+    this.isoCamera.setInputSuspended(true);
+
+    const initialPose = poseProvider();
+    if (!initialPose) {
+      this.exitPovMode();
+      return;
+    }
+
+    this.povSmoothedYaw = initialPose.yaw;
+    this.povCamera.position.set(initialPose.x, initialPose.y, initialPose.z);
+    this.povCamera.rotation.set(0, initialPose.yaw + Math.PI, 0, 'YXZ');
+    this.povCamera.updateMatrixWorld(true);
+
+    this.wallsTransitioning = true;
+    this.updateWallTranslucency(0, false);
+    this.syncCeilingVisibility();
+    this.emitCameraViewModeChange();
+  }
+
+  enterAngelPov(): void {
+    if (this.store.isEditMode()) {
+      this.store.setEditMode(false);
+    }
+    const prevOnExit = this.povOnExit;
+    this.povOnExit = null;
+    this.povTargetId = null;
+    this.povPoseProvider = null;
+    prevOnExit?.();
+
+    this.cameraViewMode = 'angel_pov';
+    this.povFreelookYaw = 0;
+    this.povFreelookPitch = 0;
+    this.povRecentering = false;
+    this.povDragging = false;
+    this.povDragPointerId = null;
+    this.povHeldKeys.clear();
+    this.angelVelocity.set(0, 0, 0);
+    this.isoCamera.setInputSuspended(true);
+
+    const state = this.store.getState();
+    const isBackrooms = state.sceneryViewId === 'backrooms';
+    const bounds = this.getAngelBounds();
+    const spawnX = THREE.MathUtils.clamp(0, bounds.minX, bounds.maxX);
+    const spawnY = THREE.MathUtils.clamp(isBackrooms ? 1.85 : 3.4, bounds.minY, bounds.maxY);
+    const spawnZ = THREE.MathUtils.clamp((state.gridDepth / 2) * 0.45, bounds.minZ, bounds.maxZ);
+    this.povCamera.position.set(spawnX, spawnY, spawnZ);
+
+    const dx = -spawnX;
+    const dy = 1.25 - spawnY;
+    const dz = -spawnZ;
+    const horiz = Math.hypot(dx, dz) || 1;
+    this.angelYaw = Math.atan2(-dx, -dz);
+    this.angelPitch = THREE.MathUtils.clamp(
+      Math.atan2(dy, horiz),
+      -ANGEL_MAX_PITCH,
+      ANGEL_MAX_PITCH,
+    );
+    this.povCamera.rotation.set(this.angelPitch, this.angelYaw, 0, 'YXZ');
+    this.povCamera.updateMatrixWorld(true);
+
+    this.wallsTransitioning = true;
+    this.updateWallTranslucency(0, false);
+    this.syncCeilingVisibility();
+    this.emitCameraViewModeChange();
+  }
+
+  exitPovMode(): void {
+    if (this.cameraViewMode === 'isometric') return;
+    const onExit = this.povOnExit;
+    this.cameraViewMode = 'isometric';
+    this.povTargetId = null;
+    this.povPoseProvider = null;
+    this.povOnExit = null;
+    this.povFreelookYaw = 0;
+    this.povFreelookPitch = 0;
+    this.povRecentering = false;
+    this.povDragging = false;
+    this.povDragPointerId = null;
+    this.povHeldKeys.clear();
+    this.angelVelocity.set(0, 0, 0);
+    this.isoCamera.setInputSuspended(false);
+
+    onExit?.();
+
+    this.wallsTransitioning = true;
+    this.updateWallTranslucency(0, false);
+    this.syncCeilingVisibility();
+    this.emitCameraViewModeChange();
+  }
+
+  private isEditableTarget(target: EventTarget | null): boolean {
+    if (!target || typeof target !== 'object') return false;
+    const tag = (target as { tagName?: string }).tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+    return Boolean((target as { isContentEditable?: boolean }).isContentEditable);
+  }
+
+  private clampAngelCameraPosition(): void {
+    const bounds = this.getAngelBounds();
+    const pos = this.povCamera.position;
+    const vel = this.angelVelocity;
+    if (pos.x < bounds.minX) {
+      pos.x = bounds.minX;
+      if (vel.x < 0) vel.x = 0;
+    } else if (pos.x > bounds.maxX) {
+      pos.x = bounds.maxX;
+      if (vel.x > 0) vel.x = 0;
+    }
+    if (pos.y < bounds.minY) {
+      pos.y = bounds.minY;
+      if (vel.y < 0) vel.y = 0;
+    } else if (pos.y > bounds.maxY) {
+      pos.y = bounds.maxY;
+      if (vel.y > 0) vel.y = 0;
+    }
+    if (pos.z < bounds.minZ) {
+      pos.z = bounds.minZ;
+      if (vel.z < 0) vel.z = 0;
+    } else if (pos.z > bounds.maxZ) {
+      pos.z = bounds.maxZ;
+      if (vel.z > 0) vel.z = 0;
+    }
+  }
+
+  private handlePovPointerDown = (e: PointerEvent): void => {
+    if (this.cameraViewMode === 'isometric' || e.button !== 0) return;
+    this.povDragging = true;
+    this.povDragPointerId = e.pointerId;
+    this.povLastDragX = e.clientX;
+    this.povLastDragY = e.clientY;
+    this.povRecentering = false;
+  };
+
+  private handlePovPointerMove = (e: PointerEvent): void => {
+    if (
+      this.cameraViewMode === 'isometric' ||
+      !this.povDragging ||
+      (this.povDragPointerId !== null && e.pointerId !== this.povDragPointerId)
+    ) {
+      return;
+    }
+    const dx = e.clientX - this.povLastDragX;
+    const dy = e.clientY - this.povLastDragY;
+    this.povLastDragX = e.clientX;
+    this.povLastDragY = e.clientY;
+
+    if (this.cameraViewMode === 'visitor_pov') {
+      this.povFreelookYaw = THREE.MathUtils.clamp(
+        this.povFreelookYaw - dx * 0.0045,
+        -VISITOR_FREELOOK_MAX_YAW,
+        VISITOR_FREELOOK_MAX_YAW,
+      );
+      this.povFreelookPitch = THREE.MathUtils.clamp(
+        this.povFreelookPitch - dy * 0.004,
+        VISITOR_FREELOOK_MIN_PITCH,
+        VISITOR_FREELOOK_MAX_PITCH,
+      );
+    } else if (this.cameraViewMode === 'angel_pov') {
+      this.angelYaw -= dx * 0.0045;
+      this.angelPitch = THREE.MathUtils.clamp(
+        this.angelPitch - dy * 0.004,
+        -ANGEL_MAX_PITCH,
+        ANGEL_MAX_PITCH,
+      );
+    }
+  };
+
+  private handlePovPointerUp = (e: PointerEvent): void => {
+    if (this.povDragPointerId !== null && e.pointerId !== this.povDragPointerId) return;
+    this.povDragging = false;
+    this.povDragPointerId = null;
+  };
+
+  private handlePovDblClick = (): void => {
+    if (this.cameraViewMode === 'visitor_pov') {
+      this.povRecentering = true;
+    }
+  };
+
+  private handlePovWheel = (e: WheelEvent): void => {
+    if (this.cameraViewMode !== 'angel_pov') return;
+    e.preventDefault();
+    this.povCamera.rotation.set(this.angelPitch, this.angelYaw, 0, 'YXZ');
+    this.povCamera.updateMatrixWorld();
+    this.povCamera.getWorldDirection(this.povForwardScratch);
+    const glide = THREE.MathUtils.clamp(-e.deltaY * 0.012, -2.4, 2.4);
+    this.povCamera.position.addScaledVector(this.povForwardScratch, glide);
+    this.clampAngelCameraPosition();
+    this.syncCeilingVisibility();
+  };
+
+  private handlePovKeyDown = (e: KeyboardEvent): void => {
+    if (this.cameraViewMode === 'isometric' || this.isEditableTarget(e.target)) return;
+    const code = e.code;
+    if (this.cameraViewMode === 'visitor_pov') {
+      if (code === 'KeyR') {
+        this.povRecentering = true;
+      }
+      return;
+    }
+    if (
+      code === 'KeyW' ||
+      code === 'KeyA' ||
+      code === 'KeyS' ||
+      code === 'KeyD' ||
+      code === 'ArrowUp' ||
+      code === 'ArrowDown' ||
+      code === 'ArrowLeft' ||
+      code === 'ArrowRight' ||
+      code === 'Space' ||
+      code === 'ShiftLeft' ||
+      code === 'ShiftRight' ||
+      code === 'KeyE' ||
+      code === 'KeyQ' ||
+      code === 'KeyC'
+    ) {
+      if (
+        code === 'Space' ||
+        code === 'ArrowUp' ||
+        code === 'ArrowDown' ||
+        code === 'ArrowLeft' ||
+        code === 'ArrowRight'
+      ) {
+        e.preventDefault();
+      }
+      this.povHeldKeys.add(code);
+    }
+  };
+
+  private handlePovKeyUp = (e: KeyboardEvent): void => {
+    this.povHeldKeys.delete(e.code);
+  };
+
+  private handlePovWindowBlur = (): void => {
+    this.povHeldKeys.clear();
+    this.povDragging = false;
+    this.povDragPointerId = null;
+  };
+
+  private bindPovInputEvents(): void {
+    const canvas = this.renderer.domElement;
+    if (typeof canvas.addEventListener === 'function') {
+      canvas.addEventListener('pointerdown', this.handlePovPointerDown);
+      canvas.addEventListener('dblclick', this.handlePovDblClick);
+      canvas.addEventListener('wheel', this.handlePovWheel, { passive: false });
+    }
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('pointermove', this.handlePovPointerMove);
+      window.addEventListener('pointerup', this.handlePovPointerUp);
+      window.addEventListener('pointercancel', this.handlePovPointerUp);
+      window.addEventListener('keydown', this.handlePovKeyDown);
+      window.addEventListener('keyup', this.handlePovKeyUp);
+      window.addEventListener('blur', this.handlePovWindowBlur);
+    }
+  }
+
+  private unbindPovInputEvents(): void {
+    const canvas = this.renderer.domElement;
+    if (typeof canvas.removeEventListener === 'function') {
+      canvas.removeEventListener('pointerdown', this.handlePovPointerDown);
+      canvas.removeEventListener('dblclick', this.handlePovDblClick);
+      canvas.removeEventListener('wheel', this.handlePovWheel);
+    }
+    if (typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
+      window.removeEventListener('pointermove', this.handlePovPointerMove);
+      window.removeEventListener('pointerup', this.handlePovPointerUp);
+      window.removeEventListener('pointercancel', this.handlePovPointerUp);
+      window.removeEventListener('keydown', this.handlePovKeyDown);
+      window.removeEventListener('keyup', this.handlePovKeyUp);
+      window.removeEventListener('blur', this.handlePovWindowBlur);
+    }
+  }
+
+  private updatePovCamera(realDt: number): void {
+    const clampedDt = Math.min(Math.max(realDt, 0), 0.1);
+    if (this.cameraViewMode === 'visitor_pov') {
+      const pose = this.povPoseProvider?.() ?? null;
+      if (!pose) {
+        this.exitPovMode();
+        return;
+      }
+
+      const speed = Math.max(0, pose.speed ?? 0);
+      let bobY = 0;
+      if (!pose.seated && speed > 0.05) {
+        if (pose.bobPhase !== undefined && Number.isFinite(pose.bobPhase)) {
+          bobY = Math.sin(pose.bobPhase * 2) * 0.016 * Math.min(1, speed / 1.4);
+        } else {
+          this.povBobPhase += clampedDt * speed * 6.5;
+          bobY = Math.sin(this.povBobPhase * 2) * 0.016 * Math.min(1, speed / 1.4);
+        }
+      }
+
+      if (this.povRecentering) {
+        const recenterAlpha = 1 - Math.exp(-14 * clampedDt);
+        this.povFreelookYaw = THREE.MathUtils.lerp(this.povFreelookYaw, 0, recenterAlpha);
+        this.povFreelookPitch = THREE.MathUtils.lerp(this.povFreelookPitch, 0, recenterAlpha);
+        if (Math.abs(this.povFreelookYaw) < 0.002 && Math.abs(this.povFreelookPitch) < 0.002) {
+          this.povFreelookYaw = 0;
+          this.povFreelookPitch = 0;
+          this.povRecentering = false;
+        }
+      }
+
+      const posAlpha = 1 - Math.exp(-18 * clampedDt);
+      this.povCamera.position.x = THREE.MathUtils.lerp(this.povCamera.position.x, pose.x, posAlpha);
+      this.povCamera.position.y = THREE.MathUtils.lerp(
+        this.povCamera.position.y,
+        pose.y + bobY,
+        posAlpha,
+      );
+      this.povCamera.position.z = THREE.MathUtils.lerp(this.povCamera.position.z, pose.z, posAlpha);
+
+      const yawAlpha = 1 - Math.exp(-12 * clampedDt);
+      this.povSmoothedYaw += shortestAngleDelta(this.povSmoothedYaw, pose.yaw) * yawAlpha;
+      this.povCamera.rotation.set(
+        this.povFreelookPitch,
+        this.povSmoothedYaw + Math.PI + this.povFreelookYaw,
+        0,
+        'YXZ',
+      );
+      this.povCamera.updateMatrixWorld();
+      return;
+    }
+
+    if (this.cameraViewMode === 'angel_pov') {
+      this.povCamera.rotation.set(this.angelPitch, this.angelYaw, 0, 'YXZ');
+      this.povCamera.updateMatrixWorld();
+
+      const forwardInput =
+        (this.povHeldKeys.has('KeyW') || this.povHeldKeys.has('ArrowUp') ? 1 : 0) -
+        (this.povHeldKeys.has('KeyS') || this.povHeldKeys.has('ArrowDown') ? 1 : 0);
+      const rightInput =
+        (this.povHeldKeys.has('KeyD') || this.povHeldKeys.has('ArrowRight') ? 1 : 0) -
+        (this.povHeldKeys.has('KeyA') || this.povHeldKeys.has('ArrowLeft') ? 1 : 0);
+      const upInput =
+        (this.povHeldKeys.has('Space') || this.povHeldKeys.has('KeyE') ? 1 : 0) -
+        (this.povHeldKeys.has('ShiftLeft') ||
+        this.povHeldKeys.has('ShiftRight') ||
+        this.povHeldKeys.has('KeyQ') ||
+        this.povHeldKeys.has('KeyC')
+          ? 1
+          : 0);
+
+      this.povCamera.getWorldDirection(this.povForwardScratch);
+      this.povRightScratch.crossVectors(this.povForwardScratch, this.povUpAxis);
+      if (this.povRightScratch.lengthSq() > 1e-6) {
+        this.povRightScratch.normalize();
+      } else {
+        this.povRightScratch.set(1, 0, 0);
+      }
+
+      this.povDesiredVelScratch.set(0, 0, 0);
+      if (forwardInput !== 0) {
+        this.povDesiredVelScratch.addScaledVector(this.povForwardScratch, forwardInput);
+      }
+      if (rightInput !== 0) {
+        this.povDesiredVelScratch.addScaledVector(this.povRightScratch, rightInput);
+      }
+      if (this.povDesiredVelScratch.lengthSq() > 1e-6) {
+        this.povDesiredVelScratch.normalize().multiplyScalar(ANGEL_FLY_SPEED);
+      }
+      if (upInput !== 0) {
+        this.povDesiredVelScratch.y += upInput * ANGEL_VERTICAL_SPEED;
+      }
+
+      const dampAlpha = 1 - Math.exp(-10 * clampedDt);
+      this.angelVelocity.lerp(this.povDesiredVelScratch, dampAlpha);
+      if (this.angelVelocity.lengthSq() < 1e-5 && this.povDesiredVelScratch.lengthSq() === 0) {
+        this.angelVelocity.set(0, 0, 0);
+      }
+
+      this.povCamera.position.addScaledVector(this.angelVelocity, clampedDt);
+      this.clampAngelCameraPosition();
+      this.povCamera.updateMatrixWorld();
+      this.syncCeilingVisibility();
+    }
   }
 
   onCameraFollowCleared(listener: () => void): () => void {
@@ -1209,10 +1726,11 @@ export class SceneManager {
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
 
-    this.isoCamera.camera.updateMatrixWorld();
+    const activeCam = this.getActiveCamera();
+    activeCam.updateMatrixWorld();
     root.updateMatrixWorld(true);
 
-    this.visitorRaycaster.setFromCamera(this.visitorPointerNdc, this.isoCamera.camera);
+    this.visitorRaycaster.setFromCamera(this.visitorPointerNdc, activeCam);
     const hits = this.visitorRaycaster.intersectObjects(root.children, true);
 
     for (let i = 0; i < hits.length; i++) {
@@ -1289,7 +1807,7 @@ export class SceneManager {
       this.shaderPipeline.render(
         this.renderer,
         this.scene,
-        this.isoCamera.camera,
+        this.getActiveCamera(),
         this.elapsedTime,
       );
       return this.renderer.domElement.toDataURL('image/png');
@@ -1308,7 +1826,7 @@ export class SceneManager {
       this.shaderPipeline.render(
         this.renderer,
         this.scene,
-        this.isoCamera.camera,
+        this.getActiveCamera(),
         this.elapsedTime,
       );
     }
@@ -2775,6 +3293,20 @@ export class SceneManager {
     }
   }
 
+  private syncCeilingVisibility(): void {
+    if (this.enclosedCellCount === 0) {
+      this.ceilingRoot.visible = false;
+      return;
+    }
+    if (this.cameraViewMode === 'visitor_pov') {
+      this.ceilingRoot.visible = true;
+    } else if (this.cameraViewMode === 'angel_pov') {
+      this.ceilingRoot.visible = this.povCamera.position.y < CEILING_HEIGHT + 0.35;
+    } else {
+      this.ceilingRoot.visible = this.store.isCeilingVisible();
+    }
+  }
+
   private rebuildCeilingOverlay(state: HouseState): void {
     const W = state.gridWidth;
     const D = state.gridDepth;
@@ -2789,7 +3321,7 @@ export class SceneManager {
       }
     }
     if (sig === this.lastCeilingSignature) {
-      this.ceilingRoot.visible = this.store.isCeilingVisible() && this.enclosedCellCount > 0;
+      this.syncCeilingVisibility();
       return;
     }
     this.lastCeilingSignature = sig;
@@ -2876,7 +3408,7 @@ export class SceneManager {
       this.ceilingRoot.add(cornice);
     }
 
-    this.ceilingRoot.visible = this.store.isCeilingVisible();
+    this.syncCeilingVisibility();
   }
 
   private getEffectiveWallCutawayOpacity(): number {
@@ -3033,6 +3565,7 @@ export class SceneManager {
     }
 
     const mode = this.store.getWallViewMode();
+    const forceSolid = this.cameraViewMode !== 'isometric';
     const cutOpacity = this.getEffectiveWallCutawayOpacity();
     const smooth = dt > 0 ? 1 - Math.exp(-14 * dt) : 1;
 
@@ -3040,12 +3573,12 @@ export class SceneManager {
     let anyMoving = false;
     let anyShadowChanged = false;
 
-    // Pass 1: pre-filtered structural walls (Sims-style away-from-camera interior visibility check)
+    // Pass 1: pre-filtered structural walls (100% solid in POV modes; Sims-style away-from-camera cutaway in isometric)
     for (let i = 0; i < this.wallEntries.length; i++) {
       const entry = this.wallEntries[i];
       let isBlocking = false;
       let target = 1.0;
-      if (mode === 'solid') {
+      if (forceSolid || mode === 'solid') {
         isBlocking = false;
         target = 1.0;
       } else if (mode === 'translucent') {
@@ -3096,7 +3629,7 @@ export class SceneManager {
     for (let i = 0; i < this.mountedEntries.length; i++) {
       const entry = this.mountedEntries[i];
       let target = 1.0;
-      if (mode === 'solid') {
+      if (forceSolid || mode === 'solid') {
         target = 1.0;
       } else if (mode === 'translucent') {
         target = cutOpacity;
@@ -3263,6 +3796,8 @@ export class SceneManager {
     const width = this.container.clientWidth || window.innerWidth;
     const height = this.container.clientHeight || window.innerHeight;
     this.isoCamera.resize(width, height);
+    this.povCamera.aspect = Math.max(0.1, width / Math.max(1, height));
+    this.povCamera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     const pr = typeof this.renderer.getPixelRatio === 'function' ? this.renderer.getPixelRatio() : 1;
     this.shaderPipeline.resize(width, height, pr);
@@ -3532,6 +4067,9 @@ export class SceneManager {
       // Camera, wall cutaway, placement/move/rotate juice, and 3D cloud transitions stay responsive
       // on unscaled realDt even when simulation speed is 0x (paused for Polaroid framing!)
       this.isoCamera.update(realDt);
+      if (this.cameraViewMode !== 'isometric') {
+        this.updatePovCamera(realDt);
+      }
       this.updateCloudTransition(realDt);
       this.updateWallTranslucency(realDt, false);
       this.updateItemAnimations(realDt);
@@ -3630,13 +4168,23 @@ export class SceneManager {
       }
 
       this.updateDynamicShadowSchedule(realDt);
-      this.shaderPipeline.render(this.renderer, this.scene, this.isoCamera.camera, this.elapsedTime);
+      this.shaderPipeline.render(
+        this.renderer,
+        this.scene,
+        this.getActiveCamera(),
+        this.elapsedTime,
+      );
     };
     this.rafId = requestAnimationFrame(tick);
   }
 
   dispose(): void {
     cancelAnimationFrame(this.rafId);
+    this.unbindPovInputEvents();
+    this.povOnExit = null;
+    this.povPoseProvider = null;
+    this.povHeldKeys.clear();
+    this.cameraViewModeListeners.clear();
     this.resizeObserver.disconnect();
     this.clearDynamicLights();
     this.clearCeilingOverlay();

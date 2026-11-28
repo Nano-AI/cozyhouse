@@ -137,6 +137,17 @@ export interface ActiveStaffSnapshot {
   z: number;
 }
 
+export interface PovCandidate {
+  id: string;
+  name: string;
+  kind: 'visitor' | 'staff';
+  icon: string;
+  color: string;
+  isSpecial?: boolean;
+  visitorId?: string;
+  variantIndex?: number;
+}
+
 type StaffPhase =
   | 'walking_to_station'
   | 'working'
@@ -225,6 +236,8 @@ type SpecialBehaviorState =
   | 'wick_done'
   | 'homer_eat'
   | 'homer_sleep'
+  | 'homer_chase'
+  | 'homer_strangle'
   | 'rick_portal_in'
   | 'rick_portal_out';
 
@@ -362,7 +375,11 @@ function createVisitorVisualHandle(
         case 'stumble':
         case 'work':
         case 'uncomfortable':
+        case 'strangled':
           regularPose = pose;
+          break;
+        case 'strangle':
+          regularPose = 'work';
           break;
         case 'ragdoll':
           regularPose = 'stumble';
@@ -518,6 +535,8 @@ interface ActiveVisitorRuntime {
   ragdollVx: number;
   ragdollVz: number;
   ragdollSpin: number;
+  strangledById: string | null;
+  strangledTimer: number;
   stuckAnchorX: number;
   stuckAnchorZ: number;
   prolongedStuckTimer: number;
@@ -571,6 +590,35 @@ const STAFF_WORK_VERBS: Record<StaffRole, string> = {
   dj: 'Spinning tracks at',
   chef: 'Cooking at',
   bartender: 'Mixing drinks at',
+};
+
+const STAFF_POV_ICONS: Record<StaffRole, string> = {
+  barista: '☕',
+  dj: '🎧',
+  chef: '🍳',
+  bartender: '🍸',
+};
+
+const STAFF_POV_COLORS: Record<StaffRole, string> = {
+  barista: '#C97D5D',
+  dj: '#A08CE8',
+  chef: '#8ABF99',
+  bartender: '#7CC2B5',
+};
+
+const VISITOR_POV_ICONS: Record<string, string> = {
+  bookworm: '📚',
+  coffee_snob: '☕',
+  cat_person: '🐱',
+  party_goer: '🎉',
+  plant_lover: '🪴',
+  night_owl: '🦉',
+  foodie: '🥐',
+  artist: '🎨',
+  musician: '🎵',
+  homebody: '🛋️',
+  squeaky_chicken: '🐔',
+  rocky: '🕷️',
 };
 
 const STAFF_WORK_EMOTES: Record<StaffRole, Array<{ id: string; glyph: string; label: string; color: string }>> = {
@@ -682,6 +730,9 @@ const COFFEE_CARRY_THOUGHTS = [
   'Best roast in town ☕',
   'Warm cup, happy heart!',
 ];
+const HOMER_EMOTE_RAGE = { id: 'rage', glyph: '😡', label: 'WHY YOU LITTLE—!!', color: '#F2948A' };
+const HOMER_EMOTE_ANGER = { id: 'anger', glyph: '💢', label: 'WHY YOU LITTLE—!!', color: '#F28E86' };
+const HOMER_EMOTE_STRANGLED = { id: 'dizzy', glyph: '😵‍💫', label: 'ACK!! GACK!!', color: '#F2D08B' };
 
 const SPECIAL_EMOTES = {
   sword: { id: 'sword', glyph: '⚔️', label: 'SKÅL!', color: '#E4B2A8' },
@@ -1272,6 +1323,7 @@ export class VisitorModule {
   private captionListeners = new Set<(payload: CaptionPayload | null) => void>();
   private activeCaptionOwnerId: string | null = null;
   private gojoCameraFollowOwnerId: string | null = null;
+  private povHiddenPersonId: string | null = null;
   private gojoVoiceAudio: HTMLAudioElement | null = null;
   private showdown: ShowdownScene | null = null;
   private showdownPlayed = false;
@@ -1297,6 +1349,7 @@ export class VisitorModule {
   private unsubscribeDoorPolicy: (() => void) | null = null;
   private unsubscribeStaff: (() => void) | null = null;
   private unsubscribeCheats: (() => void) | null = null;
+  private unsubscribeChaos: (() => void) | null = null;
   private spawnCounter = 0;
   private staffVariantSeed = 0;
   private autonomousSpawnTimer = 2.5;
@@ -1386,6 +1439,9 @@ export class VisitorModule {
           this.emitChange();
         }
       });
+      this.unsubscribeChaos = extStore.on('chaosModeChanged', () => {
+        this.emitChange();
+      });
     }
 
     this.syncStaffWithStore();
@@ -1441,12 +1497,21 @@ export class VisitorModule {
     return typeof s.isInviteCheatsEnabled === 'function' ? s.isInviteCheatsEnabled() : IS_DEV;
   }
 
+  private isChaosModeActive(): boolean {
+    const s = this.store as unknown as { isChaosMode?: () => boolean };
+    return typeof s.isChaosMode === 'function' ? s.isChaosMode() : true;
+  }
+
   getRandomSpecialCooldownRemaining(): number {
     if (this.isInviteCheatsActive()) return 0;
     return Math.max(0, Math.ceil((this.randomSpecialCooldownUntil - Date.now()) / 1000));
   }
 
   inviteRandomSpecialCharacter(): boolean {
+    if (!this.isChaosModeActive()) {
+      this.store.notify('Chaos Mode is off — turn it on in Menu to invite Legendary Guests!', 'info');
+      return false;
+    }
     const cheatsActive = this.isInviteCheatsActive();
     if (!cheatsActive && this.getRandomSpecialCooldownRemaining() > 0) {
       return false;
@@ -1781,6 +1846,10 @@ export class VisitorModule {
   }
 
   invite(visitorId: string): ActiveVisitorSnapshot | null {
+    if (SPECIAL_CHARACTER_IDS.has(visitorId) && !this.isChaosModeActive()) {
+      this.store.notify('Chaos Mode is off — turn it on in Menu for Legendary Guests!', 'info');
+      return null;
+    }
     return this.spawnVisitorInternal(visitorId, false);
   }
 
@@ -1865,9 +1934,11 @@ export class VisitorModule {
             ? 4.2 + Math.random() * 2.4
             : def.id === 'shakespeare'
               ? 3.2 + Math.random() * 1.8
-              : def.id === 'rick'
-                ? 24 + Math.random() * 10
-                : 0;
+              : def.id === 'homer'
+                ? 12 + Math.random() * 8
+                : def.id === 'rick'
+                  ? 24 + Math.random() * 10
+                  : 0;
 
     const runtime: ActiveVisitorRuntime = {
       instanceId: nextVisitorInstanceId(),
@@ -1976,6 +2047,8 @@ export class VisitorModule {
       ragdollVx: 0,
       ragdollVz: 0,
       ragdollSpin: 0,
+      strangledById: null,
+      strangledTimer: 0,
       stuckAnchorX: startX,
       stuckAnchorZ: startZ,
       prolongedStuckTimer: 0,
@@ -2035,7 +2108,7 @@ export class VisitorModule {
         if (!this.active.includes(runtime)) return;
         if (runtime.phase !== 'arriving_transport') return;
         runtime.phase = 'entering';
-        runtime.mesh.root.visible = true;
+        runtime.mesh.root.visible = this.povHiddenPersonId !== runtime.instanceId;
         runtime.spawnPopTimer = 0.001;
         runtime.activity = 'Walking to the door';
         runtime.thought = this.buildContextualThought(
@@ -2156,6 +2229,8 @@ export class VisitorModule {
       v.phase === 'arriving_transport' ||
       v.leavingPopTimer > 0 ||
       v.ragdollTimer > 0 ||
+      v.strangledById !== null ||
+      v.specialState === 'homer_strangle' ||
       v.bathroomStage === 'on_toilet' ||
       v.bathroomStage === 'washing_hands' ||
       (sd && (v === sd.caster || v === sd.victim))
@@ -2220,6 +2295,118 @@ export class VisitorModule {
       y: v.worldY,
       z: v.worldZ,
     };
+  }
+
+  /**
+   * Hides the currently viewed first-person POV visitor or staff mesh so their head/body
+   * never clips the POV camera, restoring the previously hidden person cleanly.
+   */
+  setPovHiddenPerson(id: string | null): void {
+    const prevId = this.povHiddenPersonId;
+    if (prevId && prevId !== id) {
+      const prevVisitor = this.active.find((v) => v.instanceId === prevId);
+      if (prevVisitor && prevVisitor.phase !== 'arriving_transport') {
+        prevVisitor.mesh.root.visible = true;
+      } else {
+        const prevStaff = this.staffRuntimes.find((s) => s.staff.id === prevId);
+        if (prevStaff) {
+          prevStaff.mesh.root.visible = true;
+        }
+      }
+    }
+
+    this.povHiddenPersonId = id;
+    if (!id) return;
+
+    const visitor = this.active.find((v) => v.instanceId === id);
+    if (visitor) {
+      visitor.mesh.root.visible = false;
+      return;
+    }
+    const staff = this.staffRuntimes.find((s) => s.staff.id === id);
+    if (staff) {
+      staff.mesh.root.visible = false;
+    }
+  }
+
+  /**
+   * Returns eye-level world pose for an active visitor or hired staff member for first-person POV.
+   */
+  getPovPoseForPerson(
+    id: string,
+  ): { x: number; y: number; z: number; yaw: number; seated: boolean; speed: number } | null {
+    // While the Last Guest runs, HorrorDirector moves the meshes itself and the runtimes stand still
+    const held = this.horrorHold;
+    const v = this.active.find((entry) => entry.instanceId === id);
+    if (v) {
+      if (v.leavingPopTimer > 0 || v.phase === 'arriving_transport') return null;
+      const seated = !held && Boolean(v.seatAnchor);
+      const eyeOffset = seated
+        ? 0.88
+        : v.def.id === 'squeaky_chicken'
+          ? 0.62
+          : v.def.id === 'rocky'
+            ? 0.68
+            : 1.18;
+      const yaw = held ? v.mesh.root.rotation.y : v.rotY;
+      const at = held ? v.mesh.root.position : { x: v.worldX, y: v.worldY, z: v.worldZ };
+      return {
+        x: at.x + Math.sin(yaw) * 0.08,
+        y: at.y + eyeOffset,
+        z: at.z + Math.cos(yaw) * 0.08,
+        yaw,
+        seated,
+        speed: Math.hypot(v.smoothVelX, v.smoothVelZ),
+      };
+    }
+
+    const s = this.staffRuntimes.find((entry) => entry.staff.id === id);
+    if (s) {
+      const seated = !held && Boolean(s.seatAnchor);
+      const eyeOffset = s.staff.kind === 'bot' ? 0.98 : seated ? 0.88 : 1.18;
+      const yaw = held ? s.mesh.root.rotation.y : s.rotY;
+      const at = held ? s.mesh.root.position : { x: s.worldX, y: s.worldY, z: s.worldZ };
+      return {
+        x: at.x + Math.sin(yaw) * 0.08,
+        y: at.y + eyeOffset,
+        z: at.z + Math.cos(yaw) * 0.08,
+        yaw,
+        seated,
+        speed: Math.hypot(s.smoothVelX, s.smoothVelZ),
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Lists all visible active visitors followed by all hired staff for the "View From" POV picker.
+   */
+  getPovCandidates(): PovCandidate[] {
+    const out: PovCandidate[] = [];
+    for (const v of this.active) {
+      if (v.phase === 'arriving_transport' || v.leavingPopTimer > 0) continue;
+      out.push({
+        id: v.instanceId,
+        name: v.persona.name,
+        kind: 'visitor',
+        icon: VISITOR_POV_ICONS[v.def.id] ?? (v.isSpecial ? '✦' : '🙂'),
+        color: v.def.color,
+        isSpecial: v.isSpecial,
+        visitorId: v.def.id,
+        variantIndex: v.variantIndex,
+      });
+    }
+    for (const s of this.staffRuntimes) {
+      out.push({
+        id: s.staff.id,
+        name: s.staff.name,
+        kind: 'staff',
+        icon: s.staff.kind === 'bot' ? '🤖' : STAFF_POV_ICONS[s.staff.role],
+        color: s.staff.accentColor ?? STAFF_POV_COLORS[s.staff.role],
+      });
+    }
+    return out;
   }
 
   private toSnapshot(v: ActiveVisitorRuntime): ActiveVisitorSnapshot {
@@ -2550,7 +2737,7 @@ export class VisitorModule {
           v.worldX = safeWorld.wx;
           v.worldY = 0;
           v.worldZ = safeWorld.wz;
-          v.mesh.root.visible = true;
+          v.mesh.root.visible = this.povHiddenPersonId !== v.instanceId;
           v.mesh.root.position.set(v.worldX, 0, v.worldZ);
           if (v.phase === 'arriving_transport') {
             v.spawnPopTimer = 0.001;
@@ -3046,6 +3233,19 @@ export class VisitorModule {
     v.goingForCoffee = false;
     v.grabbingCoffeeAtStation = false;
     this.setVisitorCoffee(v, false);
+    if (v.def.id === 'homer' && v.specialState === 'homer_strangle') {
+      const heldVictim = this.active.find((o) => o.instanceId === v.specialTargetId);
+      if (heldVictim && heldVictim.strangledById === v.instanceId) {
+        this.releaseStrangledVictim(heldVictim, true);
+      }
+      v.specialState = 'homer_eat';
+      v.specialTargetId = null;
+    }
+    if (v.strangledById !== null) {
+      v.strangledById = null;
+      v.strangledTimer = 0;
+      v.worldY = 0;
+    }
     this.endSocializingFor(v);
 
     // Cleanly clear Gojo caption / aura / voice / dramatic camera follow if leaving mid-ascension
@@ -3836,6 +4036,7 @@ export class VisitorModule {
     if (
       this.store.isEditMode() ||
       cam.isCinematicMode() ||
+      this.sceneManager.getCameraViewMode() !== 'isometric' || // POV/angel: not worth pulling them out
       this.sceneManager.isCameraFollowing() ||
       this.sceneManager.isCameraLocked()
     ) {
@@ -3873,8 +4074,9 @@ export class VisitorModule {
     if (this.visitorDefs.length === 0) return;
 
     // 1. Decaying Autonomous Legendary Special Character Spawner (300s -> 450s -> 675s ... -> 1800s cap)
+    // Skipped completely when Chaos Mode is OFF (Chill Mode — cozy regular guests only!).
     const specialDefs = this.specialVisitorDefs;
-    if (specialDefs.length > 0) {
+    if (specialDefs.length > 0 && this.isChaosModeActive()) {
       this.specialSpawnTimer -= dt;
       if (this.specialSpawnTimer <= 0) {
         const activeIds = new Set(this.active.map((v) => v.def.id));
@@ -4130,6 +4332,9 @@ export class VisitorModule {
       if (other.leavingPopTimer > 0 || other.phase === 'arriving_transport') continue;
       if (other.seatAnchor) continue;
       if (this.isNoclipPair(v.instanceId, v.noclipTargetId, other.instanceId, other.noclipTargetId)) {
+        continue;
+      }
+      if (v.strangledById === other.instanceId || other.strangledById === v.instanceId) {
         continue;
       }
 
@@ -4393,6 +4598,9 @@ export class VisitorModule {
           if (this.isNoclipPair(a.instanceId, a.noclipTargetId, b.instanceId, b.noclipTargetId)) {
             continue;
           }
+          if (a.strangledById === b.instanceId || b.strangledById === a.instanceId) {
+            continue;
+          }
 
           const dx = b.worldX - a.worldX;
           const dz = b.worldZ - a.worldZ;
@@ -4403,9 +4611,20 @@ export class VisitorModule {
           const nz = dist > 0.001 ? dz / dist : 0;
           const overlap = Math.min(PERSONAL_SPACE - dist, maxPushStep * 1.8);
 
+          const aLockedStrangle = a.strangledById !== null || a.specialState === 'homer_strangle';
+          const bLockedStrangle = b.strangledById !== null || b.specialState === 'homer_strangle';
+          if (aLockedStrangle && bLockedStrangle) continue;
           const aStatic = a.phase === 'using';
           const bStatic = b.phase === 'using';
-          const weightA = aStatic && !bStatic ? 0.12 : !aStatic && bStatic ? 0.88 : 0.5;
+          const weightA = aLockedStrangle
+            ? 0
+            : bLockedStrangle
+              ? 1
+              : aStatic && !bStatic
+                ? 0.12
+                : !aStatic && bStatic
+                  ? 0.88
+                  : 0.5;
           const weightB = 1 - weightA;
 
           const allowOutA = a.phase === 'entering' || a.phase === 'leaving' || a.phase === 'waiting_pickup';
@@ -4716,7 +4935,49 @@ export class VisitorModule {
         }
       }
 
-      // Legendary Special Character signature behaviors (Squeaky Chicken, Gojo, Baki, Shakespeare, Rick portals!)
+      // Active Bart-style strangle victim held cleanly in front of Homer's hands!
+      if (v.strangledById !== null) {
+        const homer = this.active.find((o) => o.instanceId === v.strangledById);
+        if (
+          !homer ||
+          homer.specialState !== 'homer_strangle' ||
+          homer.specialTargetId !== v.instanceId ||
+          homer.phase === 'leaving' ||
+          homer.leavingPopTimer > 0
+        ) {
+          this.releaseStrangledVictim(v, true);
+          anyChanged = true;
+        } else {
+          v.velX = 0;
+          v.velZ = 0;
+          v.smoothVelX = 0;
+          v.smoothVelZ = 0;
+          const holdTargetX = homer.worldX + Math.sin(homer.rotY) * 0.48;
+          const holdTargetZ = homer.worldZ + Math.cos(homer.rotY) * 0.48;
+          const safeHold = resolveSafeMovement(
+            this.navGrid,
+            homer.worldX,
+            homer.worldZ,
+            holdTargetX,
+            holdTargetZ,
+            false,
+            VISITOR_WALL_MARGIN,
+            this.getLockedDoorEdgesForActor(v.instanceId, v.currentTile),
+          );
+          v.worldX = safeHold.wx;
+          v.worldZ = safeHold.wz;
+          v.worldY = 0;
+          v.rotY = homer.rotY + Math.PI;
+          v.targetYaw = v.rotY;
+          v.pose = 'strangled';
+          v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+          v.mesh.root.rotation.y = v.rotY;
+          v.mesh.updateAnimation(dt, 'strangled', v.def.walkSpeed);
+          continue;
+        }
+      }
+
+      // Legendary Special Character signature behaviors (Squeaky Chicken, Gojo, Baki, Shakespeare, Homer, Rick portals!)
       if (v.isSpecial) {
         const specialOutcome = this.updateSpecialCharacterBehavior(v, dt, state, toRemove);
         if (specialOutcome.changed) anyChanged = true;
@@ -5412,6 +5673,15 @@ export class VisitorModule {
           this.stopGojoVoiceAudio();
         }
         this.releaseGojoCameraFollow(rem.instanceId);
+        if (this.povHiddenPersonId === rem.instanceId) {
+          this.povHiddenPersonId = null;
+        }
+        if (rem.def.id === 'homer' && rem.specialState === 'homer_strangle') {
+          const heldVictim = this.active.find((o) => o.instanceId === rem.specialTargetId);
+          if (heldVictim && heldVictim.strangledById === rem.instanceId) {
+            this.releaseStrangledVictim(heldVictim, true);
+          }
+        }
         this.visitorsRoot.remove(rem.mesh.root);
         rem.mesh.dispose();
       }
@@ -6271,7 +6541,8 @@ export class VisitorModule {
 
     const isEligible = (v: ActiveVisitorRuntime): boolean => {
       if (v.socialPartnerId || v.socialCooldown > 0) return false;
-      if (v.stumbleTimer > 0 || v.leavingPopTimer > 0) return false;
+      if (v.stumbleTimer > 0 || v.leavingPopTimer > 0 || v.strangledById !== null) return false;
+      if (v.specialState === 'homer_chase' || v.specialState === 'homer_strangle') return false;
       if (v.bathroomStage !== 'none' || v.mood === 'leaving' || v.exteriorPath.length > 0) return false;
       return (
         v.phase === 'idle' ||
@@ -7331,6 +7602,8 @@ export class VisitorModule {
     this.unsubscribeStaff = null;
     this.unsubscribeCheats?.();
     this.unsubscribeCheats = null;
+    this.unsubscribeChaos?.();
+    this.unsubscribeChaos = null;
 
     for (const uid of this.doorHoldTimers.keys()) {
       this.setDoorVisitorOpenSafe(uid, false);
@@ -7338,6 +7611,7 @@ export class VisitorModule {
     this.doorHoldTimers.clear();
     this.clearBathroomLocks();
     this.clearOccupiedToilets();
+    this.setPovHiddenPerson(null);
 
     for (const v of this.active) {
       this.visitorsRoot.remove(v.mesh.root);
@@ -7913,9 +8187,11 @@ export class VisitorModule {
     switch (sd.phase) {
       case 'approach': {
         if (!toji) break;
+        zoom = SHOWDOWN_ZOOM * 1.3; // in close, so the stab reads at game scale
         gojo.pose = 'idle';
-        toji.pose = 'walk';
-        let budget = 2.5 * dt;
+        toji.pose = sd.path.length > 0 ? 'walk' : 'idle';
+        // He creeps in slowly, so the bars and camera have settled on Gojo before the blade lands.
+        let budget = 1.4 * dt;
         while (budget > 0 && sd.path.length > 0) {
           const wp = sd.path[0];
           const ddx = wp.wx - sd.tx;
@@ -7933,7 +8209,7 @@ export class VisitorModule {
             budget = 0;
           }
         }
-        if (sd.path.length === 0 || t > 7) {
+        if ((sd.path.length === 0 && t >= 1.6) || t > 7) {
           sd.path.length = 0;
           sd.tx = sd.standX;
           sd.tz = sd.standZ;
@@ -7946,9 +8222,10 @@ export class VisitorModule {
       case 'stab': {
         if (!toji) break;
         lookW = 0.35;
-        zoom = SHOWDOWN_ZOOM * (sd.impactDone ? 1.16 : 1.05);
-        toji.pose = 'stab';
-        if (!sd.impactDone && t >= 0.13) {
+        zoom = SHOWDOWN_ZOOM * (sd.impactDone ? 1.5 : 1.35); // punches in on the hit
+        // A beat of stillness behind him, then the lunge (the pose takes 0.12 s), then the hit.
+        toji.pose = t < 0.33 ? 'idle' : 'stab';
+        if (!sd.impactDone && t >= 0.45) {
           sd.impactDone = true;
           // Gojo lurches a step away from the blade (resolved once, wall-safe).
           const away = Math.hypot(sd.gx - sd.tx, sd.gz - sd.tz) || 1;
@@ -7980,20 +8257,20 @@ export class VisitorModule {
           this.emitChange();
         }
         if (sd.impactDone) {
-          const k = clamp01((t - 0.13) / 0.4);
+          const k = clamp01((t - 0.45) / 0.4);
           const e = 1 - (1 - k) * (1 - k);
           sd.gx = sd.moveFromX + (sd.moveToX - sd.moveFromX) * e;
           sd.gz = sd.moveFromZ + (sd.moveToZ - sd.moveFromZ) * e;
-          gojo.pose = t < 0.6 ? 'stumble' : 'kneel';
+          gojo.pose = t < 0.95 ? 'stumble' : 'kneel';
         }
-        if (t >= 1.2) this.setShowdownPhase(sd, 'reel');
+        if (t >= 1.7) this.setShowdownPhase(sd, 'reel');
         break;
       }
 
       case 'reel': {
         if (!toji) break;
         lookW = 0.3;
-        zoom = SHOWDOWN_ZOOM * 1.1;
+        zoom = SHOWDOWN_ZOOM * 1.3;
         gojo.pose = 'kneel';
         if (entering) {
           // Toji backs off to watch: probe outward in short wall-safe steps, once.
@@ -9203,7 +9480,7 @@ export class VisitorModule {
       v.mesh.specialRig?.setSliced?.(false);
       v.mesh.specialRig?.armSlice?.(false);
       v.mesh.specialRig?.setOpacity?.(1);
-      v.mesh.root.visible = true;
+      v.mesh.root.visible = this.povHiddenPersonId !== v.instanceId;
       v.mesh.root.position.set(v.worldX, 0, v.worldZ);
       v.mesh.root.rotation.set(0, v.rotY, 0);
       if (v.phase === 'leaving' || v.phase === 'waiting_pickup') return;
@@ -9323,7 +9600,7 @@ export class VisitorModule {
   /** Brings hidden staff back exactly where their (untouched) runtime says they are, with a pop-in. */
   horrorRestoreStaff(): void {
     for (const s of this.staffRuntimes) {
-      s.mesh.root.visible = true;
+      s.mesh.root.visible = this.povHiddenPersonId !== s.staff.id;
       s.mesh.root.position.set(s.worldX, s.worldY, s.worldZ);
       s.mesh.root.rotation.set(0, s.rotY, 0);
       s.mesh.setScalePop(0.05);
@@ -9661,7 +9938,7 @@ export class VisitorModule {
   private updateSpecialCharacterBehavior(
     v: ActiveVisitorRuntime,
     dt: number,
-    _state: HouseState,
+    state: HouseState,
     toRemove: ActiveVisitorRuntime[],
   ): { handled: boolean; changed: boolean } {
     let changed = false;
@@ -10101,7 +10378,256 @@ export class VisitorModule {
       return { handled: false, changed };
     }
 
+    // ---- 6. HOMER SIMPSON: Random Angry Bart-Style Strangle Gag ("WHY YOU LITTLE—!!") ----
+    if (v.def.id === 'homer') {
+      if (v.specialState === 'homer_strangle') {
+        const target = this.active.find((o) => o.instanceId === v.specialTargetId);
+        if (
+          !target ||
+          target.leavingPopTimer > 0 ||
+          target.phase === 'leaving' ||
+          target.ragdollTimer > 0
+        ) {
+          if (target && target.strangledById === v.instanceId) {
+            this.releaseStrangledVictim(target, true);
+          }
+          v.specialState = 'homer_eat';
+          v.specialTargetId = null;
+          v.specialTimer = 18 + Math.random() * 10;
+          v.phase = 'idle';
+          v.pose = 'idle';
+          v.idleTimer = 0.7;
+          v.activity = 'Catching his breath';
+          v.thought = '*pant* …Mmm, donuts.';
+          return { handled: true, changed: true };
+        }
+
+        v.specialActionTimer -= dt;
+        target.strangledTimer = Math.max(0, v.specialActionTimer);
+        v.velX = 0;
+        v.velZ = 0;
+        v.smoothVelX = 0;
+        v.smoothVelZ = 0;
+        v.pose = 'strangle';
+        v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+        v.mesh.root.rotation.y = v.rotY;
+        v.mesh.updateAnimation(dt, 'strangle', v.def.walkSpeed);
+
+        if (v.specialActionTimer <= 0) {
+          this.releaseStrangledVictim(target, true);
+          v.specialState = 'homer_eat';
+          v.specialTargetId = null;
+          v.specialTimer = 18 + Math.random() * 10;
+          v.phase = 'idle';
+          v.pose = 'idle';
+          v.idleTimer = 1.0;
+          v.activity = 'Catching his breath';
+          v.thought = '*pant* …Mmm, donuts.';
+          return { handled: true, changed: true };
+        }
+        return { handled: true, changed };
+      }
+
+      if (v.specialState === 'homer_chase') {
+        const target = this.active.find((o) => o.instanceId === v.specialTargetId);
+        const invalidTarget =
+          !target ||
+          target.seatAnchor !== null ||
+          target.phase === 'leaving' ||
+          target.phase === 'waiting_pickup' ||
+          target.phase === 'entering' ||
+          target.phase === 'arriving_transport' ||
+          target.leavingPopTimer > 0 ||
+          target.ragdollTimer > 0 ||
+          target.bathroomStage === 'on_toilet' ||
+          target.strangledById !== null ||
+          target.specialState === 'gojo_line1' ||
+          target.specialState === 'gojo_line2' ||
+          target.specialState === 'gojo_line3' ||
+          this.isTargetBehindLockedBathroom(v, target, state);
+
+        if (invalidTarget || v.specialActionTimer <= 0) {
+          v.specialState = 'homer_eat';
+          v.specialTargetId = null;
+          v.specialTimer = 12 + Math.random() * 6;
+          v.phase = 'idle';
+          v.pose = 'idle';
+          v.idleTimer = 0.6;
+          v.activity = 'Muttering grumpily';
+          v.thought = "D'oh! Next time…";
+          return { handled: false, changed: true };
+        }
+
+        const dx = target.worldX - v.worldX;
+        const dz = target.worldZ - v.worldZ;
+        const dist = Math.hypot(dx, dz);
+        if (dist <= 0.85) {
+          // Snap Homer facing victim and begin the 2.6s Simpsons strangle gag!
+          v.rotY = Math.atan2(dx, dz);
+          v.targetYaw = v.rotY;
+          v.mesh.root.rotation.y = v.rotY;
+          v.specialState = 'homer_strangle';
+          v.specialActionTimer = 2.6;
+          v.pose = 'strangle';
+          v.activity = `Strangling ${target.persona.name}!!`;
+          v.thought = 'WHY YOU LITTLE—!!';
+          v.lastEmote = HOMER_EMOTE_RAGE.glyph;
+          v.mesh.speechBubble.showEmote(HOMER_EMOTE_RAGE, 'bored', 2.8, 0.9);
+          this.endSocializingFor(v);
+          this.endSocializingFor(target);
+          this.setVisitorCoffee(v, false);
+          this.setVisitorCoffee(target, false);
+
+          const holdTargetX = v.worldX + Math.sin(v.rotY) * 0.48;
+          const holdTargetZ = v.worldZ + Math.cos(v.rotY) * 0.48;
+          const safeHold = resolveSafeMovement(
+            this.navGrid,
+            v.worldX,
+            v.worldZ,
+            holdTargetX,
+            holdTargetZ,
+            false,
+            VISITOR_WALL_MARGIN,
+            this.getLockedDoorEdgesForActor(target.instanceId, target.currentTile),
+          );
+          target.worldX = safeHold.wx;
+          target.worldZ = safeHold.wz;
+          target.worldY = 0;
+          target.rotY = v.rotY + Math.PI;
+          target.targetYaw = target.rotY;
+          target.strangledById = v.instanceId;
+          target.strangledTimer = 2.6;
+          target.pose = 'strangled';
+          target.path = [];
+          target.pathTiles = [];
+          target.activity = 'Being strangled by Homer!!';
+          target.thought = 'ACK!! GACK!! HELP!!';
+          target.lastEmote = HOMER_EMOTE_STRANGLED.glyph;
+          target.mesh.root.position.set(target.worldX, 0, target.worldZ);
+          target.mesh.root.rotation.y = target.rotY;
+          target.mesh.speechBubble.showEmote(HOMER_EMOTE_STRANGLED, 'bored', 2.8, 0.9);
+          this.playSpecialSfxSafe('playComicKick');
+          return { handled: true, changed: true };
+        }
+
+        const chaseSpeed = v.def.walkSpeed * 1.5;
+        const step = Math.min(chaseSpeed * dt, dist);
+        const safe = resolveSafeMovement(
+          this.navGrid,
+          v.worldX,
+          v.worldZ,
+          v.worldX + (dx / dist) * step,
+          v.worldZ + (dz / dist) * step,
+          false,
+          VISITOR_WALL_MARGIN,
+          this.getLockedDoorEdgesForActor(v.instanceId, v.currentTile),
+        );
+        v.worldX = safe.wx;
+        v.worldZ = safe.wz;
+        const fx = Math.floor(v.worldX + state.gridWidth / 2);
+        const fz = Math.floor(v.worldZ + state.gridDepth / 2);
+        if (inGridBounds(fx, fz, state.gridWidth, state.gridDepth)) {
+          v.currentTile = { x: fx, z: fz };
+        }
+        v.rotY = dampAngle(v.rotY, Math.atan2(dx, dz), 12, dt);
+        v.mesh.root.rotation.y = v.rotY;
+        v.mesh.root.position.set(v.worldX, 0, v.worldZ);
+        v.mesh.updateAnimation(dt, 'walk', chaseSpeed);
+        v.specialActionTimer -= dt;
+        return { handled: true, changed };
+      }
+
+      if (
+        !v.seatAnchor &&
+        v.bathroomStage === 'none' &&
+        (v.phase === 'walking' || v.phase === 'idle')
+      ) {
+        v.specialTimer -= dt;
+        if (v.specialTimer <= 0) {
+          const candidates = this.active.filter((o) => {
+            if (o.instanceId === v.instanceId) return false;
+            if (
+              o.seatAnchor !== null ||
+              o.phase === 'arriving_transport' ||
+              o.phase === 'entering' ||
+              o.phase === 'leaving' ||
+              o.phase === 'waiting_pickup' ||
+              o.leavingPopTimer > 0 ||
+              o.ragdollTimer > 0 ||
+              o.bathroomStage === 'on_toilet' ||
+              o.strangledById !== null ||
+              o.specialState === 'gojo_line1' ||
+              o.specialState === 'gojo_line2' ||
+              o.specialState === 'gojo_line3'
+            ) {
+              return false;
+            }
+            const d = Math.hypot(o.worldX - v.worldX, o.worldZ - v.worldZ);
+            if (d > 7.5) return false;
+            if (this.isTargetBehindLockedBathroom(v, o, state)) return false;
+            return true;
+          });
+
+          if (candidates.length > 0) {
+            const pick = candidates[Math.floor(Math.random() * candidates.length)];
+            this.endSocializingFor(v);
+            this.setVisitorCoffee(v, false);
+            v.specialState = 'homer_chase';
+            v.specialTargetId = pick.instanceId;
+            v.specialActionTimer = 5.5;
+            v.activity = `Going after ${pick.persona.name}!!`;
+            v.thought = 'WHY YOU LITTLE—!! GET BACK HERE!!';
+            v.lastEmote = HOMER_EMOTE_ANGER.glyph;
+            v.mesh.speechBubble.showEmote(HOMER_EMOTE_ANGER, 'bored', 3.0, 0.9);
+            return { handled: true, changed: true };
+          }
+          v.specialTimer = 6 + Math.random() * 4;
+        }
+      }
+      return { handled: false, changed };
+    }
+
     return { handled: false, changed };
+  }
+
+  private isTargetBehindLockedBathroom(
+    actor: ActiveVisitorRuntime,
+    target: ActiveVisitorRuntime,
+    state: HouseState,
+  ): boolean {
+    if (this.bathroomLocks.size === 0) return false;
+    const targetIdx = tileIndex(target.currentTile.x, target.currentTile.z, state.gridDepth);
+    const actorIdx = tileIndex(actor.currentTile.x, actor.currentTile.z, state.gridDepth);
+    for (const [toiletUid, occupantId] of this.bathroomLocks.entries()) {
+      if (occupantId === actor.instanceId) continue;
+      const zone = this.bathroomZonesByToilet.get(toiletUid);
+      if (!zone || zone.roomTiles.size === 0) continue;
+      if (zone.roomTiles.has(targetIdx) && !zone.roomTiles.has(actorIdx)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private releaseStrangledVictim(victim: ActiveVisitorRuntime, dizzy: boolean): void {
+    victim.strangledById = null;
+    victim.strangledTimer = 0;
+    victim.worldY = 0;
+    victim.mesh.root.position.set(victim.worldX, 0, victim.worldZ);
+    if (dizzy && victim.phase !== 'leaving' && victim.leavingPopTimer === 0) {
+      victim.stumbleTimer = 0.85;
+      victim.stumbleVx = 0;
+      victim.stumbleVz = 0;
+      victim.pose = 'stumble';
+      victim.phase = 'idle';
+      victim.idleTimer = 0.6;
+      victim.path = [];
+      victim.pathTiles = [];
+      victim.activity = 'Recovering from Homer!';
+      victim.thought = '*cough* *wheeze* What did I even do?!';
+      victim.lastEmote = HOMER_EMOTE_STRANGLED.glyph;
+      victim.mesh.speechBubble.showEmote(HOMER_EMOTE_STRANGLED, 'bored', 3.0, 0.8);
+    }
   }
 
   private pickSpecialDestination(

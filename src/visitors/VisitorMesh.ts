@@ -11,7 +11,8 @@ export type VisitorPose =
   | 'admire'
   | 'stumble'
   | 'work'
-  | 'uncomfortable';
+  | 'uncomfortable'
+  | 'strangled';
 
 export type VisitorStaffUniformRole = 'barista' | 'dj' | 'chef' | 'bartender';
 
@@ -1739,6 +1740,30 @@ export class VisitorMesh {
           0.08 + headChatterTilt,
           Math.sin(this.animPhase * 0.45) * 0.34,
           -sway * 0.09,
+        );
+        break;
+      }
+
+      case 'strangled': {
+        this.animPhase += dt * 28;
+        const shake = Math.sin(this.animPhase);
+        const fastKick = Math.sin(this.animPhase * 1.15);
+        const lift = 0.14 + shake * 0.035;
+
+        this.bodyPivot.position.y = FLOOR_BASE_Y + lift;
+        this.bodyPivot.rotation.set(0.06 + shake * 0.08, shake * 0.12, -shake * 0.12);
+        this.leftLegPivot.rotation.set(-0.28 + fastKick * 0.62, 0, 0.14);
+        this.rightLegPivot.rotation.set(-0.28 - fastKick * 0.62, 0, -0.14);
+        this.leftKneePivot.rotation.set(0.52 + Math.max(0, -fastKick) * 0.65, 0, 0);
+        this.rightKneePivot.rotation.set(0.52 + Math.max(0, fastKick) * 0.65, 0, 0);
+
+        this.torsoPivot.rotation.set(-0.08 + shake * 0.14, -shake * 0.18, shake * 0.14);
+        this.leftArmPivot.rotation.set(-1.65 + shake * 0.55, 0.25, 0.45 + fastKick * 0.32);
+        this.rightArmPivot.rotation.set(-1.65 - shake * 0.55, -0.25, -0.45 - fastKick * 0.32);
+        this.headPivot.rotation.set(
+          -0.22 + shake * 0.32,
+          Math.cos(this.animPhase * 0.9) * 0.42,
+          -shake * 0.28,
         );
         break;
       }

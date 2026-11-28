@@ -93,7 +93,7 @@ export interface YardLifeHandle {
   dispose(): void;
 }
 
-type GroundTextureKind = 'grass' | 'sand' | 'concrete';
+type GroundTextureKind = 'grass' | 'sand' | 'concrete' | 'carpet';
 
 const sharedGroundTextureCache = new Map<string, THREE.CanvasTexture>();
 
@@ -122,7 +122,9 @@ function getGroundTexture(
   ctx.fillStyle = '#F6F6F4';
   ctx.fillRect(0, 0, size, size);
 
-  const rand = seededRand(kind === 'grass' ? 911 : kind === 'sand' ? 922 : 933);
+  const rand = seededRand(
+    kind === 'grass' ? 911 : kind === 'sand' ? 922 : kind === 'carpet' ? 944 : 933,
+  );
 
   if (kind === 'grass') {
     // Soft organic mottled meadow dappling (seamless wrap around edges)
@@ -167,6 +169,37 @@ function getGroundTexture(
       ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 252, 242, 0.36)' : 'rgba(204, 186, 152, 0.22)';
       ctx.fillRect(x, y, 1, 1);
     }
+  } else if (kind === 'carpet') {
+    // Damp mono-yellow office carpet mottling, fine ribbed weave & subtle square carpet tile seams
+    for (let i = 0; i < 42; i++) {
+      const x = rand() * size;
+      const y = rand() * size;
+      const r = 8 + rand() * 18;
+      ctx.fillStyle = i % 3 === 0 ? 'rgba(182, 170, 118, 0.17)' : 'rgba(252, 246, 212, 0.14)';
+      for (const ox of [-size, 0, size]) {
+        for (const oy of [-size, 0, size]) {
+          if (x + ox + r < 0 || x + ox - r > size || y + oy + r < 0 || y + oy - r > size) continue;
+          ctx.beginPath();
+          ctx.arc(x + ox, y + oy, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    for (let i = 0; i < 320; i++) {
+      const x = Math.floor(rand() * size);
+      const y = Math.floor(rand() * size);
+      ctx.fillStyle = i % 2 === 0 ? 'rgba(164, 152, 100, 0.16)' : 'rgba(255, 250, 224, 0.18)';
+      ctx.fillRect(x, y, 2, 1);
+    }
+    ctx.strokeStyle = 'rgba(148, 138, 90, 0.24)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+    ctx.beginPath();
+    ctx.moveTo(size / 2, 0);
+    ctx.lineTo(size / 2, size);
+    ctx.moveTo(0, size / 2);
+    ctx.lineTo(size, size / 2);
+    ctx.stroke();
   } else {
     // Subtle architectural travertine/concrete patio variation + faint tile seams
     for (let i = 0; i < 90; i++) {
@@ -197,6 +230,259 @@ function getGroundTexture(
   tex.userData.sharedTex = true;
   tex.needsUpdate = true;
   sharedGroundTextureCache.set(cacheKey, tex);
+  return tex;
+}
+
+/**
+ * Procedural Level 0 mono-yellow office wallpaper texture:
+ * damp mustard base (#D5C478), vertical retro pinstripes + staggered diamond/chevron
+ * motif (#C4B161), vertical sheet seams, and faint damp water-stain darkening near floor.
+ * Returns null cleanly in headless Node without `document`.
+ */
+function createBackroomsWallpaperTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const rand = seededRand(4001);
+
+  // Damp mustard-yellow base
+  ctx.fillStyle = '#D5C478';
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle vertical retro pinstripes
+  ctx.fillStyle = 'rgba(196, 177, 97, 0.52)';
+  for (let x = 0; x < size; x += 16) {
+    ctx.fillRect(x, 0, 2, size);
+    ctx.fillStyle = 'rgba(226, 211, 138, 0.25)';
+    ctx.fillRect(x + 3, 0, 1, size);
+    ctx.fillStyle = 'rgba(196, 177, 97, 0.52)';
+  }
+
+  // Iconic Level 0 staggered diamond / chevron arrow-lattice motif
+  ctx.strokeStyle = '#C4B161';
+  ctx.lineWidth = 1.6;
+  const stepX = 32;
+  const stepY = 32;
+  for (let row = 0; row < size / stepY; row++) {
+    const offsetX = (row % 2) * (stepX * 0.5);
+    for (let col = -1; col <= size / stepX; col++) {
+      const cx = col * stepX + offsetX + stepX * 0.5;
+      const cy = row * stepY + stepY * 0.5;
+      // Subtle diamond lozenge
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - 9);
+      ctx.lineTo(cx + 6.5, cy);
+      ctx.lineTo(cx, cy + 9);
+      ctx.lineTo(cx - 6.5, cy);
+      ctx.closePath();
+      ctx.stroke();
+      // Tiny inner vertical chevron fleck
+      ctx.beginPath();
+      ctx.moveTo(cx - 2.5, cy - 1.5);
+      ctx.lineTo(cx, cy - 4.5);
+      ctx.lineTo(cx + 2.5, cy - 1.5);
+      ctx.stroke();
+    }
+  }
+
+  // Subtle uneven humidity blotches across wallpaper
+  for (let i = 0; i < 36; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = 10 + rand() * 24;
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(168, 152, 84, 0.08)' : 'rgba(235, 222, 152, 0.07)';
+    for (const ox of [-size, 0, size]) {
+      ctx.beginPath();
+      ctx.arc(x + ox, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Slight vertical wallpaper panel seams
+  ctx.fillStyle = 'rgba(138, 124, 68, 0.28)';
+  ctx.fillRect(0, 0, 2, size);
+  ctx.fillRect(size / 2, 0, 1.5, size);
+
+  // Faint damp water-stain darkening along the bottom edge (near baseboard)
+  const stainGrad = ctx.createLinearGradient(0, size * 0.72, 0, size);
+  stainGrad.addColorStop(0, 'rgba(116, 103, 56, 0.0)');
+  stainGrad.addColorStop(0.55, 'rgba(116, 103, 56, 0.14)');
+  stainGrad.addColorStop(1, 'rgba(98, 86, 46, 0.30)');
+  ctx.fillStyle = stainGrad;
+  ctx.fillRect(0, size * 0.72, size, size * 0.28);
+
+  // Wavy irregular damp tide marks near floor
+  for (let i = 0; i < 16; i++) {
+    const bx = rand() * size;
+    const by = size - 6 - rand() * 34;
+    const br = 8 + rand() * 16;
+    ctx.fillStyle = 'rgba(110, 98, 52, 0.14)';
+    for (const ox of [-size, 0, size]) {
+      ctx.beginPath();
+      ctx.arc(bx + ox, by, br, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.repeat.set(1.2, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Procedural Level 0 damp speckled mustard carpet texture:
+ * noisy warm-ochre commercial carpet (#BCB072) with irregular dark-mustard damp blotches
+ * and zero neat grid lines.
+ */
+function createBackroomsCarpetTexture(repeat = 46): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const rand = seededRand(4002);
+
+  ctx.fillStyle = '#BCB072';
+  ctx.fillRect(0, 0, size, size);
+
+  // Irregular damp dark-mustard blotches (seamlessly wrapped, zero grid lines)
+  for (let i = 0; i < 48; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const rx = 10 + rand() * 28;
+    const ry = 8 + rand() * 22;
+    const rot = rand() * Math.PI;
+    ctx.fillStyle =
+      i % 3 === 0
+        ? 'rgba(132, 120, 66, 0.16)'
+        : i % 3 === 1
+          ? 'rgba(150, 138, 78, 0.14)'
+          : 'rgba(216, 206, 146, 0.12)';
+    for (const ox of [-size, 0, size]) {
+      for (const oy of [-size, 0, size]) {
+        if (x + ox + rx < 0 || x + ox - rx > size || y + oy + ry < 0 || y + oy - ry > size) {
+          continue;
+        }
+        ctx.save();
+        ctx.translate(x + ox, y + oy);
+        ctx.rotate(rot);
+        ctx.beginPath();
+        ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  // Dense speckled commercial carpet fiber grain
+  for (let i = 0; i < 1400; i++) {
+    const x = Math.floor(rand() * size);
+    const y = Math.floor(rand() * size);
+    const k = i % 4;
+    ctx.fillStyle =
+      k === 0
+        ? 'rgba(128, 116, 62, 0.28)'
+        : k === 1
+          ? 'rgba(164, 152, 92, 0.26)'
+          : k === 2
+            ? 'rgba(214, 204, 144, 0.24)'
+            : 'rgba(110, 98, 52, 0.20)';
+    ctx.fillRect(x, y, 1 + (i & 1), 1 + ((i >> 1) & 1));
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/**
+ * Procedural Level 0 acoustic drop-ceiling tile texture:
+ * speckled yellowed off-white mineral-fiber acoustic panels (#CFC79E) framed by
+ * metal T-bar grid seams (#9D9570).
+ */
+function createBackroomsCeilingTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  const rand = seededRand(4003);
+
+  ctx.fillStyle = '#CFC79E';
+  ctx.fillRect(0, 0, size, size);
+
+  // Subtle per-tile aging tint variation across the 2x2 tile sheet
+  const tileTints = [
+    'rgba(214, 206, 164, 0.22)',
+    'rgba(188, 180, 136, 0.18)',
+    'rgba(196, 188, 144, 0.15)',
+    'rgba(218, 210, 168, 0.20)',
+  ];
+  for (let ty = 0; ty < 2; ty++) {
+    for (let tx = 0; tx < 2; tx++) {
+      ctx.fillStyle = tileTints[ty * 2 + tx];
+      ctx.fillRect(tx * 128, ty * 128, 128, 128);
+    }
+  }
+
+  // Acoustic mineral-fiber pinhole speckles & faint water yellowing
+  for (let i = 0; i < 900; i++) {
+    const x = Math.floor(rand() * size);
+    const y = Math.floor(rand() * size);
+    ctx.fillStyle = i % 3 === 0 ? 'rgba(122, 114, 82, 0.34)' : 'rgba(154, 146, 108, 0.26)';
+    ctx.fillRect(x, y, i % 5 === 0 ? 2 : 1, 1);
+  }
+  for (let i = 0; i < 12; i++) {
+    const x = rand() * size;
+    const y = rand() * size;
+    const r = 10 + rand() * 18;
+    ctx.fillStyle = 'rgba(164, 152, 100, 0.12)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Acoustic drop-ceiling T-bar seams (#9D9570)
+  ctx.fillStyle = '#9D9570';
+  ctx.fillRect(0, 0, size, 4);
+  ctx.fillRect(0, size - 4, size, 4);
+  ctx.fillRect(0, 0, 4, size);
+  ctx.fillRect(size - 4, 0, 4, size);
+  ctx.fillRect(126, 0, 5, size);
+  ctx.fillRect(0, 126, size, 5);
+
+  ctx.strokeStyle = 'rgba(108, 100, 68, 0.36)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(4.5, 4.5, 121, 121);
+  ctx.strokeRect(131.5, 4.5, 120, 121);
+  ctx.strokeRect(4.5, 131.5, 121, 120);
+  ctx.strokeRect(131.5, 131.5, 120, 120);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(1, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
   return tex;
 }
 
@@ -315,6 +601,7 @@ class PaletteMaterials {
 export function disposeObjectTree(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
   const materials = new Set<THREE.Material>();
+  const textures = new Set<THREE.Texture>();
 
   root.traverse((obj) => {
     if (obj instanceof THREE.InstancedMesh) {
@@ -335,7 +622,15 @@ export function disposeObjectTree(root: THREE.Object3D): void {
     }
   });
 
+  for (const mat of materials) {
+    const std = mat as THREE.MeshStandardMaterial;
+    if (std.map && !std.map.userData?.sharedTex) textures.add(std.map);
+    if (std.emissiveMap && !std.emissiveMap.userData?.sharedTex) textures.add(std.emissiveMap);
+    if (std.roughnessMap && !std.roughnessMap.userData?.sharedTex) textures.add(std.roughnessMap);
+  }
+
   for (const geo of geometries) geo.dispose();
+  for (const tex of textures) tex.dispose();
   for (const mat of materials) mat.dispose();
 }
 
@@ -2471,6 +2766,880 @@ function buildForest(
   if (field) grassFields.push(field);
 }
 
+type BackroomsFlickerStyle = 'hum' | 'stutter' | 'dying';
+
+interface BackroomsFlickerLight {
+  mat: THREE.MeshStandardMaterial;
+  baseEmissive: number;
+  phase: number;
+  speed: number;
+  style: BackroomsFlickerStyle;
+}
+
+interface BackroomsBackdropHandle {
+  ceilingGroup: THREE.Group;
+  flickers: BackroomsFlickerLight[];
+}
+
+/**
+ * Creates a 5-sided open-bottom inverted plenum box geometry (`w × h × d`) centered
+ * horizontally at (0, 0) spanning local y ∈ [0 .. h], so looking UP through a missing
+ * ceiling tile reveals a pitch-black recessed void pocket above the drop ceiling, while
+ * looking down from isometric view shows an eerie black square hole.
+ */
+function createVoidPocketGeometry(w: number, h: number, d: number): THREE.BufferGeometry {
+  const hw = w * 0.5;
+  const hd = d * 0.5;
+  // 5 faces (top cap + 4 side walls; open bottom at y = 0)
+  const verts = new Float32Array([
+    // Top cap at y = h
+    -hw, h, -hd,  hw, h, -hd,  hw, h, hd,
+    -hw, h, -hd,  hw, h, hd,  -hw, h, hd,
+    // North inner wall (z = -hd)
+    -hw, 0, -hd,  hw, 0, -hd,  hw, h, -hd,
+    -hw, 0, -hd,  hw, h, -hd, -hw, h, -hd,
+    // South inner wall (z = +hd)
+     hw, 0, hd,  -hw, 0, hd,  -hw, h, hd,
+     hw, 0, hd,  -hw, h, hd,   hw, h, hd,
+    // West inner wall (x = -hw)
+    -hw, 0, hd,  -hw, 0, -hd, -hw, h, -hd,
+    -hw, 0, hd,  -hw, h, -hd, -hw, h, hd,
+    // East inner wall (x = +hw)
+     hw, 0, -hd,  hw, 0, hd,   hw, h, hd,
+     hw, 0, -hd,  hw, h, hd,   hw, h, -hd,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+/**
+ * Builds a genuinely randomized, authentic Level 0 Backrooms 3D maze surrounding the lot:
+ * - Procedural damp mustard wallpaper, speckled damp carpet (no grid lines), and acoustic drop-ceiling tiles
+ * - Randomized DFS corridor maze + irregular carved open rooms (2x2..3x3, 1x4 halls)
+ * - Unexpected structural columns, protruding stub partitions, and uneven doorway cutouts
+ * - Continuous acoustic drop-ceiling strictly outside the lot cutout, ~10% missing dark black void tiles,
+ *   and buzzing recessed fluorescents with 7 independently flickering fixtures (hum / stutter / almost-dead).
+ */
+function buildBackroomsBackdrop(
+  root: THREE.Group,
+  _mats: PaletteMaterials,
+  view: SceneryViewDef,
+  halfW: number,
+  halfD: number,
+  seedOverride?: number,
+): BackroomsBackdropHandle {
+  const resolvedSeed =
+    seedOverride !== undefined ? seedOverride | 0 : Math.floor(Math.random() * 1e9);
+  const rand = seededRand(resolvedSeed);
+
+  // 1. Procedural Level 0 textures (owned by this backdrop & disposed cleanly in disposeObjectTree)
+  const carpetTex = createBackroomsCarpetTexture(48);
+  const wallpaperTex = createBackroomsWallpaperTexture();
+  const ceilingTex = createBackroomsCeilingTexture();
+
+  // Damp speckled mustard office carpet stretching seamlessly to the horizon at GROUND_Y (-0.025)
+  const carpetGeo = new THREE.PlaneGeometry(TERRAIN_SPAN, TERRAIN_SPAN);
+  carpetGeo.rotateX(-Math.PI / 2);
+  const carpetMat = new THREE.MeshStandardMaterial({
+    color: carpetTex ? '#FFFFFF' : view.groundColor || '#BCB072',
+    map: carpetTex,
+    roughness: 0.98,
+    metalness: 0.0,
+    flatShading: !carpetTex,
+    polygonOffset: true,
+    polygonOffsetFactor: 2,
+    polygonOffsetUnits: 2,
+  });
+  const carpetMesh = new THREE.Mesh(carpetGeo, carpetMat);
+  carpetMesh.name = 'BackroomsDampCarpet';
+  carpetMesh.position.y = GROUND_Y;
+  carpetMesh.receiveShadow = true;
+  root.add(carpetMesh);
+
+  // 2. Tight CELL = 3.2 randomized liminal DFS maze extending out to radius ~52
+  const CELL = 3.2;
+  const WALL_H = 2.76; // world Y = [-0.023 .. 2.737]; crowned by crisp dark-ochre top cap [2.741..2.789]
+  const WALL_T = 0.22;
+  const POST_W = 0.26; // +0.02 proud of walls on all 4 sides
+  const POST_H = 2.78; // world Y = [-0.023 .. 2.757]; crowned by post cap [2.761..2.811]
+  const FULL_SPAN = CELL - POST_W - 0.02; // 2.92 — stops 0.01 shy of each 0.26 corner post!
+  const CEIL_Y = 2.86; // world Y of POV-only drop-ceiling (hidden in Isometric, visible when cameraPos.y < 2.82)
+
+  // Close seamless perimeter cutout around lot
+  const lotCutX = halfW + 1.0;
+  const lotCutZ = halfD + 1.0;
+
+  const maxReach = Math.max(52, Math.max(halfW, halfD) + 34);
+  const gridHalf = Math.ceil(maxReach / CELL);
+  const gridSize = gridHalf * 2; // cells indexed 0..gridSize-1, world origin sits cleanly on vertex (gridHalf, gridHalf)
+  const maxRadiusSq = maxReach * maxReach;
+
+  const cellCenterX = (gx: number): number => (gx - gridHalf + 0.5) * CELL;
+  const cellCenterZ = (gz: number): number => (gz - gridHalf + 0.5) * CELL;
+  const vertX = (ix: number): number => (ix - gridHalf) * CELL;
+  const vertZ = (iz: number): number => (iz - gridHalf) * CELL;
+
+  // Cell states: 0 = outside radius, 1 = lot cutout, 2 = active maze cell
+  const cellState = new Uint8Array(gridSize * gridSize);
+  const cellIdx = (gx: number, gz: number): number => gz * gridSize + gx;
+
+  // Exclude any cell whose border vertices could enter [-lotCutX..+lotCutX] x [-lotCutZ..+lotCutZ]
+  const isLotOverlap = (cx: number, cz: number, padX: number, padZ: number): boolean =>
+    Math.abs(cx) < padX + CELL * 0.52 && Math.abs(cz) < padZ + CELL * 0.52;
+
+  const isNorthHallCell = (cx: number, cz: number): boolean =>
+    Math.abs(cx) <= 2.4 && cz < -halfD && cz >= -(halfD + 14.5);
+
+  for (let gz = 0; gz < gridSize; gz++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      const cx = cellCenterX(gx);
+      const cz = cellCenterZ(gz);
+      if (cx * cx + cz * cz > maxRadiusSq) continue;
+      if (isLotOverlap(cx, cz, lotCutX, lotCutZ)) {
+        cellState[cellIdx(gx, gz)] = 1;
+      } else {
+        cellState[cellIdx(gx, gz)] = 2;
+      }
+    }
+  }
+
+  // Edge grids:
+  // wallH[iz][gx] = horizontal edge along z = vertZ(iz), between cells (gx, iz-1) and (gx, iz)
+  // wallV[gz][ix] = vertical edge along x = vertX(ix), between cells (ix-1, gz) and (ix, gz)
+  // Value: 0 = open, 1 = solid wall, 2 = uneven off-center doorway, 3 = overhead portal lintel
+  const wallH = new Uint8Array((gridSize + 1) * gridSize);
+  const wallV = new Uint8Array(gridSize * (gridSize + 1));
+  const hIdx = (gx: number, iz: number): number => iz * gridSize + gx;
+  const vIdx = (ix: number, gz: number): number => gz * (gridSize + 1) + ix;
+
+  // Initialize edges touching active maze cells
+  for (let iz = 0; iz <= gridSize; iz++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      const a = iz > 0 ? cellState[cellIdx(gx, iz - 1)] : 0;
+      const b = iz < gridSize ? cellState[cellIdx(gx, iz)] : 0;
+      if (a === 2 && b === 2) {
+        wallH[hIdx(gx, iz)] = 1;
+      } else if ((a === 2 && b === 1) || (a === 1 && b === 2)) {
+        // Lot perimeter: leave mostly open corridors/thresholds into the surrounding maze (~32% framed walls)
+        wallH[hIdx(gx, iz)] = rand() < 0.32 ? 1 : 0;
+      }
+    }
+  }
+  for (let gz = 0; gz < gridSize; gz++) {
+    for (let ix = 0; ix <= gridSize; ix++) {
+      const a = ix > 0 ? cellState[cellIdx(ix - 1, gz)] : 0;
+      const b = ix < gridSize ? cellState[cellIdx(ix, gz)] : 0;
+      if (a === 2 && b === 2) {
+        wallV[vIdx(ix, gz)] = 1;
+      } else if ((a === 2 && b === 1) || (a === 1 && b === 2)) {
+        wallV[vIdx(ix, gz)] = rand() < 0.32 ? 1 : 0;
+      }
+    }
+  }
+
+  // Step 2A: Randomized iterative DFS maze generation over all active outer ring cells
+  const visited = new Uint8Array(gridSize * gridSize);
+  const dirs: Array<[number, number]> = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  const stack: number[] = [];
+
+  for (let gz0 = 0; gz0 < gridSize; gz0++) {
+    for (let gx0 = 0; gx0 < gridSize; gx0++) {
+      const start = cellIdx(gx0, gz0);
+      if (cellState[start] !== 2 || visited[start]) continue;
+      visited[start] = 1;
+      stack.push(start);
+
+      while (stack.length > 0) {
+        const cur = stack[stack.length - 1];
+        const cx = cur % gridSize;
+        const cz = (cur / gridSize) | 0;
+
+        // Collect unvisited active neighbors
+        const neigh: Array<[number, number]> = [];
+        for (let d = 0; d < 4; d++) {
+          const nx = cx + dirs[d][0];
+          const nz = cz + dirs[d][1];
+          if (nx < 0 || nx >= gridSize || nz < 0 || nz >= gridSize) continue;
+          const ni = cellIdx(nx, nz);
+          if (cellState[ni] === 2 && !visited[ni]) {
+            neigh.push([nx, nz]);
+          }
+        }
+
+        if (neigh.length === 0) {
+          stack.pop();
+          continue;
+        }
+
+        const pick = neigh[Math.floor(rand() * neigh.length)];
+        const [nx, nz] = pick;
+        // Knock down wall between (cx, cz) and (nx, nz)
+        if (nx === cx + 1) wallV[vIdx(cx + 1, cz)] = 0;
+        else if (nx === cx - 1) wallV[vIdx(cx, cz)] = 0;
+        else if (nz === cz + 1) wallH[hIdx(cx, cz + 1)] = 0;
+        else if (nz === cz - 1) wallH[hIdx(cx, cz)] = 0;
+
+        const ni = cellIdx(nx, nz);
+        visited[ni] = 1;
+        stack.push(ni);
+      }
+    }
+  }
+
+  // Step 2B: Add eerie liminal loops (~11% extra wall removals)
+  for (let iz = 1; iz < gridSize; iz++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      if (wallH[hIdx(gx, iz)] === 1 && rand() < 0.11) wallH[hIdx(gx, iz)] = 0;
+    }
+  }
+  for (let gz = 0; gz < gridSize; gz++) {
+    for (let ix = 1; ix < gridSize; ix++) {
+      if (wallV[vIdx(ix, gz)] === 1 && rand() < 0.11) wallV[vIdx(ix, gz)] = 0;
+    }
+  }
+
+  // Step 2C: Carve irregular hollow rooms (2x2, 2x3, 3x2, 3x3, 1x4, 4x1) for sudden unsettling open pockets
+  const roomShapes: Array<[number, number]> = [
+    [2, 2],
+    [2, 3],
+    [3, 2],
+    [3, 3],
+    [1, 4],
+    [4, 1],
+  ];
+  const isCarvedRoomCell = new Uint8Array(gridSize * gridSize);
+  const roomAttempts = Math.round(42 + rand() * 18);
+
+  for (let attempt = 0; attempt < roomAttempts; attempt++) {
+    const [rw, rd] = roomShapes[Math.floor(rand() * roomShapes.length)];
+    const rx = Math.floor(rand() * (gridSize - rw));
+    const rz = Math.floor(rand() * (gridSize - rd));
+
+    let allActive = true;
+    for (let dz = 0; dz < rd && allActive; dz++) {
+      for (let dx = 0; dx < rw; dx++) {
+        if (cellState[cellIdx(rx + dx, rz + dz)] !== 2) {
+          allActive = false;
+          break;
+        }
+      }
+    }
+    if (!allActive) continue;
+
+    // Clear all interior walls inside this carved room
+    for (let dz = 0; dz < rd; dz++) {
+      for (let dx = 0; dx < rw; dx++) {
+        isCarvedRoomCell[cellIdx(rx + dx, rz + dz)] = 1;
+        if (dx + 1 < rw) wallV[vIdx(rx + dx + 1, rz + dz)] = 0;
+        if (dz + 1 < rd) wallH[hIdx(rx + dx, rz + dz + 1)] = 0;
+      }
+    }
+  }
+
+  // Step 2D: Carve guaranteed clear North visitor arrival hallway (|x| <= 2.2, z < -halfD)
+  // so visitors walk seamlessly out of an actual eerie hallway straight to the front door!
+  for (let iz = 0; iz <= gridSize; iz++) {
+    const z = vertZ(iz);
+    if (z > -halfD + 0.5 || z < -(halfD + 16.5)) continue;
+    for (let gx = 0; gx < gridSize; gx++) {
+      const cx = cellCenterX(gx);
+      if (Math.abs(cx) <= 2.4) {
+        wallH[hIdx(gx, iz)] = 0;
+      }
+    }
+  }
+  for (let gz = 0; gz < gridSize; gz++) {
+    const cz = cellCenterZ(gz);
+    if (cz > -halfD + 0.5 || cz < -(halfD + 16.5)) continue;
+    for (let ix = 0; ix <= gridSize; ix++) {
+      const x = vertX(ix);
+      if (Math.abs(x) <= 2.2) {
+        wallV[vIdx(ix, gz)] = 0;
+      }
+    }
+  }
+  // Frame the outer flanks of the North arrival hallway (at x = ±3.2) strictly outside lotCutZ
+  for (let gz = 0; gz < gridSize; gz++) {
+    const cz = cellCenterZ(gz);
+    if (cz >= -(lotCutZ + CELL * 0.52) || cz < -(halfD + 14.5)) continue;
+    const leftEdgeIx = gridHalf - 1;
+    const rightEdgeIx = gridHalf + 1;
+    if (leftEdgeIx >= 0 && leftEdgeIx <= gridSize) {
+      wallV[vIdx(leftEdgeIx, gz)] = rand() < 0.25 ? 2 : 1;
+    }
+    if (rightEdgeIx >= 0 && rightEdgeIx <= gridSize) {
+      wallV[vIdx(rightEdgeIx, gz)] = rand() < 0.25 ? 2 : 1;
+    }
+  }
+
+  // Step 2E: Convert ~22% of solid partition walls into uneven doorway cutouts or overhead arch portals
+  for (let iz = 1; iz < gridSize; iz++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      const idx = hIdx(gx, iz);
+      if (wallH[idx] === 1) {
+        const r = rand();
+        if (r < 0.14) wallH[idx] = 2; // asymmetric off-center doorway
+        else if (r < 0.22) wallH[idx] = 3; // full-width open lintel portal
+      }
+    }
+  }
+  for (let gz = 0; gz < gridSize; gz++) {
+    for (let ix = 1; ix < gridSize; ix++) {
+      const idx = vIdx(ix, gz);
+      if (wallV[idx] === 1) {
+        const r = rand();
+        if (r < 0.14) wallV[idx] = 2;
+        else if (r < 0.22) wallV[idx] = 3;
+      }
+    }
+  }
+
+  // 3. Collect instanced geometry transforms (strictly non-coplanar hierarchy, zero Z-fighting!)
+  interface ScaledBoxSpot {
+    x: number;
+    y: number;
+    z: number;
+    sx: number;
+    sy: number;
+    sz: number;
+    rotY: number;
+  }
+
+  const wallSpots: ScaledBoxSpot[] = [];
+  const baseboardSpots: ScaledBoxSpot[] = [];
+  const topTrimSpots: ScaledBoxSpot[] = [];
+  const postSpots: ScaledBoxSpot[] = [];
+  const postBaseSpots: ScaledBoxSpot[] = [];
+  const postTopSpots: ScaledBoxSpot[] = [];
+  const colSpots: ScaledBoxSpot[] = [];
+  const colBaseSpots: ScaledBoxSpot[] = [];
+  const colTopSpots: ScaledBoxSpot[] = [];
+  const ceilSlabSpots: Array<{ x: number; z: number }> = [];
+  const voidPocketSpots: Array<{ x: number; z: number }> = [];
+  const lightSpots: Array<{ x: number; z: number; rotY: number }> = [];
+
+  const pushWallSegment = (
+    x: number,
+    z: number,
+    len: number,
+    rotY: number,
+    height = WALL_H,
+    bottomOff = 0.002,
+    withTrim = true,
+  ): void => {
+    if (len < 0.25) return;
+    wallSpots.push({
+      x,
+      y: GROUND_Y + bottomOff + height * 0.5,
+      z,
+      sx: len,
+      sy: height,
+      sz: WALL_T,
+      rotY,
+    });
+    if (withTrim) {
+      baseboardSpots.push({
+        x,
+        y: GROUND_Y + 0.077,
+        z,
+        sx: Math.max(0.2, len - 0.02),
+        sy: 0.15,
+        sz: WALL_T + 0.04,
+        rotY,
+      });
+      // Crisp dark-ochre cutaway top cap sitting cleanly above wall top (readable maze top in Isometric + ceiling molding in POV)
+      topTrimSpots.push({
+        x,
+        y: GROUND_Y + WALL_H + 0.03,
+        z,
+        sx: Math.max(0.2, len - 0.01),
+        sy: 0.048,
+        sz: WALL_T + 0.036,
+        rotY,
+      });
+    }
+  };
+
+  // Track which grid vertices actually touch at least one wall so we only emit needed corner posts
+  const vertexUsed = new Uint8Array((gridSize + 1) * (gridSize + 1));
+  const markVertex = (ix: number, iz: number): void => {
+    vertexUsed[iz * (gridSize + 1) + ix] = 1;
+  };
+
+  // Emit horizontal edges (rotY = 0)
+  for (let iz = 0; iz <= gridSize; iz++) {
+    const z = vertZ(iz);
+    for (let gx = 0; gx < gridSize; gx++) {
+      const kind = wallH[hIdx(gx, iz)];
+      if (kind === 0) continue;
+      const cx = cellCenterX(gx);
+      markVertex(gx, iz);
+      markVertex(gx + 1, iz);
+
+      if (kind === 1) {
+        pushWallSegment(cx, z, FULL_SPAN, 0);
+      } else if (kind === 2) {
+        // Uneven off-center doorway cutout: wider cheek + short cheek + overhead lintel
+        const flip = rand() < 0.5 ? 1 : -1;
+        const leftLen = flip > 0 ? 1.32 : 0.50;
+        const rightLen = flip > 0 ? 0.50 : 1.32;
+        const gapLen = FULL_SPAN - leftLen - rightLen; // 1.10m clear doorway
+        const startX = cx - FULL_SPAN * 0.5;
+        pushWallSegment(startX + leftLen * 0.5, z, leftLen, 0);
+        pushWallSegment(startX + FULL_SPAN - rightLen * 0.5, z, rightLen, 0);
+        const lintelX = startX + leftLen + gapLen * 0.5;
+        pushWallSegment(lintelX, z, gapLen - 0.02, 0, 0.54, WALL_H - 0.538, false);
+        topTrimSpots.push({
+          x: lintelX,
+          y: GROUND_Y + WALL_H + 0.03,
+          z,
+          sx: gapLen - 0.03,
+          sy: 0.048,
+          sz: WALL_T + 0.036,
+          rotY: 0,
+        });
+      } else {
+        // Open portal overhead lintel
+        pushWallSegment(cx, z, FULL_SPAN, 0, 0.46, WALL_H - 0.458, false);
+        topTrimSpots.push({
+          x: cx,
+          y: GROUND_Y + WALL_H + 0.03,
+          z,
+          sx: FULL_SPAN - 0.01,
+          sy: 0.048,
+          sz: WALL_T + 0.036,
+          rotY: 0,
+        });
+      }
+    }
+  }
+
+  // Emit vertical edges (rotY = Math.PI / 2)
+  for (let gz = 0; gz < gridSize; gz++) {
+    const cz = cellCenterZ(gz);
+    for (let ix = 0; ix <= gridSize; ix++) {
+      const kind = wallV[vIdx(ix, gz)];
+      if (kind === 0) continue;
+      const x = vertX(ix);
+      markVertex(ix, gz);
+      markVertex(ix, gz + 1);
+
+      if (kind === 1) {
+        pushWallSegment(x, cz, FULL_SPAN, Math.PI / 2);
+      } else if (kind === 2) {
+        const flip = rand() < 0.5 ? 1 : -1;
+        const nLen = flip > 0 ? 1.32 : 0.50;
+        const sLen = flip > 0 ? 0.50 : 1.32;
+        const gapLen = FULL_SPAN - nLen - sLen;
+        const startZ = cz - FULL_SPAN * 0.5;
+        pushWallSegment(x, startZ + nLen * 0.5, nLen, Math.PI / 2);
+        pushWallSegment(x, startZ + FULL_SPAN - sLen * 0.5, sLen, Math.PI / 2);
+        const lintelZ = startZ + nLen + gapLen * 0.5;
+        pushWallSegment(x, lintelZ, gapLen - 0.02, Math.PI / 2, 0.54, WALL_H - 0.538, false);
+        topTrimSpots.push({
+          x,
+          y: GROUND_Y + WALL_H + 0.03,
+          z: lintelZ,
+          sx: gapLen - 0.03,
+          sy: 0.048,
+          sz: WALL_T + 0.036,
+          rotY: Math.PI / 2,
+        });
+      } else {
+        pushWallSegment(x, cz, FULL_SPAN, Math.PI / 2, 0.46, WALL_H - 0.458, false);
+        topTrimSpots.push({
+          x,
+          y: GROUND_Y + WALL_H + 0.03,
+          z: cz,
+          sx: FULL_SPAN - 0.01,
+          sy: 0.048,
+          sz: WALL_T + 0.036,
+          rotY: Math.PI / 2,
+        });
+      }
+    }
+  }
+
+  // Corner posts where walls meet (strictly proud +0.02 and +0.020 taller than walls)
+  for (let iz = 0; iz <= gridSize; iz++) {
+    const z = vertZ(iz);
+    for (let ix = 0; ix <= gridSize; ix++) {
+      if (!vertexUsed[iz * (gridSize + 1) + ix]) continue;
+      const x = vertX(ix);
+      postSpots.push({
+        x,
+        y: GROUND_Y + 0.002 + POST_H * 0.5,
+        z,
+        sx: POST_W,
+        sy: POST_H,
+        sz: POST_W,
+        rotY: 0,
+      });
+      postBaseSpots.push({
+        x,
+        y: GROUND_Y + 0.081,
+        z,
+        sx: POST_W + 0.04,
+        sy: 0.158,
+        sz: POST_W + 0.04,
+        rotY: 0,
+      });
+      postTopSpots.push({
+        x,
+        y: GROUND_Y + POST_H + 0.03,
+        z,
+        sx: POST_W + 0.036,
+        sy: 0.05,
+        sz: POST_W + 0.036,
+        rotY: 0,
+      });
+    }
+  }
+
+  // Step 2F: Unexpected thick structural columns, odd protruding stub walls, POV drop-ceiling & recessed fluorescents
+  for (let gz = 0; gz < gridSize; gz++) {
+    for (let gx = 0; gx < gridSize; gx++) {
+      const st = cellState[cellIdx(gx, gz)];
+      if (st === 0) continue;
+      const cx = cellCenterX(gx);
+      const cz = cellCenterZ(gz);
+      const inNorthHall = isNorthHallCell(cx, cz);
+      let hasInteriorObstacle = false;
+
+      // Inside carved open maze rooms (strictly outside lot cutout & North hallway): add thick columns or odd stub dividers
+      if (st === 2 && isCarvedRoomCell[cellIdx(gx, gz)] && !inNorthHall) {
+        const hasAnyBorder =
+          wallH[hIdx(gx, gz)] !== 0 ||
+          wallH[hIdx(gx, gz + 1)] !== 0 ||
+          wallV[vIdx(gx, gz)] !== 0 ||
+          wallV[vIdx(gx + 1, gz)] !== 0;
+
+        if (!hasAnyBorder && rand() < 0.24) {
+          hasInteriorObstacle = true;
+          const colW = 0.64 + (rand() < 0.35 ? 0.16 : 0);
+          const offX = (rand() - 0.5) * 0.55;
+          const offZ = (rand() - 0.5) * 0.55;
+          colSpots.push({
+            x: cx + offX,
+            y: GROUND_Y + 0.002 + WALL_H * 0.5,
+            z: cz + offZ,
+            sx: colW,
+            sy: WALL_H,
+            sz: colW,
+            rotY: 0,
+          });
+          colBaseSpots.push({
+            x: cx + offX,
+            y: GROUND_Y + 0.08,
+            z: cz + offZ,
+            sx: colW + 0.04,
+            sy: 0.156,
+            sz: colW + 0.04,
+            rotY: 0,
+          });
+          colTopSpots.push({
+            x: cx + offX,
+            y: GROUND_Y + WALL_H + 0.03,
+            z: cz + offZ,
+            sx: colW + 0.036,
+            sy: 0.048,
+            sz: colW + 0.036,
+            rotY: 0,
+          });
+        } else if (!hasAnyBorder && rand() < 0.16) {
+          hasInteriorObstacle = true;
+          const stubLen = 1.45 + rand() * 0.45;
+          const rotY = rand() < 0.5 ? 0 : Math.PI / 2;
+          pushWallSegment(cx, cz, stubLen, rotY);
+        }
+      }
+
+      // POV-only drop-ceiling slabs extend continuously right up to the lot edge (hidden completely in Isometric view!)
+      const insideHouseInterior =
+        Math.abs(cx) < halfW - 0.2 && Math.abs(cz) < halfD - 0.2;
+      if (!insideHouseInterior) {
+        // ~10% missing acoustic tiles exposing dark black void pockets above (#18150E)
+        const isVoid = st === 2 && !inNorthHall && rand() < 0.1;
+        if (isVoid) {
+          voidPocketSpots.push({ x: cx, z: cz });
+        } else {
+          ceilSlabSpots.push({ x: cx, z: cz });
+          // Irregularly embedded recessed fluorescent troffers (skip cells with interior columns/stubs!)
+          const wantLight =
+            !hasInteriorObstacle &&
+            (inNorthHall ? gz % 2 === 0 : st === 2 ? rand() < 0.44 : rand() < 0.35);
+          if (wantLight) {
+            lightSpots.push({
+              x: cx + (inNorthHall ? 0 : (rand() - 0.5) * 0.35),
+              z: cz + (inNorthHall ? 0 : (rand() - 0.5) * 0.35),
+              rotY: inNorthHall ? 0 : rand() < 0.5 ? 0 : Math.PI / 2,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // 4. Create single-draw-call InstancedMeshes (all disposed via disposeObjectTree!)
+  const dummy = new THREE.Object3D();
+  const buildScaledInstancedBoxes = (
+    parent: THREE.Object3D,
+    name: string,
+    mat: THREE.Material,
+    spots: ScaledBoxSpot[],
+    receiveShadow = true,
+  ): void => {
+    if (spots.length === 0) return;
+    const geo = new THREE.BoxGeometry(1, 1, 1);
+    const mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    mesh.name = name;
+    mesh.castShadow = false;
+    mesh.receiveShadow = receiveShadow;
+    mesh.frustumCulled = false;
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i];
+      dummy.position.set(s.x, s.y, s.z);
+      dummy.rotation.set(0, s.rotY, 0);
+      dummy.scale.set(s.sx, s.sy, s.sz);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.matrixAutoUpdate = false;
+    mesh.updateMatrix();
+    parent.add(mesh);
+  };
+
+  // Textured mono-yellow wallpaper walls, corner posts & thick structural columns
+  const wallpaperMat = new THREE.MeshStandardMaterial({
+    color: wallpaperTex ? '#FFFFFF' : '#D5C478',
+    map: wallpaperTex,
+    roughness: 0.92,
+    metalness: 0.0,
+    flatShading: !wallpaperTex,
+  });
+  const baseboardMat = new THREE.MeshStandardMaterial({
+    color: '#736643',
+    roughness: 0.9,
+    metalness: 0.0,
+    flatShading: true,
+  });
+  // Clean dark-ochre top cap (#9C8F5C) giving crisp cutaway contrast in Isometric view & molding in POV
+  const topTrimMat = new THREE.MeshStandardMaterial({
+    color: '#9C8F5C',
+    roughness: 0.86,
+    metalness: 0.0,
+    flatShading: true,
+  });
+
+  buildScaledInstancedBoxes(root, 'BackroomsWallpaperWalls', wallpaperMat, wallSpots, true);
+  buildScaledInstancedBoxes(root, 'BackroomsCornerPosts', wallpaperMat, postSpots, true);
+  buildScaledInstancedBoxes(root, 'BackroomsStructuralColumns', wallpaperMat, colSpots, true);
+  buildScaledInstancedBoxes(root, 'BackroomsWallBaseboards', baseboardMat, baseboardSpots, true);
+  buildScaledInstancedBoxes(root, 'BackroomsPostBaseboards', baseboardMat, postBaseSpots, true);
+  buildScaledInstancedBoxes(root, 'BackroomsColumnBaseboards', baseboardMat, colBaseSpots, true);
+  buildScaledInstancedBoxes(root, 'BackroomsWallTopTrim', topTrimMat, topTrimSpots, false);
+  buildScaledInstancedBoxes(root, 'BackroomsPostTopTrim', topTrimMat, postTopSpots, false);
+  buildScaledInstancedBoxes(root, 'BackroomsColumnTopTrim', topTrimMat, colTopSpots, false);
+
+  // Dedicated POV-only ceiling group: hidden by default in Isometric view, visible when cameraPos.y < 2.82!
+  const ceilingGroup = new THREE.Group();
+  ceilingGroup.name = 'BackroomsCeilingGroup';
+  ceilingGroup.visible = false;
+  ceilingGroup.userData.dynamicBackdrop = true;
+  ceilingGroup.matrixAutoUpdate = false;
+  ceilingGroup.updateMatrix();
+  root.add(ceilingGroup);
+
+  // Continuous downward-facing acoustic drop-ceiling panels (FrontSide facing -Y for POV underneath!)
+  if (ceilSlabSpots.length > 0) {
+    const slabGeo = new THREE.PlaneGeometry(CELL - 0.02, CELL - 0.02);
+    slabGeo.rotateX(Math.PI / 2); // Normal strictly downward (-Y) toward POV eyes underneath
+    const slabMat = new THREE.MeshStandardMaterial({
+      color: ceilingTex ? '#FFFFFF' : '#CFC79E',
+      map: ceilingTex,
+      roughness: 0.94,
+      metalness: 0.0,
+      side: THREE.FrontSide,
+      flatShading: !ceilingTex,
+    });
+    const slabMesh = new THREE.InstancedMesh(slabGeo, slabMat, ceilSlabSpots.length);
+    slabMesh.name = 'BackroomsDropCeiling';
+    slabMesh.castShadow = false;
+    slabMesh.receiveShadow = false;
+    slabMesh.frustumCulled = false;
+    for (let i = 0; i < ceilSlabSpots.length; i++) {
+      dummy.position.set(ceilSlabSpots[i].x, CEIL_Y, ceilSlabSpots[i].z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      slabMesh.setMatrixAt(i, dummy.matrix);
+    }
+    slabMesh.instanceMatrix.needsUpdate = true;
+    slabMesh.matrixAutoUpdate = false;
+    slabMesh.updateMatrix();
+    ceilingGroup.add(slabMesh);
+  }
+
+  // Missing ceiling tiles (~10%) revealing dark black recessed void pockets (#18150E) above the drop ceiling
+  if (voidPocketSpots.length > 0) {
+    const voidGeo = createVoidPocketGeometry(CELL - 0.04, 0.44, CELL - 0.04);
+    const voidMat = new THREE.MeshStandardMaterial({
+      color: '#18150E',
+      roughness: 1.0,
+      metalness: 0.0,
+      side: THREE.DoubleSide,
+      flatShading: true,
+    });
+    const voidMesh = new THREE.InstancedMesh(voidGeo, voidMat, voidPocketSpots.length);
+    voidMesh.name = 'BackroomsVoidCeilingTiles';
+    voidMesh.castShadow = false;
+    voidMesh.receiveShadow = false;
+    voidMesh.frustumCulled = false;
+    for (let i = 0; i < voidPocketSpots.length; i++) {
+      dummy.position.set(voidPocketSpots[i].x, CEIL_Y + 0.004, voidPocketSpots[i].z);
+      dummy.rotation.set(0, 0, 0);
+      dummy.scale.set(1, 1, 1);
+      dummy.updateMatrix();
+      voidMesh.setMatrixAt(i, dummy.matrix);
+    }
+    voidMesh.instanceMatrix.needsUpdate = true;
+    voidMesh.matrixAutoUpdate = false;
+    voidMesh.updateMatrix();
+    ceilingGroup.add(voidMesh);
+  }
+
+  // 5. Recessed fluorescent light troffers + 7 independently flickering fixtures (hum / stutter / almost-dead)
+  const flickerIndices = new Set<number>();
+  const flickerTargets: Array<[number, number]> = [
+    [0, -(halfD + 6.5)],
+    [-(halfW + 5.5), -(halfD + 5.5)],
+    [halfW + 5.5, -(halfD + 5.5)],
+    [-(halfW + 5.5), halfD + 5.5],
+    [halfW + 5.5, halfD + 5.5],
+    [-(halfW + 10.5), 0],
+    [halfW + 10.5, 0],
+  ];
+  for (let q = 0; q < flickerTargets.length; q++) {
+    const [tx, tz] = flickerTargets[q];
+    let bestIdx = -1;
+    let bestDistSq = Infinity;
+    for (let i = 0; i < lightSpots.length; i++) {
+      if (flickerIndices.has(i)) continue;
+      const dx = lightSpots[i].x - tx;
+      const dz = lightSpots[i].z - tz;
+      const dSq = dx * dx + dz * dz;
+      if (dSq < bestDistSq) {
+        bestDistSq = dSq;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx >= 0) flickerIndices.add(bestIdx);
+  }
+
+  // Recessed fixture collar housings straddling CEIL_Y cleanly (y = 2.840..2.880, zero coplanar face with CEIL_Y = 2.860)
+  const housingMat = new THREE.MeshStandardMaterial({
+    color: '#9C946E',
+    roughness: 0.88,
+    metalness: 0.0,
+    flatShading: true,
+  });
+  buildScaledInstancedBoxes(
+    ceilingGroup,
+    'BackroomsLightHousings',
+    housingMat,
+    lightSpots.map((l) => ({
+      x: l.x,
+      y: CEIL_Y,
+      z: l.z,
+      sx: 1.5,
+      sy: 0.04,
+      sz: 0.68,
+      rotY: l.rotY,
+    })),
+    false,
+  );
+
+  // Glowing pale-yellow recessed fluorescent diffusers (y = 2.820..2.900, +0.020 proud below housing for crisp POV look)
+  const steadyLights: ScaledBoxSpot[] = [];
+  const flickerLights: BackroomsFlickerLight[] = [];
+  const flickerGeo = new THREE.BoxGeometry(1.36, 0.08, 0.54);
+  const flickerStyles: BackroomsFlickerStyle[] = [
+    'stutter',
+    'hum',
+    'dying',
+    'stutter',
+    'hum',
+    'stutter',
+    'stutter',
+  ];
+  let fIdx = 0;
+
+  for (let i = 0; i < lightSpots.length; i++) {
+    const l = lightSpots[i];
+    if (flickerIndices.has(i)) {
+      const style = flickerStyles[fIdx % flickerStyles.length];
+      const fMat = new THREE.MeshStandardMaterial({
+        color: style === 'dying' ? '#DDD49E' : '#FFF8CC',
+        emissive: style === 'dying' ? '#DDD088' : '#FFF4AE',
+        emissiveIntensity: style === 'dying' ? 0.24 : 0.96,
+        roughness: 0.22,
+        metalness: 0.0,
+        flatShading: true,
+      });
+      const mesh = new THREE.Mesh(flickerGeo, fMat);
+      mesh.name = `BackroomsFlickerLight_${fIdx}`;
+      mesh.userData.dynamicBackdrop = true;
+      mesh.position.set(l.x, CEIL_Y, l.z);
+      mesh.rotation.y = l.rotY;
+      mesh.matrixAutoUpdate = false;
+      mesh.updateMatrix();
+      ceilingGroup.add(mesh);
+      flickerLights.push({
+        mat: fMat,
+        baseEmissive: 0.98,
+        phase: 0.9 + fIdx * 1.93 + rand() * 2.0,
+        speed: 0.78 + fIdx * 0.21,
+        style,
+      });
+      fIdx++;
+    } else {
+      steadyLights.push({
+        x: l.x,
+        y: CEIL_Y,
+        z: l.z,
+        sx: 1.36,
+        sy: 0.08,
+        sz: 0.54,
+        rotY: l.rotY,
+      });
+    }
+  }
+
+  if (flickerLights.length === 0) {
+    flickerGeo.dispose();
+  }
+
+  const steadyLightMat = new THREE.MeshStandardMaterial({
+    color: '#FFF8CC',
+    emissive: '#FFF4AE',
+    emissiveIntensity: 0.94,
+    roughness: 0.22,
+    metalness: 0.0,
+    flatShading: true,
+  });
+  buildScaledInstancedBoxes(ceilingGroup, 'BackroomsFluorescentPanels', steadyLightMat, steadyLights, false);
+
+  return { ceilingGroup, flickers: flickerLights };
+}
+
 interface MergeBucket {
   material: THREE.Material;
   castShadow: boolean;
@@ -2629,6 +3798,7 @@ export function buildBackdropForView(
   gridDepth = 16,
   timeOfDay: TimeOfDay = 'day',
   timeHour?: number,
+  seed?: number,
 ): BackdropHandle {
   const root = new THREE.Group();
   root.name = 'SceneryBackdropRoot';
@@ -2647,6 +3817,7 @@ export function buildBackdropForView(
   const grassFields: SwayingGrassField[] = [];
   let windmillBlades: THREE.Group | null = null;
   let riverFlow: RiverFlowHandle | null = null;
+  let backroomsHandle: BackroomsBackdropHandle | null = null;
 
   switch (view.id) {
     case 'city':
@@ -2664,6 +3835,9 @@ export function buildBackdropForView(
     case 'countryside':
       windmillBlades = buildCountryside(worldGroup, mats, view, halfW, halfD, grassFields);
       break;
+    case 'backrooms':
+      backroomsHandle = buildBackroomsBackdrop(worldGroup, mats, view, halfW, halfD, seed);
+      break;
     case 'suburbs':
     default:
       buildSuburbs(worldGroup, mats, view, halfW, halfD, grassFields);
@@ -2675,7 +3849,12 @@ export function buildBackdropForView(
   const skyDome: SkyDomeHandle = createSkyDome(view, weather, timeOfDay, timeHour);
   root.add(skyDome.group);
 
-  const cloudField: LinearCloudFieldHandle = createLinearCloudField(weather, timeOfDay, timeHour);
+  const cloudField: LinearCloudFieldHandle = createLinearCloudField(
+    weather,
+    timeOfDay,
+    timeHour,
+    view.id,
+  );
   root.add(cloudField.group);
   root.add(worldGroup);
 
@@ -2692,7 +3871,7 @@ export function buildBackdropForView(
       activeTimeHour?: number,
     ) {
       skyDome.configure(activeView, activeWeather, activeTimeOfDay, activeTimeHour);
-      cloudField.applyThemeTint(activeWeather, activeTimeOfDay, activeTimeHour);
+      cloudField.applyThemeTint(activeWeather, activeTimeOfDay, activeTimeHour, activeView.id);
     },
     applyTimeOfDay(activeTimeOfDay: TimeOfDay, activeTimeHour?: number) {
       mats.applyTimeOfDay(activeTimeOfDay, activeTimeHour);
@@ -2709,6 +3888,37 @@ export function buildBackdropForView(
     ) {
       skyDome.update(elapsed, cameraPos, cameraForward);
       cloudField.update(elapsed, dt, activeWeather, cameraPos, cameraForward);
+
+      // Show Backrooms drop-ceiling + fluorescent troffers ONLY when camera is underneath (Visitor/Angel POV)
+      if (backroomsHandle) {
+        const showCeiling = Boolean(cameraPos && cameraPos.y < 2.82);
+        backroomsHandle.ceilingGroup.visible = showCeiling;
+        if (showCeiling) {
+          const flickers = backroomsHandle.flickers;
+          for (let i = 0; i < flickers.length; i++) {
+            const fl = flickers[i];
+            const t = elapsed * fl.speed + fl.phase;
+            let factor = 0.96;
+            if (fl.style === 'hum') {
+              factor = 0.91 + Math.sin(t * 27.0) * 0.05 + Math.sin(t * 7.3) * 0.04;
+            } else if (fl.style === 'dying') {
+              const cycle = t % 4.9;
+              factor = 0.16 + Math.sin(t * 31.0) * 0.05;
+              if (cycle < 0.09) factor = 0.62;
+              else if (cycle > 0.16 && cycle < 0.23) factor = 0.44;
+              else if (cycle > 2.4 && cycle < 2.47) factor = 0.52;
+            } else {
+              const cycle = t % 6.1;
+              factor = 0.96 + Math.sin(t * 21.0) * 0.04;
+              if (cycle < 0.12) factor = 0.15;
+              else if (cycle < 0.21) factor = 0.88;
+              else if (cycle < 0.31) factor = 0.22;
+              else if (cycle > 3.1 && cycle < 3.19) factor = 0.30;
+            }
+            fl.mat.emissiveIntensity = fl.baseEmissive * factor;
+          }
+        }
+      }
 
       if (windmillBlades) {
         windmillBlades.rotation.z -= dt * (0.65 + activeWeather.windStrength * 2.4);

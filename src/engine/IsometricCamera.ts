@@ -37,6 +37,7 @@ export class IsometricCamera {
 
   private onStepChange?: (quarter: number) => void;
   private onManualPanListeners = new Set<() => void>();
+  private inputSuspended = false;
 
   constructor(width: number, height: number, onStepChange?: (quarter: number) => void) {
     this.aspect = Math.max(0.1, width / Math.max(1, height));
@@ -95,7 +96,16 @@ export class IsometricCamera {
     this.camera.updateProjectionMatrix();
   }
 
+  setInputSuspended(suspended: boolean): void {
+    this.inputSuspended = Boolean(suspended);
+  }
+
+  isInputSuspended(): boolean {
+    return this.inputSuspended;
+  }
+
   rotateStep(deltaSteps: 1 | -1): void {
+    if (this.inputSuspended) return;
     this.rotationStep += deltaSteps;
     this.desiredAzimuth = Math.PI / 4 + this.rotationStep * (Math.PI / 2);
     const normalized = ((this.rotationStep % 4) + 4) % 4;
@@ -107,6 +117,7 @@ export class IsometricCamera {
   }
 
   zoomByFactor(factor: number): void {
+    if (this.inputSuspended) return;
     this.desiredZoom = THREE.MathUtils.clamp(this.desiredZoom * factor, MIN_ZOOM, MAX_ZOOM);
   }
 
@@ -199,6 +210,7 @@ export class IsometricCamera {
    * Pans camera in screen-space pixel delta (trackpad two-finger scroll or click-drag).
    */
   panByPixels(dxPixels: number, dyPixels: number, viewportHeight: number): void {
+    if (this.inputSuspended) return;
     if (dxPixels !== 0 || dyPixels !== 0) {
       this.emitManualPan();
     }

@@ -80,6 +80,19 @@
       "sunIntensity": 1.2,
       "ambientColor": "#FFF7E8",
       "ambientIntensity": 0.92
+    },
+    {
+      "id": "backrooms",
+      "name": "Backrooms",
+      "description": "Endless mono-yellow corridors, damp carpet, and buzzing fluorescents. Something wanders here.",
+      "skyTop": "#B8AE78",
+      "skyHorizon": "#D2C994",
+      "groundColor": "#BEB47B",
+      "fogColor": "#C4BA84",
+      "sunColor": "#F8F2CE",
+      "sunIntensity": 0.92,
+      "ambientColor": "#EFE8BC",
+      "ambientIntensity": 0.96
     }
   ],
   "weathers": [
