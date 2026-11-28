@@ -66,6 +66,8 @@ interface SubcategoryDef {
   match: (item: FurnitureItemDef) => boolean;
 }
 
+const IS_DEV = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
+
 const CELEBRATION_REASONS = new Set([
   'place',
   'move',
@@ -4957,6 +4959,64 @@ export class HudController {
       inviteList.appendChild(card);
     }
     this.visitorsPopoverEl.appendChild(inviteList);
+
+    if (IS_DEV) {
+      const specialVisitors = this.store.data.visitors.visitors.filter((v) =>
+        Boolean((v as SpecialVisitorDef).special),
+      );
+      if (specialVisitors.length > 0) {
+        const devLabel = document.createElement('div');
+        devLabel.className = 'popover-section-label';
+        devLabel.textContent = 'DEV · Legendary Guests';
+        this.visitorsPopoverEl.appendChild(devLabel);
+
+        const devList = document.createElement('div');
+        devList.className = 'invite-visitors-list';
+        for (const visitor of specialVisitors) {
+          const card = document.createElement('div');
+          card.className = 'invite-visitor-card';
+          card.title = visitor.description;
+
+          const portrait = this.createVisitorPortrait(visitor, 0, visitor.color, visitor.id);
+
+          const body = document.createElement('div');
+          body.className = 'invite-visitor-body';
+
+          const name = document.createElement('div');
+          name.className = 'invite-visitor-name';
+          name.textContent = visitor.name;
+          const star = document.createElement('span');
+          star.className = 'special-sparkle-badge';
+          star.textContent = '✦';
+          name.appendChild(star);
+
+          const iconGlyph =
+            visitor.archetypeIcon ?? VISITOR_ARCHETYPE_ICONS[visitor.id] ?? '✨';
+          const personaTrait = (
+            visitor as VisitorDef & { personas?: Array<{ trait?: string }> }
+          ).personas?.[0]?.trait;
+          const sub = document.createElement('div');
+          sub.className = 'invite-visitor-sub';
+          sub.textContent = `${iconGlyph} ${personaTrait || visitor.description}`;
+
+          body.append(name, sub);
+
+          const inviteBtn = this.makeBtn(
+            'Invite',
+            () => {
+              this.audioModule?.playUiClick();
+              this.visitorModule?.inviteVisitor(visitor.id);
+            },
+            'primary',
+          );
+          inviteBtn.className = 'btn primary btn-xs';
+
+          card.append(portrait, body, inviteBtn);
+          devList.appendChild(card);
+        }
+        this.visitorsPopoverEl.appendChild(devList);
+      }
+    }
   }
 
   private stopRandomCooldownTimer(): void {

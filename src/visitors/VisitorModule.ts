@@ -682,6 +682,7 @@ const RICK_GADGET_IDS = new Set([
 const INITIAL_SPECIAL_SPAWN_INTERVAL = 120;
 const SPECIAL_SPAWN_DECAY = 1.45;
 const MAX_SPECIAL_SPAWN_INTERVAL = 900;
+const IS_DEV = Boolean((import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV);
 const BOT_EMOTE_RECHARGE = { id: 'battery', glyph: '🔋', label: 'Recharging', color: '#B5E8B8' };
 const BOT_EMOTE_ROBOT = { id: 'robot', glyph: '🤖', label: 'Cozy Bot', color: '#C2DFEB' };
 const SOCIAL_REPLY_EMOTES = [
@@ -970,11 +971,12 @@ export class VisitorModule {
   }
 
   getRandomSpecialCooldownRemaining(): number {
+    if (IS_DEV) return 0;
     return Math.max(0, Math.ceil((this.randomSpecialCooldownUntil - Date.now()) / 1000));
   }
 
   inviteRandomSpecialCharacter(): boolean {
-    if (this.getRandomSpecialCooldownRemaining() > 0) {
+    if (!IS_DEV && this.getRandomSpecialCooldownRemaining() > 0) {
       return false;
     }
     const specials = this.visitorDefs.filter((d) => SPECIAL_CHARACTER_IDS.has(d.id));
@@ -989,8 +991,10 @@ export class VisitorModule {
     if (!chosen) return false;
     const spawned = this.invite(chosen.id);
     if (!spawned) return false;
-    this.randomSpecialCooldownUntil = Date.now() + 25_000;
-    this.randomSpecialCooldownNotifiedZero = false;
+    if (!IS_DEV) {
+      this.randomSpecialCooldownUntil = Date.now() + 25_000;
+      this.randomSpecialCooldownNotifiedZero = false;
+    }
     this.emitChange();
     return true;
   }
